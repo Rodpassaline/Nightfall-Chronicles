@@ -211,8 +211,12 @@ export function GameScreen() {
   const toggleAudio = () => {
     const next = sound.toggleMute();
     setMuted(next);
-    if (!next && (mode === "title" || mode === "stages")) {
-      sound.playBgm("title");
+    if (!next) {
+      if (mode === "title" || mode === "stages") {
+        sound.playBgm("title");
+      } else if (mode === "play") {
+        sound.playStageBgm(levelId);
+      }
     }
   };
 

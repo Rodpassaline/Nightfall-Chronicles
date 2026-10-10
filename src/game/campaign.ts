@@ -619,8 +619,8 @@ export function mountCampaign(
       bounceT: Math.random() * Math.PI * 2,
     }));
     initParticles();
-    if (level.id === 7) sound.playBgm("boss");
-    else sound.playBgm("castle");
+    // Play stage-specific music track (Fase 1-7, com Fase 7 tocando Sinister Horror para o Mestre)
+    sound.playStageBgm(level.id);
   }
 
   function actions() {
@@ -2717,8 +2717,14 @@ export function mountCampaign(
   function publish() {
     const boss = enemies.find((e) => e.boss && !e.dead) || enemies.find((e) => e.boss);
     const bossOn = !!boss && (boss.boss && (player.x > boss.homeX - 280 || boss.hp < boss.max));
-    if (bossOn && !player.dead && !player.won && boss && !boss.dead && sound.getCurrentTrack() !== "boss") {
-      sound.playBgm("boss");
+    if (bossOn && !player.dead && !player.won && boss && !boss.dead) {
+      if (level.id === 7) {
+        if (sound.getCurrentTrack() !== "stage7") {
+          sound.playStageBgm(7);
+        }
+      } else if (sound.getCurrentTrack() !== "boss") {
+        sound.playBgm("boss");
+      }
     }
     onHud({
       hp: player.hp,

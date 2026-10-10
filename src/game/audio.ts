@@ -32,7 +32,30 @@ const NOTES: Record<string, number> = {
   "-": 0, "0": 0,
 };
 
-type TrackName = "title" | "castle" | "boss" | "victory" | "gameover" | "none";
+export type TrackName =
+  | "title"
+  | "castle"
+  | "boss"
+  | "victory"
+  | "gameover"
+  | "stage1"
+  | "stage2"
+  | "stage3"
+  | "stage4"
+  | "stage5"
+  | "stage6"
+  | "stage7"
+  | "none";
+
+export const STAGE_TRACK_URLS: Record<number, string> = {
+  1: "/audio/stage-1.mp3",
+  2: "/audio/stage-2.mp3",
+  3: "/audio/stage-3.mp3",
+  4: "/audio/stage-4.mp3",
+  5: "/audio/stage-5.mp3",
+  6: "/audio/stage-6.mp3",
+  7: "/audio/stage-7.mp3", // Sinister horror (Fase 7 - Sala do Trono do Mestre Drácula)
+};
 
 type SfxKind =
   | "slash"
@@ -70,7 +93,7 @@ interface SequencePattern {
 // MUSIC COMPOSITIONS (Castlevania-style Gothic Themes)
 // -------------------------------------------------------------
 
-const TRACKS: Record<Exclude<TrackName, "none">, SequencePattern> = {
+const TRACKS: Partial<Record<Exclude<TrackName, "none">, SequencePattern>> = {
   // Menu / Title: "Nocturne Prelude" - Dark gothic organ and solemn counterpoint (D Minor, 100 BPM)
   title: {
     bpm: 100,
@@ -302,6 +325,12 @@ class SoundEngine {
   private timerId: number | null = null;
   private activeMusicNodes: AudioNode[] = [];
 
+  // Studio MP3 Audio Element & SFX buffers
+  private currentAudioElement: HTMLAudioElement | null = null;
+  private audioElementsCache: Map<string, HTMLAudioElement> = new Map();
+  private slashBuffer: AudioBuffer | null = null;
+  private spellBuffer: AudioBuffer | null = null;
+
   // Settings
   private muted = false;
   private musicVol = 0.65;
@@ -361,6 +390,7 @@ class SoundEngine {
 
       this.updateGains();
       this.createNoiseBuffer();
+      this.loadSfxBuffers();
     } catch {
       this.ctx = null;
     }
@@ -368,7 +398,29 @@ class SoundEngine {
     return this.ctx;
   }
 
+  private loadSfxBuffers() {
+    if (!this.ctx || typeof window === "undefined" || this.slashBuffer) return;
+    const loadBuf = async (url: string) => {
+      try {
+        const res = await fetch(url);
+        const arrayBuf = await res.arrayBuffer();
+        return await this.ctx!.decodeAudioData(arrayBuf);
+      } catch {
+        return null;
+      }
+    };
+    void loadBuf("/audio/sfx-slash.mp3").then((buf) => {
+      if (buf) this.slashBuffer = buf;
+    });
+    void loadBuf("/audio/sfx-spell.mp3").then((buf) => {
+      if (buf) this.spellBuffer = buf;
+    });
+  }
+
   private updateGains() {
+    if (this.currentAudioElement) {
+      this.currentAudioElement.volume = this.muted ? 0 : this.musicVol;
+    }
     if (!this.ctx || !this.masterGain || !this.musicGain || !this.sfxGain) return;
     const now = this.ctx.currentTime;
     const targetMaster = this.muted ? 0 : 1;
@@ -439,6 +491,19 @@ class SoundEngine {
 
     switch (kind) {
       case "slash": {
+        if (this.slashBuffer && actx && this.sfxGain) {
+          try {
+            const src = actx.createBufferSource();
+            src.buffer = this.slashBuffer;
+            src.playbackRate.value = 0.96 + Math.random() * 0.08;
+            src.connect(this.sfxGain);
+            src.start(now);
+            break;
+          } catch {
+            // fallback to synth
+          }
+        }
+
         // Crisp sword whoosh with blade whistle
         const osc = actx.createOscillator();
         const gain = actx.createGain();
@@ -474,6 +539,18 @@ class SoundEngine {
       }
 
       case "slashHeavy": {
+        if (this.slashBuffer && actx && this.sfxGain) {
+          try {
+            const src = actx.createBufferSource();
+            src.buffer = this.slashBuffer;
+            src.playbackRate.value = 0.82;
+            src.connect(this.sfxGain);
+            src.start(now);
+          } catch {
+            // fallback
+          }
+        }
+
         // Heavy finisher / charged slash - deeper metallic impact
         const osc = actx.createOscillator();
         const gain = actx.createGain();
@@ -535,6 +612,19 @@ class SoundEngine {
       }
 
       case "spell": {
+        if (this.spellBuffer && actx && this.sfxGain) {
+          try {
+            const src = actx.createBufferSource();
+            src.buffer = this.spellBuffer;
+            src.playbackRate.value = 0.98 + Math.random() * 0.06;
+            src.connect(this.sfxGain);
+            src.start(now);
+            break;
+          } catch {
+            // fallback
+          }
+        }
+
         // Holy spell "Luz de Véspera" - crystal chime and bright arpeggio
         [640, 960, 1280].forEach((freq, idx) => {
           const osc = actx.createOscillator();
@@ -798,8 +888,13 @@ class SoundEngine {
   }
 
   // -------------------------------------------------------------
-  // MUSIC SEQUENCER (BGM)
+  // MUSIC ENGINE (MP3 STREAMING & PROCEDURAL FALLBACK)
   // -------------------------------------------------------------
+
+  public playStageBgm(stageId: number) {
+    const id = Math.max(1, Math.min(7, stageId));
+    this.playBgm(`stage${id}` as TrackName);
+  }
 
   public playBgm(name: TrackName) {
     if (this.currentTrackName === name && this.isPlayingBgm) return;
@@ -809,6 +904,44 @@ class SoundEngine {
     this.currentTrackName = name;
     this.isPlayingBgm = true;
 
+    // Check if this track is one of our 7 stage studio tracks
+    let mp3Url: string | null = null;
+    if (name.startsWith("stage")) {
+      const stageNum = parseInt(name.replace("stage", ""), 10);
+      if (stageNum >= 1 && stageNum <= 7) {
+        mp3Url = STAGE_TRACK_URLS[stageNum];
+      }
+    } else if (name === "boss") {
+      // Stage 6 epic horror battle track for standard boss battles
+      mp3Url = "/audio/stage-6.mp3";
+    }
+
+    if (mp3Url && typeof window !== "undefined") {
+      try {
+        let audio = this.audioElementsCache.get(mp3Url);
+        if (!audio) {
+          audio = new Audio(mp3Url);
+          audio.loop = true;
+          audio.preload = "auto";
+          this.audioElementsCache.set(mp3Url, audio);
+        }
+        audio.currentTime = 0;
+        audio.volume = this.muted ? 0 : this.musicVol;
+        this.currentAudioElement = audio;
+        const playPromise = audio.play();
+        if (playPromise !== undefined) {
+          playPromise.catch((err) => {
+            // Browser autoplay gesture restriction - will resume on first user click
+            console.debug("[audio] Autoplay prevented, waiting for interaction:", err);
+          });
+        }
+        return;
+      } catch (err) {
+        console.warn("[audio] MP3 play fallback to synth:", err);
+      }
+    }
+
+    // Procedural Synth fallback for title, victory, gameover or if MP3 fails
     const actx = this.init();
     if (!actx) return;
 
@@ -824,6 +957,15 @@ class SoundEngine {
   public stopBgm() {
     this.isPlayingBgm = false;
     this.currentTrackName = "none";
+    if (this.currentAudioElement) {
+      try {
+        this.currentAudioElement.pause();
+        this.currentAudioElement.currentTime = 0;
+      } catch {
+        // Ignore
+      }
+      this.currentAudioElement = null;
+    }
     if (this.timerId !== null) {
       window.clearTimeout(this.timerId);
       this.timerId = null;

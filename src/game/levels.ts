@@ -90,6 +90,7 @@ export type LevelDef = {
   place: string;
   bg: string;
   mid: string;
+  music?: string;
   width: number;
   solids: Solid[];
   pits: { x: number; w: number }[];
@@ -953,6 +954,7 @@ function stage(
   door: { x: number; y: number },
   theme: LevelDef["theme"],
   customBg?: string,
+  customMusic?: string,
 ): LevelDef {
   return {
     id,
@@ -960,6 +962,7 @@ function stage(
     place,
     bg: customBg || `/art/stage-${id}.jpg`,
     mid: `/art/parallax/mid-${id}.jpg`,
+    music: customMusic || `/audio/stage-${id}.mp3`,
     width,
     solids,
     pits: [],

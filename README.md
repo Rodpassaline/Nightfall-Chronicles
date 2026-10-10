@@ -47,7 +47,7 @@
 - **Engine Gráfica**: HTML5 Canvas 2D com renderização de sub-pixels, iluminação dinâmica e vinheta radial cinematográfica.
 - **Profundidade 2.5D**: Sistema multi-camada de parallax com planos de fundo distantes, arquitetura média, plano principal de colisão e elementos de primeiro plano dinâmicos.
 - **Framework & Tooling**: [React 19](https://react.dev/), [Vite](https://vitejs.dev/), [TypeScript](https://www.typescriptlang.org/), [Tailwind CSS v4](https://tailwindcss.com/).
-- **Áudio**: Sistema de áudio procedural Web Audio API com sintetizadores FM retrô e trilhas sonoras dedicadas para cada ambiente e batalha de chefe.
+- **Trilha Sonora & Efeitos**: 7 faixas orquestradas góticas exclusivas (uma para cada fase do castelo, culminando na sinistra *Sinister Horror* no confronto com o Mestre Drácula na Sala do Trono), efeitos sonoros metálicos de espada e magia arcanos, além de sintetizador procedural de fallback via Web Audio API.
 
 ---
 
