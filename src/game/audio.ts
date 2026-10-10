@@ -363,6 +363,27 @@ class SoundEngine {
   private slashPool = new SfxAudioPool("/audio/sfx-slash.mp3", 8);
   private slicePool = new SfxAudioPool("/audio/sfx-slice.mp3", 8);
   private spellPool = new SfxAudioPool("/audio/sfx-spell.mp3", 8);
+
+  // Dedicated boss attack SFX pools (2 signature attack sounds per boss across 7 stages)
+  private bossAtkPools: Record<string, SfxAudioPool> = {
+    "1-1": new SfxAudioPool("/audio/bosses/boss1-atk1.mp3", 4),
+    "1-2": new SfxAudioPool("/audio/bosses/boss1-atk2.mp3", 4),
+    "2-1": new SfxAudioPool("/audio/bosses/boss2-atk1.mp3", 4),
+    "2-2": new SfxAudioPool("/audio/bosses/boss2-atk2.mp3", 4),
+    "3-1": new SfxAudioPool("/audio/bosses/boss3-atk1.mp3", 4),
+    "3-2": new SfxAudioPool("/audio/bosses/boss3-atk2.mp3", 4),
+    "4-1": new SfxAudioPool("/audio/bosses/boss4-atk1.mp3", 4),
+    "4-2": new SfxAudioPool("/audio/bosses/boss4-atk2.mp3", 4),
+    "5-1": new SfxAudioPool("/audio/bosses/boss5-atk1.mp3", 4),
+    "5-2": new SfxAudioPool("/audio/bosses/boss5-atk2.mp3", 4),
+    "6-1": new SfxAudioPool("/audio/bosses/boss6-atk1.mp3", 4),
+    "6-2": new SfxAudioPool("/audio/bosses/boss6-atk2.mp3", 4),
+    "7-1": new SfxAudioPool("/audio/bosses/boss7-atk1.mp3", 4),
+    "7-2": new SfxAudioPool("/audio/bosses/boss7-atk2.mp3", 4),
+  };
+
+  // Boss entrance speech elements cache
+  private bossVoices: Record<number, HTMLAudioElement> = {};
   private interactionUnlocked = false;
 
   // Music sequencer state
@@ -546,6 +567,49 @@ class SoundEngine {
 
   public getSfxVolume() {
     return this.sfxVol;
+  }
+
+  // -------------------------------------------------------------
+  // BOSS VOICE LINES & SIGNATURE ATTACK SFX
+  // -------------------------------------------------------------
+
+  public playBossVoice(stageNum: number) {
+    if (this.muted || typeof window === "undefined") return;
+    try {
+      let a = this.bossVoices[stageNum];
+      if (!a) {
+        a = new Audio(`/audio/bosses/boss${stageNum}-voice.mp3`);
+        a.preload = "auto";
+        this.bossVoices[stageNum] = a;
+      }
+      a.pause();
+      a.currentTime = 0;
+      a.volume = Math.min(1, this.sfxVol * 1.15);
+      void a.play().catch(() => {});
+    } catch {
+      // Ignore
+    }
+  }
+
+  public stopBossVoice(stageNum?: number) {
+    if (typeof window === "undefined") return;
+    if (stageNum && this.bossVoices[stageNum]) {
+      this.bossVoices[stageNum].pause();
+      this.bossVoices[stageNum].currentTime = 0;
+    } else {
+      for (const a of Object.values(this.bossVoices)) {
+        a.pause();
+        a.currentTime = 0;
+      }
+    }
+  }
+
+  public playBossAttack(stageNum: number, attackIndex: 1 | 2 = 1) {
+    if (this.muted) return;
+    const pool = this.bossAtkPools[`${stageNum}-${attackIndex}`];
+    if (pool) {
+      pool.play(this.sfxVol, 0.96 + Math.random() * 0.08);
+    }
   }
 
   // -------------------------------------------------------------

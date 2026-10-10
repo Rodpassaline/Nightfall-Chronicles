@@ -414,6 +414,7 @@ export function mountCampaign(
   let enemies: Enemy[] = [];
   let items: ActiveItem[] = [];
   let clearedOnce = false;
+  let bossIntroPlayed = false;
 
   const STAND_H = 50;
   const CROUCH_H = 30;
@@ -658,6 +659,8 @@ export function mountCampaign(
     player.toast = `${level.title}. Há escadas e ruínas adiante.`;
     player.toastT = 2.6;
     clearedOnce = false;
+    bossIntroPlayed = false;
+    sound.stopBossVoice();
     shots.length = 0;
     enemies = level.spawns.map(makeEnemy);
     items = level.items.map((it) => ({
@@ -893,6 +896,7 @@ export function mountCampaign(
       e.dead = true;
       sound.playSfx("enemyDie");
       if (e.boss) {
+        sound.stopBossVoice();
         player.toast = `${e.name} derrotado! O Portal Dimensional se abriu!`;
         player.toastT = 4.0;
         sound.playSfx("gateOpen");
@@ -1461,6 +1465,7 @@ export function mountCampaign(
         e.state = "dive";
         e.vy = isEnraged ? -240 : -200;
         e.cd = isEnraged ? 1.4 : 1.9;
+        sound.playBossAttack(1, 2); // Salto e impacto sísmico
       }
       if (e.state === "dive") {
         e.vx = Math.sign(dx) * (isEnraged ? 140 : 115);
@@ -1468,7 +1473,7 @@ export function mountCampaign(
           e.state = "idle";
           e.vx = 0;
           shake = isEnraged ? 7 : 5;
-          sound.playSfx("bossHurt");
+          sound.playBossAttack(1, 2); // Impacto estrondoso de pedra no solo
           fire({ x: e.x - 20, y: e.y + e.h - 18, w: 16, h: 18, vx: -170, vy: 0, life: 1.2, dmg: 1, friendly: false, sprite: "spell" });
           fire({ x: e.x + e.w + 4, y: e.y + e.h - 18, w: 16, h: 18, vx: 170, vy: 0, life: 1.2, dmg: 1, friendly: false, sprite: "spell" });
           if (isEnraged) {
@@ -1493,6 +1498,7 @@ export function mountCampaign(
           e.wind = 0.18;
           e.cd = 0.6;
           e.state = "slash";
+          sound.playBossAttack(1, 1); // Ataque 1: Soco / Garra de pedra colossal
         }
         if (e.wind > 0) {
           e.wind -= dt;
@@ -1520,6 +1526,7 @@ export function mountCampaign(
         e.state = "slash";
         e.wind = 0.15;
         e.cd = 0.5;
+        sound.playBossAttack(2, 1); // Ataque 1: Investida com lâmina pesada
       }
       if (e.wind > 0) {
         e.wind -= dt;
@@ -1527,6 +1534,7 @@ export function mountCampaign(
         if (e.wind <= 0) {
           const box = { x: e.facing > 0 ? e.x + e.w : e.x - 42, y: e.y + 14, w: 48, h: 46 };
           if (overlap(box, player)) hurtPlayer(2, e.x, "slash");
+          sound.playBossAttack(2, 2); // Ataque 2: Onda de corte crescente sombrio
           // Dark crescent ground wave
           fire({
             x: e.x + (e.facing > 0 ? e.w : -24),
@@ -1560,12 +1568,13 @@ export function mountCampaign(
         // Immediate escape teleport and counter-barrage if player gets too close!
         if (e.cd <= 0.4) {
           e.x = clamp(player.x + (e.facing > 0 ? -120 : 120), e.homeX - 150, e.homeX + 150);
-          sound.playSfx("spell");
+          sound.playBossAttack(3, 2); // Ataque 2: Teletransporte e explosão de sangue
           e.cd = isEnraged ? 0.9 : 1.2;
         }
       }
       if (e.cd <= 0) {
         e.cd = isEnraged ? 1.1 : 1.5;
+        sound.playBossAttack(3, 1); // Ataque 1: Feitiço de magia de sangue (leque de orbes)
         // Fan of blood orbs fired towards player
         const orbCount = isEnraged ? 4 : 3;
         for (let i = 0; i < orbCount; i++) {
@@ -1594,9 +1603,12 @@ export function mountCampaign(
       const ty = clamp(player.y - 32 + Math.cos(e.t * 3.8) * 30, 20, GROUND_Y - 40);
       e.x += (tx - e.x) * Math.min(1, dt * (isEnraged ? 3.6 : 2.8));
       e.y += (ty - e.y) * Math.min(1, dt * (isEnraged ? 3.6 : 2.8));
+      if (dist <= 52 && e.cd <= 0.4) {
+        sound.playBossAttack(4, 2); // Ataque 2: Rasante predatório de garras
+      }
       if (e.cd <= 0) {
         e.cd = isEnraged ? 1.1 : 1.5;
-        sound.playSfx("bossHurt");
+        sound.playBossAttack(4, 1); // Ataque 1: Onda sônica / guincho estridente de morcegos
         // Sonic screech shockwave
         fire({
           x: e.x + (e.facing > 0 ? e.w : -16),
@@ -1622,10 +1634,12 @@ export function mountCampaign(
         e.cd = 0.55;
         e.state = "slash";
         e.wind = 0.16;
+        sound.playBossAttack(5, 2); // Ataque 2: Explosão de magia sombria corpo a corpo
       } else if (dist > 52 && e.cd <= 0) {
         e.cd = isEnraged ? 1.0 : 1.4;
         e.state = "slash";
         e.wind = 0.25;
+        sound.playBossAttack(5, 1); // Ataque 1: Projéteis de crânios arcanos flamejantes
         // Flaming arcane skulls
         fire({
           x: e.x + (e.facing > 0 ? e.w : -16),
@@ -1685,7 +1699,7 @@ export function mountCampaign(
         e.wind = 0.16;
         e.cd = isEnraged ? 0.9 : 1.3;
         shake = 6;
-        sound.playSfx("bossHurt");
+        sound.playBossAttack(6, 1); // Ataque 1: Pisotão sísmico e rugido da abominação
         if (player.grounded && dist < 90) {
           hurtPlayer(1, e.x, "slash");
         }
@@ -1693,6 +1707,7 @@ export function mountCampaign(
         fire({ x: e.x + e.w + 4, y: e.y + e.h - 16, w: 16, h: 16, vx: 160, vy: 0, life: 1.2, dmg: 1, friendly: false, sprite: "spell" });
       } else if (dist > 56 && e.cd <= 0) {
         e.cd = isEnraged ? 1.2 : 1.6;
+        sound.playBossAttack(6, 2); // Ataque 2: Lançamento de frascos químicos ácidos
         // Toxic alchemy flask
         fire({
           x: e.x + (e.facing > 0 ? e.w : -14),
@@ -1735,6 +1750,7 @@ export function mountCampaign(
         e.state = "slash";
         e.wind = 0.12;
         e.cd = draculaPhase === 3 ? 0.35 : 0.5;
+        sound.playBossAttack(7, 1); // Ataque 1: Garras demoníacas de sangue
       }
 
       if (e.wind > 0) {
@@ -1747,6 +1763,7 @@ export function mountCampaign(
             e.state = "idle";
           } else {
             // Hellfire Volley fired forward
+            sound.playBossAttack(7, 1); // Ataque 1: Fogo do Inferno
             const count = draculaPhase === 1 ? 3 : draculaPhase === 2 ? 4 : 5;
             for (let i = 0; i < count; i++) {
               const chest = e.y + e.h - 78;
@@ -1767,6 +1784,7 @@ export function mountCampaign(
             }
             if (draculaPhase === 3) {
               shake = 5;
+              sound.playBossAttack(7, 2); // Ataque 2: Chuva de meteoros carmesim
               for (let m = 0; m < 2; m++) {
                 fire({
                   x: e.x + (m === 0 ? -50 : 50) + (Math.random() - 0.5) * 30,
@@ -1788,7 +1806,7 @@ export function mountCampaign(
       } else if (e.cd <= 0 && dist > 55) {
         // Teleport within throne arena
         e.x = clamp(player.x + (player.x < e.homeX ? 75 : -75), minX, maxX);
-        sound.playSfx("spell");
+        sound.playBossAttack(7, 2); // Ataque 2: Teletransporte de fenda sombria
         e.wind = draculaPhase === 3 ? 0.22 : 0.32;
         e.cd = draculaPhase === 3 ? 0.8 : draculaPhase === 2 ? 1.05 : 1.35;
       } else {
@@ -2887,6 +2905,21 @@ export function mountCampaign(
     const boss = enemies.find((e) => e.boss && !e.dead) || enemies.find((e) => e.boss);
     const bossOn = !!boss && (boss.boss && (player.x > boss.homeX - 280 || boss.hp < boss.max));
     if (bossOn && !player.dead && !player.won && boss && !boss.dead) {
+      if (!bossIntroPlayed) {
+        bossIntroPlayed = true;
+        sound.playBossVoice(level.id);
+        const quotes: Record<number, string> = {
+          1: "Petros: 'Nenhum mortal cruzará os portões do Mestre!'",
+          2: "Valerius: 'Sua jornada tola termina sob o fio desta lâmina!'",
+          3: "Seraphine: 'Seu sangue alimentará este santuário sagrado...'",
+          4: "Nocturne: 'Eu sinto o terror em sua carne nas trevas!'",
+          5: "Lorde Veyne: 'As sombras da biblioteca devorarão sua alma!'",
+          6: "Calx: 'ROOOAAAR! O elixir eterno exige sacrifício!'",
+          7: "Conde Drácula: 'O que é um homem senão uma miserável pilha de segredos?!'",
+        };
+        player.toast = quotes[level.id] || `${boss.name} ergue-se nas trevas!`;
+        player.toastT = 4.2;
+      }
       if (level.id === 7) {
         if (sound.getCurrentTrack() !== "stage7") {
           sound.playStageBgm(7);
@@ -3030,6 +3063,7 @@ export function mountCampaign(
       alive = false;
       cancelAnimationFrame(raf);
       sound.stopBgm();
+      sound.stopBossVoice();
       window.removeEventListener("keydown", onDown);
       window.removeEventListener("keyup", onUp);
       window.removeEventListener("blur", onBlur);
