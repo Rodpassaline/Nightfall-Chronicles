@@ -1,0 +1,1015 @@
+/**
+ * Nightfall Chronicles - Gothic Web Audio Engine
+ * Provides authentic Castlevania-style procedural BGM (organ, bass, countermelody, chiptune percussion)
+ * and rich layered SFX without external audio file dependencies.
+ */
+
+const NOTES: Record<string, number> = {
+  // Octave 2
+  C2: 65.41, "C#2": 69.30, Db2: 69.30, D2: 73.42, "D#2": 77.78, Eb2: 77.78,
+  E2: 82.41, F2: 87.31, "F#2": 92.50, Gb2: 92.50, G2: 98.00, "G#2": 103.83,
+  Ab2: 103.83, A2: 110.00, "A#2": 116.54, Bb2: 116.54, B2: 123.47,
+
+  // Octave 3
+  C3: 130.81, "C#3": 138.59, Db3: 138.59, D3: 146.83, "D#3": 155.56, Eb3: 155.56,
+  E3: 164.81, F3: 174.61, "F#3": 185.00, Gb3: 185.00, G3: 196.00, "G#3": 207.65,
+  Ab3: 207.65, A3: 220.00, "A#3": 233.08, Bb3: 233.08, B3: 246.94,
+
+  // Octave 4
+  C4: 261.63, "C#4": 277.18, Db4: 277.18, D4: 293.66, "D#4": 311.13, Eb4: 311.13,
+  E4: 329.63, F4: 349.23, "F#4": 369.99, Gb4: 369.99, G4: 392.00, "G#4": 415.30,
+  Ab4: 415.30, A4: 440.00, "A#4": 466.16, Bb4: 466.16, B4: 493.88,
+
+  // Octave 5
+  C5: 523.25, "C#5": 554.37, Db5: 554.37, D5: 587.33, "D#5": 622.25, Eb5: 622.25,
+  E5: 659.25, F5: 698.46, "F#5": 739.99, Gb5: 739.99, G5: 783.99, "G#5": 830.61,
+  Ab5: 830.61, A5: 880.00, "A#5": 932.33, Bb5: 932.33, B5: 987.77,
+
+  // Octave 6
+  C6: 1046.50, "C#6": 1108.73, D6: 1174.66, E6: 1318.51, F6: 1396.91, G6: 1567.98, A6: 1760.00,
+
+  // Rests
+  "-": 0, "0": 0,
+};
+
+type TrackName = "title" | "castle" | "boss" | "victory" | "gameover" | "none";
+
+type SfxKind =
+  | "slash"
+  | "slashHeavy"
+  | "chargeWind"
+  | "chargeFire"
+  | "spell"
+  | "dash"
+  | "jump"
+  | "doubleJump"
+  | "wallJump"
+  | "pogo"
+  | "hurt"
+  | "enemyHurt"
+  | "enemyDie"
+  | "bossHurt"
+  | "gateOpen"
+  | "relic"
+  | "itemLife"
+  | "itemHeal"
+  | "itemMana"
+  | "revive";
+
+interface SequencePattern {
+  bpm: number;
+  lead: string[];       // 16th or 8th steps
+  harmony?: string[];   // Counterpoint chords or intervals
+  bass: string[];       // Bassline
+  drums?: string[];     // Drum pattern: 'K'=Kick, 'S'=Snare, 'H'=HiHat, '-'=Rest
+  stepDuration: 16 | 8; // Steps per measure (16 = sixteenth notes, 8 = eighth notes)
+  loop: boolean;
+}
+
+// -------------------------------------------------------------
+// MUSIC COMPOSITIONS (Castlevania-style Gothic Themes)
+// -------------------------------------------------------------
+
+const TRACKS: Record<Exclude<TrackName, "none">, SequencePattern> = {
+  // Menu / Title: "Nocturne Prelude" - Dark gothic organ and solemn counterpoint (D Minor, 100 BPM)
+  title: {
+    bpm: 100,
+    stepDuration: 8,
+    loop: true,
+    lead: [
+      "D4", "F4", "A4", "D5", "C#5", "A4", "E4", "F4",
+      "D4", "F4", "Bb4", "D5", "C5", "A4", "F4", "E4",
+      "D4", "E4", "F4", "G4", "A4", "Bb4", "A4", "G4",
+      "F4", "E4", "D4", "C#4", "D4", "-", "-", "-",
+      "A4", "C5", "E5", "G5", "F5", "D5", "A4", "F4",
+      "Bb4", "D5", "F5", "A5", "G5", "E5", "C#5", "A4",
+      "D5", "C#5", "D5", "F5", "E5", "D5", "C#5", "A4",
+      "D4", "F4", "A4", "D5", "D4", "-", "-", "-",
+    ],
+    harmony: [
+      "A3", "-", "D4", "-", "E4", "-", "C#4", "-",
+      "F3", "-", "Bb3", "-", "E4", "-", "C4", "-",
+      "D3", "-", "F3", "-", "G3", "-", "E3", "-",
+      "D3", "-", "A3", "-", "D4", "-", "-", "-",
+      "F3", "-", "A3", "-", "D4", "-", "F4", "-",
+      "G3", "-", "Bb3", "-", "E4", "-", "G4", "-",
+      "F3", "-", "A3", "-", "G3", "-", "E3", "-",
+      "D3", "-", "F3", "-", "D3", "-", "-", "-",
+    ],
+    bass: [
+      "D2", "D2", "D2", "D2", "A2", "A2", "A2", "A2",
+      "Bb2", "Bb2", "Bb2", "Bb2", "F2", "F2", "C3", "C3",
+      "D2", "D2", "F2", "F2", "G2", "G2", "A2", "A2",
+      "Bb2", "Bb2", "A2", "A2", "D2", "D2", "D2", "-",
+      "F2", "F2", "A2", "A2", "D3", "D3", "F2", "F2",
+      "G2", "G2", "Bb2", "Bb2", "A2", "A2", "C#3", "C#3",
+      "Bb2", "Bb2", "G2", "G2", "A2", "A2", "A2", "A2",
+      "D2", "D2", "F2", "F2", "D2", "-", "-", "-",
+    ],
+    drums: [
+      "K", "-", "H", "-", "S", "-", "H", "-",
+      "K", "-", "H", "-", "S", "-", "H", "-",
+      "K", "-", "H", "-", "S", "-", "H", "-",
+      "K", "-", "H", "H", "S", "-", "H", "-",
+      "K", "-", "H", "-", "S", "-", "H", "-",
+      "K", "-", "H", "-", "S", "-", "H", "-",
+      "K", "-", "H", "-", "S", "-", "H", "-",
+      "K", "K", "H", "H", "S", "-", "-", "-",
+    ],
+  },
+
+  // Stages 1-6: "Nightfall Stride" - Fast, driving gothic action anthem (D Minor, 136 BPM, 16th steps)
+  castle: {
+    bpm: 136,
+    stepDuration: 16,
+    loop: true,
+    lead: [
+      // Bar 1 - 2 (Main theme phrase A)
+      "D4", "E4", "F4", "G4", "A4", "-", "D5", "-", "C#5", "-", "A4", "-", "F4", "G4", "A4", "-",
+      "Bb4", "-", "A4", "-", "G4", "A4", "Bb4", "C5", "D5", "-", "C5", "-", "Bb4", "-", "A4", "-",
+      // Bar 3 - 4 (Phrase B - virtuosic run)
+      "F4", "G4", "A4", "Bb4", "C5", "-", "F5", "-", "E5", "-", "C5", "-", "A4", "Bb4", "C5", "-",
+      "D5", "E5", "F5", "D5", "C#5", "D5", "E5", "C#5", "D5", "-", "A4", "-", "D4", "-", "-", "-",
+      // Bar 5 - 6 (Climbing bridge)
+      "D5", "-", "D5", "C5", "Bb4", "A4", "G4", "A4", "Bb4", "-", "D5", "-", "C5", "-", "A4", "-",
+      "G4", "A4", "Bb4", "C5", "D5", "C5", "Bb4", "A4", "G4", "-", "Bb4", "-", "A4", "-", "F4", "-",
+      // Bar 7 - 8 (Dramatic cadence to turnaround)
+      "E4", "F4", "G4", "A4", "Bb4", "A4", "G4", "F4", "E4", "F4", "G4", "A4", "C#5", "-", "E5", "-",
+      "D5", "-", "A4", "-", "F4", "-", "D4", "-", "D5", "-", "A4", "-", "D4", "-", "-", "-",
+    ],
+    harmony: [
+      "A3", "-", "-", "-", "F4", "-", "-", "-", "E4", "-", "-", "-", "D4", "-", "-", "-",
+      "G4", "-", "-", "-", "E4", "-", "-", "-", "F4", "-", "-", "-", "F4", "-", "E4", "-",
+      "C4", "-", "-", "-", "A4", "-", "-", "-", "G4", "-", "-", "-", "F4", "-", "-", "-",
+      "F4", "-", "-", "-", "E4", "-", "-", "-", "F4", "-", "E4", "-", "D4", "-", "-", "-",
+      "F4", "-", "-", "-", "D4", "-", "-", "-", "G4", "-", "-", "-", "E4", "-", "-", "-",
+      "D4", "-", "-", "-", "F4", "-", "-", "-", "E4", "-", "-", "-", "D4", "-", "-", "-",
+      "C#4", "-", "-", "-", "E4", "-", "-", "-", "G4", "-", "-", "-", "A4", "-", "-", "-",
+      "F4", "-", "-", "-", "D4", "-", "-", "-", "F4", "-", "-", "-", "D4", "-", "-", "-",
+    ],
+    bass: [
+      // Driving 16th note arpeggiated bassline
+      "D2", "D2", "A2", "D2", "F2", "D2", "A2", "D2", "D2", "D2", "A2", "D2", "F2", "D2", "A2", "D2",
+      "G2", "G2", "D3", "G2", "Bb2", "G2", "D3", "G2", "F2", "F2", "C3", "F2", "A2", "F2", "C3", "F2",
+      "F2", "F2", "C3", "F2", "A2", "F2", "C3", "F2", "C2", "C2", "G2", "C2", "E2", "C2", "G2", "C2",
+      "Bb2", "Bb2", "F2", "Bb2", "A2", "A2", "E2", "A2", "D2", "D2", "A2", "D2", "F2", "D2", "A2", "D2",
+      "Bb2", "Bb2", "F2", "Bb2", "D3", "Bb2", "F2", "Bb2", "C3", "C3", "G2", "C3", "E3", "C3", "G2", "C3",
+      "G2", "G2", "D3", "G2", "Bb2", "G2", "D3", "G2", "D2", "D2", "A2", "D2", "F2", "D2", "A2", "D2",
+      "A2", "A2", "E2", "A2", "C#3", "A2", "E2", "A2", "A2", "A2", "E2", "A2", "C#3", "A2", "E2", "A2",
+      "D2", "D2", "A2", "D2", "F2", "D2", "A2", "D2", "D2", "A2", "F2", "A2", "D2", "-", "-", "-",
+    ],
+    drums: [
+      "K", "-", "H", "-", "S", "-", "H", "-", "K", "-", "H", "K", "S", "-", "H", "-",
+      "K", "-", "H", "-", "S", "-", "H", "-", "K", "K", "H", "-", "S", "-", "H", "H",
+      "K", "-", "H", "-", "S", "-", "H", "-", "K", "-", "H", "K", "S", "-", "H", "-",
+      "K", "-", "H", "-", "S", "-", "H", "-", "K", "K", "H", "-", "S", "S", "H", "H",
+      "K", "-", "H", "-", "S", "-", "H", "-", "K", "-", "H", "K", "S", "-", "H", "-",
+      "K", "-", "H", "-", "S", "-", "H", "-", "K", "K", "H", "-", "S", "-", "H", "H",
+      "K", "-", "H", "-", "S", "-", "H", "-", "K", "K", "H", "K", "S", "-", "H", "H",
+      "K", "K", "H", "H", "S", "-", "H", "H", "K", "S", "K", "S", "K", "-", "-", "-",
+    ],
+  },
+
+  // Boss / Dracula: "Throne of the Damned" - Intense 152 BPM gothic combat anthem with dissonant urgency
+  boss: {
+    bpm: 152,
+    stepDuration: 16,
+    loop: true,
+    lead: [
+      // Aggressive staccato riff with tritone accents
+      "D5", "D5", "D5", "-", "Eb5", "-", "D5", "-", "C#5", "-", "Bb4", "-", "A4", "-", "G#4", "-",
+      "A4", "Bb4", "C#5", "D5", "Eb5", "D5", "C#5", "Bb4", "A4", "-", "F4", "-", "D4", "-", "-", "-",
+      "F5", "F5", "F5", "-", "Gb5", "-", "F5", "-", "E5", "-", "Db5", "-", "C5", "-", "B4", "-",
+      "C5", "Db5", "E5", "F5", "Gb5", "F5", "E5", "Db5", "C5", "-", "Ab4", "-", "F4", "-", "-", "-",
+      // Fast arpeggiated escalation
+      "D5", "F5", "A5", "D6", "C#6", "A5", "F5", "E5", "D5", "F5", "A5", "D6", "Eb6", "D6", "C#6", "A5",
+      "G5", "Bb5", "D6", "G6", "F#6", "D6", "Bb5", "A5", "G5", "Bb5", "D6", "G6", "Ab6", "G6", "F#6", "D6",
+      // Culmination
+      "A5", "-", "G#5", "-", "A5", "-", "Bb5", "-", "C#6", "-", "D6", "-", "Eb6", "-", "D6", "-",
+      "C#6", "D6", "E6", "D6", "C#6", "Bb5", "A5", "G5", "F5", "E5", "D5", "C#5", "D5", "-", "-", "-",
+    ],
+    harmony: [
+      "A4", "-", "-", "-", "Bb4", "-", "A4", "-", "G4", "-", "-", "-", "E4", "-", "-", "-",
+      "F4", "-", "-", "-", "G4", "-", "-", "-", "F4", "-", "-", "-", "D4", "-", "-", "-",
+      "C5", "-", "-", "-", "Db5", "-", "C5", "-", "Bb4", "-", "-", "-", "G4", "-", "-", "-",
+      "Ab4", "-", "-", "-", "Bb4", "-", "-", "-", "Ab4", "-", "-", "-", "F4", "-", "-", "-",
+      "A4", "-", "-", "-", "A4", "-", "-", "-", "A4", "-", "-", "-", "A4", "-", "-", "-",
+      "Bb4", "-", "-", "-", "Bb4", "-", "-", "-", "Bb4", "-", "-", "-", "Bb4", "-", "-", "-",
+      "E5", "-", "-", "-", "F5", "-", "-", "-", "G5", "-", "-", "-", "F5", "-", "-", "-",
+      "E5", "-", "-", "-", "G4", "-", "-", "-", "F4", "-", "E4", "-", "D4", "-", "-", "-",
+    ],
+    bass: [
+      "D2", "D2", "D2", "D2", "Eb2", "Eb2", "D2", "D2", "C#2", "C#2", "C#2", "C#2", "A1", "A1", "A1", "A1",
+      "D2", "D2", "F2", "F2", "G2", "G2", "A2", "A2", "Bb2", "Bb2", "A2", "A2", "D2", "D2", "D2", "D2",
+      "F2", "F2", "F2", "F2", "Gb2", "Gb2", "F2", "F2", "E2", "E2", "E2", "E2", "C2", "C2", "C2", "C2",
+      "F2", "F2", "Ab2", "Ab2", "Bb2", "Bb2", "C3", "C3", "Db3", "Db3", "C3", "C3", "F2", "F2", "F2", "F2",
+      "D2", "D2", "A2", "D2", "F2", "D2", "A2", "D2", "D2", "D2", "A2", "D2", "F2", "D2", "A2", "D2",
+      "G2", "G2", "D3", "G2", "Bb2", "G2", "D3", "G2", "G2", "G2", "D3", "G2", "Bb2", "G2", "D3", "G2",
+      "A2", "A2", "E2", "A2", "C#3", "A2", "E2", "A2", "Bb2", "Bb2", "F2", "Bb2", "G2", "G2", "D2", "G2",
+      "A2", "A2", "A2", "A2", "A2", "A2", "A2", "A2", "D2", "A2", "F2", "A2", "D2", "-", "-", "-",
+    ],
+    drums: [
+      "K", "-", "H", "K", "S", "-", "H", "K", "K", "-", "H", "K", "S", "-", "H", "H",
+      "K", "-", "H", "K", "S", "-", "H", "K", "K", "K", "H", "H", "S", "S", "H", "H",
+      "K", "-", "H", "K", "S", "-", "H", "K", "K", "-", "H", "K", "S", "-", "H", "H",
+      "K", "-", "H", "K", "S", "-", "H", "K", "K", "K", "H", "H", "S", "S", "H", "H",
+      "K", "K", "H", "K", "S", "-", "H", "K", "K", "K", "H", "K", "S", "-", "H", "H",
+      "K", "K", "H", "K", "S", "-", "H", "K", "K", "K", "H", "K", "S", "-", "H", "H",
+      "K", "-", "H", "K", "S", "-", "H", "K", "K", "-", "H", "K", "S", "-", "H", "H",
+      "K", "K", "K", "K", "S", "S", "S", "S", "K", "S", "K", "S", "K", "-", "-", "-",
+    ],
+  },
+
+  // Victory / Gate Open: "Dawn of Victory" - Triumphant royal cadence (D Major, 128 BPM)
+  victory: {
+    bpm: 128,
+    stepDuration: 8,
+    loop: false,
+    lead: [
+      "D4", "F#4", "A4", "D5", "C#5", "D5", "E5", "F#5",
+      "G5", "F#5", "E5", "D5", "A4", "-", "D5", "-",
+      "F#5", "E5", "D5", "C#5", "B4", "C#5", "D5", "E5",
+      "D5", "-", "A4", "-", "D5", "-", "-", "-",
+    ],
+    harmony: [
+      "A3", "-", "D4", "-", "E4", "-", "G4", "-",
+      "B4", "-", "A4", "-", "F#4", "-", "F#4", "-",
+      "D4", "-", "F#4", "-", "G4", "-", "B4", "-",
+      "F#4", "-", "E4", "-", "F#4", "-", "-", "-",
+    ],
+    bass: [
+      "D2", "D2", "F#2", "F#2", "G2", "G2", "A2", "A2",
+      "B2", "B2", "A2", "A2", "D3", "D3", "D3", "-",
+      "D2", "D2", "F#2", "F#2", "G2", "G2", "A2", "A2",
+      "D2", "D2", "A2", "A2", "D2", "-", "-", "-",
+    ],
+    drums: [
+      "K", "-", "H", "-", "S", "-", "H", "-",
+      "K", "-", "H", "-", "S", "-", "H", "-",
+      "K", "-", "H", "-", "S", "-", "H", "-",
+      "K", "K", "H", "H", "S", "-", "-", "-",
+    ],
+  },
+
+  // Defeat / Game Over: "Requiem of the Hunter" - Dark mournful cadence
+  gameover: {
+    bpm: 80,
+    stepDuration: 8,
+    loop: false,
+    lead: [
+      "D4", "-", "F4", "-", "E4", "-", "C#4", "-",
+      "D4", "-", "Bb3", "-", "A3", "-", "-", "-",
+      "F3", "-", "G3", "-", "A3", "-", "F3", "-",
+      "E3", "-", "C#3", "-", "D3", "-", "-", "-",
+    ],
+    harmony: [
+      "A3", "-", "D4", "-", "C#4", "-", "A3", "-",
+      "F3", "-", "G3", "-", "E3", "-", "-", "-",
+      "D3", "-", "E3", "-", "F3", "-", "D3", "-",
+      "C#3", "-", "A2", "-", "D3", "-", "-", "-",
+    ],
+    bass: [
+      "D2", "D2", "Bb1", "Bb1", "A1", "A1", "A1", "A1",
+      "Bb1", "Bb1", "G1", "G1", "A1", "A1", "-", "-",
+      "D2", "D2", "C2", "C2", "F1", "F1", "Bb1", "Bb1",
+      "A1", "A1", "A1", "A1", "D1", "-", "-", "-",
+    ],
+    drums: [
+      "K", "-", "-", "-", "S", "-", "-", "-",
+      "K", "-", "-", "-", "S", "-", "-", "-",
+      "K", "-", "-", "-", "S", "-", "-", "-",
+      "K", "-", "-", "-", "-", "-", "-", "-",
+    ],
+  },
+};
+
+// -------------------------------------------------------------
+// AUDIO ENGINE SINGLETON & SOUND SYNTHESIS
+// -------------------------------------------------------------
+
+class SoundEngine {
+  private ctx: AudioContext | null = null;
+  private masterGain: GainNode | null = null;
+  private musicGain: GainNode | null = null;
+  private sfxGain: GainNode | null = null;
+  private noiseBuffer: AudioBuffer | null = null;
+
+  // Music sequencer state
+  private currentTrackName: TrackName = "none";
+  private isPlayingBgm = false;
+  private nextStepTime = 0;
+  private currentStep = 0;
+  private timerId: number | null = null;
+  private activeMusicNodes: AudioNode[] = [];
+
+  // Settings
+  private muted = false;
+  private musicVol = 0.65;
+  private sfxVol = 0.85;
+
+  constructor() {
+    this.loadSettings();
+  }
+
+  private loadSettings() {
+    if (typeof window === "undefined") return;
+    try {
+      const saved = localStorage.getItem("nightfall_audio_settings");
+      if (saved) {
+        const parsed = JSON.parse(saved);
+        if (typeof parsed.muted === "boolean") this.muted = parsed.muted;
+        if (typeof parsed.musicVol === "number") this.musicVol = Math.max(0, Math.min(1, parsed.musicVol));
+        if (typeof parsed.sfxVol === "number") this.sfxVol = Math.max(0, Math.min(1, parsed.sfxVol));
+      }
+    } catch {
+      // Ignore localStorage errors
+    }
+  }
+
+  private saveSettings() {
+    if (typeof window === "undefined") return;
+    try {
+      localStorage.setItem(
+        "nightfall_audio_settings",
+        JSON.stringify({ muted: this.muted, musicVol: this.musicVol, sfxVol: this.sfxVol })
+      );
+    } catch {
+      // Ignore
+    }
+  }
+
+  public init() {
+    if (this.ctx) {
+      if (this.ctx.state === "suspended") {
+        void this.ctx.resume();
+      }
+      return this.ctx;
+    }
+
+    const AC = window.AudioContext || (window as unknown as { webkitAudioContext?: typeof AudioContext }).webkitAudioContext;
+    if (!AC) return null;
+
+    try {
+      this.ctx = new AC();
+      this.masterGain = this.ctx.createGain();
+      this.musicGain = this.ctx.createGain();
+      this.sfxGain = this.ctx.createGain();
+
+      this.musicGain.connect(this.masterGain);
+      this.sfxGain.connect(this.masterGain);
+      this.masterGain.connect(this.ctx.destination);
+
+      this.updateGains();
+      this.createNoiseBuffer();
+    } catch {
+      this.ctx = null;
+    }
+
+    return this.ctx;
+  }
+
+  private updateGains() {
+    if (!this.ctx || !this.masterGain || !this.musicGain || !this.sfxGain) return;
+    const now = this.ctx.currentTime;
+    const targetMaster = this.muted ? 0 : 1;
+    this.masterGain.gain.setValueAtTime(targetMaster, now);
+    this.musicGain.gain.setValueAtTime(this.musicVol, now);
+    this.sfxGain.gain.setValueAtTime(this.sfxVol, now);
+  }
+
+  private createNoiseBuffer() {
+    if (!this.ctx) return;
+    const bufferSize = this.ctx.sampleRate * 2; // 2 seconds of noise
+    const buffer = this.ctx.createBuffer(1, bufferSize, this.ctx.sampleRate);
+    const output = buffer.getChannelData(0);
+    for (let i = 0; i < bufferSize; i++) {
+      output[i] = Math.random() * 2 - 1;
+    }
+    this.noiseBuffer = buffer;
+  }
+
+  public toggleMute(): boolean {
+    this.muted = !this.muted;
+    this.updateGains();
+    this.saveSettings();
+    if (!this.muted && !this.ctx) {
+      this.init();
+    }
+    return this.muted;
+  }
+
+  public setMuted(muted: boolean) {
+    this.muted = muted;
+    this.updateGains();
+    this.saveSettings();
+  }
+
+  public isMuted() {
+    return this.muted;
+  }
+
+  public setMusicVolume(vol: number) {
+    this.musicVol = Math.max(0, Math.min(1, vol));
+    this.updateGains();
+    this.saveSettings();
+  }
+
+  public setSfxVolume(vol: number) {
+    this.sfxVol = Math.max(0, Math.min(1, vol));
+    this.updateGains();
+    this.saveSettings();
+  }
+
+  public getMusicVolume() {
+    return this.musicVol;
+  }
+
+  public getSfxVolume() {
+    return this.sfxVol;
+  }
+
+  // -------------------------------------------------------------
+  // SFX GENERATOR
+  // -------------------------------------------------------------
+
+  public playSfx(kind: SfxKind) {
+    const actx = this.init();
+    if (!actx || !this.sfxGain || this.muted) return;
+    const now = actx.currentTime;
+
+    switch (kind) {
+      case "slash": {
+        // Crisp sword whoosh with blade whistle
+        const osc = actx.createOscillator();
+        const gain = actx.createGain();
+        osc.type = "sawtooth";
+        osc.frequency.setValueAtTime(420, now);
+        osc.frequency.exponentialRampToValueAtTime(80, now + 0.12);
+        gain.gain.setValueAtTime(0.2, now);
+        gain.gain.exponentialRampToValueAtTime(0.001, now + 0.12);
+        osc.connect(gain);
+        gain.connect(this.sfxGain);
+        osc.start(now);
+        osc.stop(now + 0.12);
+
+        // Blade air friction noise
+        if (this.noiseBuffer) {
+          const noise = actx.createBufferSource();
+          noise.buffer = this.noiseBuffer;
+          const filter = actx.createBiquadFilter();
+          filter.type = "bandpass";
+          filter.frequency.setValueAtTime(1400, now);
+          filter.frequency.exponentialRampToValueAtTime(300, now + 0.08);
+          filter.Q.value = 3;
+          const nGain = actx.createGain();
+          nGain.gain.setValueAtTime(0.12, now);
+          nGain.gain.exponentialRampToValueAtTime(0.001, now + 0.08);
+          noise.connect(filter);
+          filter.connect(nGain);
+          nGain.connect(this.sfxGain);
+          noise.start(now);
+          noise.stop(now + 0.08);
+        }
+        break;
+      }
+
+      case "slashHeavy": {
+        // Heavy finisher / charged slash - deeper metallic impact
+        const osc = actx.createOscillator();
+        const gain = actx.createGain();
+        osc.type = "sawtooth";
+        osc.frequency.setValueAtTime(260, now);
+        osc.frequency.exponentialRampToValueAtTime(50, now + 0.22);
+        gain.gain.setValueAtTime(0.35, now);
+        gain.gain.exponentialRampToValueAtTime(0.001, now + 0.22);
+        osc.connect(gain);
+        gain.connect(this.sfxGain);
+        osc.start(now);
+        osc.stop(now + 0.22);
+
+        const sub = actx.createOscillator();
+        const subGain = actx.createGain();
+        sub.type = "sine";
+        sub.frequency.setValueAtTime(120, now);
+        sub.frequency.exponentialRampToValueAtTime(35, now + 0.25);
+        subGain.gain.setValueAtTime(0.4, now);
+        subGain.gain.exponentialRampToValueAtTime(0.001, now + 0.25);
+        sub.connect(subGain);
+        subGain.connect(this.sfxGain);
+        sub.start(now);
+        sub.stop(now + 0.25);
+        break;
+      }
+
+      case "chargeWind": {
+        // Energy gathering hum
+        const osc = actx.createOscillator();
+        const gain = actx.createGain();
+        osc.type = "triangle";
+        osc.frequency.setValueAtTime(220, now);
+        osc.frequency.linearRampToValueAtTime(580, now + 0.45);
+        gain.gain.setValueAtTime(0.02, now);
+        gain.gain.linearRampToValueAtTime(0.18, now + 0.45);
+        gain.gain.exponentialRampToValueAtTime(0.001, now + 0.5);
+        osc.connect(gain);
+        gain.connect(this.sfxGain);
+        osc.start(now);
+        osc.stop(now + 0.5);
+        break;
+      }
+
+      case "chargeFire": {
+        // Wave release burst
+        const osc = actx.createOscillator();
+        const gain = actx.createGain();
+        osc.type = "square";
+        osc.frequency.setValueAtTime(140, now);
+        osc.frequency.exponentialRampToValueAtTime(60, now + 0.3);
+        gain.gain.setValueAtTime(0.28, now);
+        gain.gain.exponentialRampToValueAtTime(0.001, now + 0.3);
+        osc.connect(gain);
+        gain.connect(this.sfxGain);
+        osc.start(now);
+        osc.stop(now + 0.3);
+        break;
+      }
+
+      case "spell": {
+        // Holy spell "Luz de Véspera" - crystal chime and bright arpeggio
+        [640, 960, 1280].forEach((freq, idx) => {
+          const osc = actx.createOscillator();
+          const gain = actx.createGain();
+          osc.type = "sine";
+          osc.frequency.setValueAtTime(freq, now + idx * 0.03);
+          gain.gain.setValueAtTime(0.18, now + idx * 0.03);
+          gain.gain.exponentialRampToValueAtTime(0.001, now + idx * 0.03 + 0.25);
+          osc.connect(gain);
+          gain.connect(this.sfxGain!);
+          osc.start(now + idx * 0.03);
+          osc.stop(now + idx * 0.03 + 0.25);
+        });
+        break;
+      }
+
+      case "dash": {
+        // Air dash swoosh
+        if (this.noiseBuffer) {
+          const noise = actx.createBufferSource();
+          noise.buffer = this.noiseBuffer;
+          const filter = actx.createBiquadFilter();
+          filter.type = "bandpass";
+          filter.frequency.setValueAtTime(800, now);
+          filter.frequency.linearRampToValueAtTime(1600, now + 0.06);
+          filter.frequency.exponentialRampToValueAtTime(200, now + 0.15);
+          filter.Q.value = 2.5;
+          const gain = actx.createGain();
+          gain.gain.setValueAtTime(0.3, now);
+          gain.gain.exponentialRampToValueAtTime(0.001, now + 0.15);
+          noise.connect(filter);
+          filter.connect(gain);
+          gain.connect(this.sfxGain);
+          noise.start(now);
+          noise.stop(now + 0.15);
+        }
+        break;
+      }
+
+      case "jump": {
+        const osc = actx.createOscillator();
+        const gain = actx.createGain();
+        osc.type = "square";
+        osc.frequency.setValueAtTime(180, now);
+        osc.frequency.exponentialRampToValueAtTime(340, now + 0.1);
+        gain.gain.setValueAtTime(0.12, now);
+        gain.gain.exponentialRampToValueAtTime(0.001, now + 0.1);
+        osc.connect(gain);
+        gain.connect(this.sfxGain);
+        osc.start(now);
+        osc.stop(now + 0.1);
+        break;
+      }
+
+      case "doubleJump": {
+        const osc = actx.createOscillator();
+        const gain = actx.createGain();
+        osc.type = "sine";
+        osc.frequency.setValueAtTime(320, now);
+        osc.frequency.exponentialRampToValueAtTime(640, now + 0.14);
+        gain.gain.setValueAtTime(0.18, now);
+        gain.gain.exponentialRampToValueAtTime(0.001, now + 0.14);
+        osc.connect(gain);
+        gain.connect(this.sfxGain);
+        osc.start(now);
+        osc.stop(now + 0.14);
+        break;
+      }
+
+      case "pogo": {
+        // Pogo bounce - springy metallic impact
+        const osc = actx.createOscillator();
+        const gain = actx.createGain();
+        osc.type = "triangle";
+        osc.frequency.setValueAtTime(440, now);
+        osc.frequency.exponentialRampToValueAtTime(880, now + 0.08);
+        gain.gain.setValueAtTime(0.25, now);
+        gain.gain.exponentialRampToValueAtTime(0.001, now + 0.14);
+        osc.connect(gain);
+        gain.connect(this.sfxGain);
+        osc.start(now);
+        osc.stop(now + 0.14);
+        break;
+      }
+
+      case "hurt": {
+        // Player damage taken
+        const osc = actx.createOscillator();
+        const gain = actx.createGain();
+        osc.type = "sawtooth";
+        osc.frequency.setValueAtTime(90, now);
+        osc.frequency.exponentialRampToValueAtTime(40, now + 0.2);
+        gain.gain.setValueAtTime(0.4, now);
+        gain.gain.exponentialRampToValueAtTime(0.001, now + 0.2);
+        osc.connect(gain);
+        gain.connect(this.sfxGain);
+        osc.start(now);
+        osc.stop(now + 0.2);
+        break;
+      }
+
+      case "enemyHurt": {
+        // Hit enemy
+        const osc = actx.createOscillator();
+        const gain = actx.createGain();
+        osc.type = "square";
+        osc.frequency.setValueAtTime(240, now);
+        osc.frequency.exponentialRampToValueAtTime(110, now + 0.07);
+        gain.gain.setValueAtTime(0.18, now);
+        gain.gain.exponentialRampToValueAtTime(0.001, now + 0.07);
+        osc.connect(gain);
+        gain.connect(this.sfxGain);
+        osc.start(now);
+        osc.stop(now + 0.07);
+        break;
+      }
+
+      case "enemyDie": {
+        // Enemy defeated / turning to dust
+        const osc = actx.createOscillator();
+        const gain = actx.createGain();
+        osc.type = "sawtooth";
+        osc.frequency.setValueAtTime(180, now);
+        osc.frequency.exponentialRampToValueAtTime(30, now + 0.22);
+        gain.gain.setValueAtTime(0.2, now);
+        gain.gain.exponentialRampToValueAtTime(0.001, now + 0.22);
+        osc.connect(gain);
+        gain.connect(this.sfxGain);
+        osc.start(now);
+        osc.stop(now + 0.22);
+        break;
+      }
+
+      case "bossHurt": {
+        const osc = actx.createOscillator();
+        const gain = actx.createGain();
+        osc.type = "sawtooth";
+        osc.frequency.setValueAtTime(140, now);
+        osc.frequency.exponentialRampToValueAtTime(35, now + 0.16);
+        gain.gain.setValueAtTime(0.35, now);
+        gain.gain.exponentialRampToValueAtTime(0.001, now + 0.16);
+        osc.connect(gain);
+        gain.connect(this.sfxGain);
+        osc.start(now);
+        osc.stop(now + 0.16);
+        break;
+      }
+
+      case "gateOpen": {
+        [392, 523, 659, 784].forEach((freq, idx) => {
+          const osc = actx.createOscillator();
+          const gain = actx.createGain();
+          osc.type = "sine";
+          osc.frequency.setValueAtTime(freq, now + idx * 0.08);
+          gain.gain.setValueAtTime(0.2, now + idx * 0.08);
+          gain.gain.exponentialRampToValueAtTime(0.001, now + idx * 0.08 + 0.4);
+          osc.connect(gain);
+          gain.connect(this.sfxGain!);
+          osc.start(now + idx * 0.08);
+          osc.stop(now + idx * 0.08 + 0.4);
+        });
+        break;
+      }
+
+      case "relic": {
+        [523, 659, 784, 1046].forEach((freq, idx) => {
+          const osc = actx.createOscillator();
+          const gain = actx.createGain();
+          osc.type = "triangle";
+          osc.frequency.setValueAtTime(freq, now + idx * 0.06);
+          gain.gain.setValueAtTime(0.22, now + idx * 0.06);
+          gain.gain.exponentialRampToValueAtTime(0.001, now + idx * 0.06 + 0.3);
+          osc.connect(gain);
+          gain.connect(this.sfxGain!);
+          osc.start(now + idx * 0.06);
+          osc.stop(now + idx * 0.06 + 0.3);
+        });
+        break;
+      }
+
+      case "itemLife": {
+        // Triumphant gothic 1-UP chime: majestic major chord ascending to high bell
+        [440, 554, 659, 880, 1108, 1320].forEach((freq, idx) => {
+          const osc = actx.createOscillator();
+          const gain = actx.createGain();
+          osc.type = idx >= 4 ? "sine" : "triangle";
+          osc.frequency.setValueAtTime(freq, now + idx * 0.07);
+          gain.gain.setValueAtTime(0.26, now + idx * 0.07);
+          gain.gain.exponentialRampToValueAtTime(0.001, now + idx * 0.07 + 0.45);
+          osc.connect(gain);
+          gain.connect(this.sfxGain!);
+          osc.start(now + idx * 0.07);
+          osc.stop(now + idx * 0.07 + 0.45);
+        });
+        break;
+      }
+
+      case "itemHeal": {
+        // Soothing restorative healing chime
+        [330, 440, 554, 660].forEach((freq, idx) => {
+          const osc = actx.createOscillator();
+          const gain = actx.createGain();
+          osc.type = "sine";
+          osc.frequency.setValueAtTime(freq, now + idx * 0.05);
+          gain.gain.setValueAtTime(0.2, now + idx * 0.05);
+          gain.gain.exponentialRampToValueAtTime(0.001, now + idx * 0.05 + 0.35);
+          osc.connect(gain);
+          gain.connect(this.sfxGain!);
+          osc.start(now + idx * 0.05);
+          osc.stop(now + idx * 0.05 + 0.35);
+        });
+        break;
+      }
+
+      case "itemMana": {
+        // Shimmering mystical ethereal ether
+        [587, 740, 880, 1175].forEach((freq, idx) => {
+          const osc = actx.createOscillator();
+          const gain = actx.createGain();
+          osc.type = "triangle";
+          osc.frequency.setValueAtTime(freq, now + idx * 0.04);
+          gain.gain.setValueAtTime(0.18, now + idx * 0.04);
+          gain.gain.exponentialRampToValueAtTime(0.001, now + idx * 0.04 + 0.3);
+          osc.connect(gain);
+          gain.connect(this.sfxGain!);
+          osc.start(now + idx * 0.04);
+          osc.stop(now + idx * 0.04 + 0.3);
+        });
+        break;
+      }
+
+      case "revive": {
+        // Deep resonant holy resurrection burst
+        const gong = actx.createOscillator();
+        const gongGain = actx.createGain();
+        gong.type = "sawtooth";
+        gong.frequency.setValueAtTime(130, now);
+        gong.frequency.exponentialRampToValueAtTime(65, now + 0.6);
+        gongGain.gain.setValueAtTime(0.35, now);
+        gongGain.gain.exponentialRampToValueAtTime(0.001, now + 0.7);
+        gong.connect(gongGain);
+        gongGain.connect(this.sfxGain!);
+        gong.start(now);
+        gong.stop(now + 0.7);
+
+        [220, 293, 370, 440, 587, 740].forEach((freq, idx) => {
+          const osc = actx.createOscillator();
+          const gain = actx.createGain();
+          osc.type = "triangle";
+          osc.frequency.setValueAtTime(freq, now + 0.1 + idx * 0.07);
+          gain.gain.setValueAtTime(0.24, now + 0.1 + idx * 0.07);
+          gain.gain.exponentialRampToValueAtTime(0.001, now + 0.1 + idx * 0.07 + 0.5);
+          osc.connect(gain);
+          gain.connect(this.sfxGain!);
+          osc.start(now + 0.1 + idx * 0.07);
+          osc.stop(now + 0.1 + idx * 0.07 + 0.5);
+        });
+        break;
+      }
+    }
+  }
+
+  // -------------------------------------------------------------
+  // MUSIC SEQUENCER (BGM)
+  // -------------------------------------------------------------
+
+  public playBgm(name: TrackName) {
+    if (this.currentTrackName === name && this.isPlayingBgm) return;
+    this.stopBgm();
+    if (name === "none") return;
+
+    this.currentTrackName = name;
+    this.isPlayingBgm = true;
+
+    const actx = this.init();
+    if (!actx) return;
+
+    this.currentStep = 0;
+    this.nextStepTime = actx.currentTime + 0.05;
+    this.scheduleLoop();
+  }
+
+  public getCurrentTrack(): TrackName {
+    return this.currentTrackName;
+  }
+
+  public stopBgm() {
+    this.isPlayingBgm = false;
+    this.currentTrackName = "none";
+    if (this.timerId !== null) {
+      window.clearTimeout(this.timerId);
+      this.timerId = null;
+    }
+    for (const node of this.activeMusicNodes) {
+      try {
+        (node as AudioScheduledSourceNode).stop?.();
+        node.disconnect();
+      } catch {
+        // Ignore nodes already stopped
+      }
+    }
+    this.activeMusicNodes = [];
+  }
+
+  private scheduleLoop = () => {
+    if (!this.isPlayingBgm || !this.ctx || this.currentTrackName === "none") return;
+
+    const pattern = TRACKS[this.currentTrackName];
+    if (!pattern) return;
+
+    const lookAhead = 0.25; // Schedule 250ms into the future
+    const secondsPerBeat = 60 / pattern.bpm;
+    const stepDurationSec = pattern.stepDuration === 16 ? secondsPerBeat / 4 : secondsPerBeat / 2;
+    const totalSteps = pattern.lead.length;
+
+    while (this.nextStepTime < this.ctx.currentTime + lookAhead) {
+      this.scheduleStep(pattern, this.currentStep, this.nextStepTime, stepDurationSec);
+      this.nextStepTime += stepDurationSec;
+      this.currentStep++;
+
+      if (this.currentStep >= totalSteps) {
+        if (pattern.loop) {
+          this.currentStep = 0;
+        } else {
+          this.isPlayingBgm = false;
+          return;
+        }
+      }
+    }
+
+    this.timerId = window.setTimeout(this.scheduleLoop, 75);
+  };
+
+  private scheduleStep(pattern: SequencePattern, stepIdx: number, time: number, dur: number) {
+    if (!this.ctx || !this.musicGain) return;
+
+    // 1. LEAD / ORGAN CHANNEL
+    const leadNote = pattern.lead[stepIdx];
+    const leadFreq = NOTES[leadNote] || 0;
+    if (leadFreq > 0) {
+      const osc = this.ctx.createOscillator();
+      const gain = this.ctx.createGain();
+      const filter = this.ctx.createBiquadFilter();
+
+      // Organ / pulse timbre with mild lowpass filter
+      osc.type = "sawtooth";
+      osc.frequency.setValueAtTime(leadFreq, time);
+
+      filter.type = "lowpass";
+      filter.frequency.setValueAtTime(Math.min(3200, leadFreq * 4), time);
+      filter.Q.value = 1.8;
+
+      const noteLen = dur * 0.92;
+      gain.gain.setValueAtTime(0.001, time);
+      gain.gain.linearRampToValueAtTime(0.18, time + 0.015);
+      gain.gain.exponentialRampToValueAtTime(0.001, time + noteLen);
+
+      osc.connect(filter);
+      filter.connect(gain);
+      gain.connect(this.musicGain);
+
+      osc.start(time);
+      osc.stop(time + noteLen);
+      this.activeMusicNodes.push(osc);
+    }
+
+    // 2. HARMONY / COUNTERPOINT CHANNEL
+    if (pattern.harmony) {
+      const harmNote = pattern.harmony[stepIdx];
+      const harmFreq = NOTES[harmNote] || 0;
+      if (harmFreq > 0) {
+        const osc = this.ctx.createOscillator();
+        const gain = this.ctx.createGain();
+        osc.type = "triangle";
+        osc.frequency.setValueAtTime(harmFreq, time);
+
+        const noteLen = dur * 0.88;
+        gain.gain.setValueAtTime(0.001, time);
+        gain.gain.linearRampToValueAtTime(0.13, time + 0.02);
+        gain.gain.exponentialRampToValueAtTime(0.001, time + noteLen);
+
+        osc.connect(gain);
+        gain.connect(this.musicGain);
+
+        osc.start(time);
+        osc.stop(time + noteLen);
+        this.activeMusicNodes.push(osc);
+      }
+    }
+
+    // 3. BASS CHANNEL
+    const bassNote = pattern.bass[stepIdx];
+    const bassFreq = NOTES[bassNote] || 0;
+    if (bassFreq > 0) {
+      const osc = this.ctx.createOscillator();
+      const gain = this.ctx.createGain();
+      const filter = this.ctx.createBiquadFilter();
+
+      osc.type = "sawtooth";
+      osc.frequency.setValueAtTime(bassFreq, time);
+
+      filter.type = "lowpass";
+      filter.frequency.setValueAtTime(380, time);
+
+      const noteLen = dur * 0.85;
+      gain.gain.setValueAtTime(0.001, time);
+      gain.gain.linearRampToValueAtTime(0.24, time + 0.01);
+      gain.gain.exponentialRampToValueAtTime(0.001, time + noteLen);
+
+      osc.connect(filter);
+      filter.connect(gain);
+      gain.connect(this.musicGain);
+
+      osc.start(time);
+      osc.stop(time + noteLen);
+      this.activeMusicNodes.push(osc);
+    }
+
+    // 4. DRUMS CHANNEL
+    if (pattern.drums) {
+      const drumHit = pattern.drums[stepIdx];
+      if (drumHit === "K") {
+        // Kick drum (pitch drop sine)
+        const osc = this.ctx.createOscillator();
+        const gain = this.ctx.createGain();
+        osc.type = "sine";
+        osc.frequency.setValueAtTime(110, time);
+        osc.frequency.exponentialRampToValueAtTime(32, time + 0.08);
+        gain.gain.setValueAtTime(0.3, time);
+        gain.gain.exponentialRampToValueAtTime(0.001, time + 0.09);
+        osc.connect(gain);
+        gain.connect(this.musicGain);
+        osc.start(time);
+        osc.stop(time + 0.09);
+        this.activeMusicNodes.push(osc);
+      } else if (drumHit === "S" && this.noiseBuffer) {
+        // Snare drum (noise burst + pop)
+        const noise = this.ctx.createBufferSource();
+        noise.buffer = this.noiseBuffer;
+        const filter = this.ctx.createBiquadFilter();
+        filter.type = "highpass";
+        filter.frequency.setValueAtTime(1200, time);
+        const gain = this.ctx.createGain();
+        gain.gain.setValueAtTime(0.18, time);
+        gain.gain.exponentialRampToValueAtTime(0.001, time + 0.12);
+        noise.connect(filter);
+        filter.connect(gain);
+        gain.connect(this.musicGain);
+        noise.start(time);
+        noise.stop(time + 0.12);
+        this.activeMusicNodes.push(noise);
+      } else if (drumHit === "H" && this.noiseBuffer) {
+        // Hi-hat (short highpass noise)
+        const noise = this.ctx.createBufferSource();
+        noise.buffer = this.noiseBuffer;
+        const filter = this.ctx.createBiquadFilter();
+        filter.type = "highpass";
+        filter.frequency.setValueAtTime(7000, time);
+        const gain = this.ctx.createGain();
+        gain.gain.setValueAtTime(0.07, time);
+        gain.gain.exponentialRampToValueAtTime(0.001, time + 0.04);
+        noise.connect(filter);
+        filter.connect(gain);
+        gain.connect(this.musicGain);
+        noise.start(time);
+        noise.stop(time + 0.04);
+        this.activeMusicNodes.push(noise);
+      }
+    }
+
+    // Cleanup finished nodes from array periodically
+    if (this.activeMusicNodes.length > 80) {
+      this.activeMusicNodes = this.activeMusicNodes.slice(-40);
+    }
+  }
+}
+
+export const sound = new SoundEngine();

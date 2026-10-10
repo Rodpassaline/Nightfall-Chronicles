@@ -1,0 +1,37 @@
+{
+  "1": {
+    "mid": true,
+    "fg": true,
+    "bespokeBack": true
+  },
+  "2": {
+    "mid": false,
+    "fg": true,
+    "bespokeBack": true
+  },
+  "3": {
+    "mid": false,
+    "fg": true,
+    "bespokeBack": false
+  },
+  "4": {
+    "mid": false,
+    "fg": true,
+    "bespokeBack": false
+  },
+  "5": {
+    "mid": false,
+    "fg": true,
+    "bespokeBack": false
+  },
+  "6": {
+    "mid": false,
+    "fg": true,
+    "bespokeBack": false
+  },
+  "7": {
+    "mid": false,
+    "fg": true,
+    "bespokeBack": false
+  }
+}
