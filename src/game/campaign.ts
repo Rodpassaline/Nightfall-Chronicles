@@ -876,7 +876,24 @@ export function mountCampaign(
 
     e.lastSwing = player.swingId;
     e.hp -= dmg;
-    e.hurt = 0.12;
+
+    // Hitstun duration and recovery delay (slows down enemy and prevents immediate counter-advance)
+    const isHeavy = player.combo === 2 || hitSource === "spell" || pogo || dmg >= 2;
+    e.hurt = e.boss ? (isHeavy ? 0.26 : 0.18) : (isHeavy ? 0.42 : 0.32);
+    e.cd = Math.max(e.cd, e.boss ? 0.35 : 0.52);
+    e.wind = 0; // Interrupt active windup on enemies
+    if (!e.boss && e.state === "slash") e.state = "idle";
+
+    // Dynamic recoil impulse (knocks the enemy back away from player strike)
+    const knockDir = (e.x + e.w / 2) >= (player.x + player.w / 2) ? 1 : -1;
+    const baseKnock = e.boss ? 42 : (e.kind === "armoredSkeleton" || e.kind === "knight") ? 85 : 125;
+    const knockSpeed = isHeavy ? baseKnock * 1.35 : baseKnock;
+    e.vx = knockDir * knockSpeed;
+    if (!e.boss && e.grounded) {
+      e.vy = -65; // Subtle recoil pop up off the floor
+      e.grounded = false;
+    }
+
     hitstop = dmg >= 3 ? T.hitstopHeavy : T.hitstopLight;
     shake = Math.max(shake, 3);
     sound.playSfx(e.boss ? "bossHurt" : "enemyHurt");
@@ -1433,6 +1450,25 @@ export function mountCampaign(
         resolve(e, dt, false);
       }
       return;
+    }
+
+    // =========================================================================
+    // HITSTUN & RECOIL: When struck, the enemy reels backward and cannot advance!
+    // Decelerates smoothly with knockback friction; chase & attack are delayed.
+    // =========================================================================
+    if (e.hurt > 0) {
+      if (e.kind === "bat") {
+        e.vx *= Math.max(0, 1 - 9 * dt);
+        e.vy *= Math.max(0, 1 - 7 * dt);
+        e.x += e.vx * dt;
+        e.y += e.vy * dt;
+        e.y = clamp(e.y, 16, GROUND_Y - 20);
+      } else {
+        e.vx *= Math.max(0, 1 - 10 * dt);
+        e.vy = Math.min(e.vy + T.gravDown * dt, T.terminal);
+        resolve(e, dt, false);
+      }
+      return; // Suspends chasing and attacking while reeling from hit
     }
 
     // =========================================================================
@@ -2090,8 +2126,8 @@ export function mountCampaign(
       resolve(e, dt, false);
     }
 
-    // Touch contact damage
-    if (!e.dead && overlap(e, player)) hurtPlayer(1, e.x + e.w / 2);
+    // Touch contact damage (only when enemy is recovered from hitstun)
+    if (!e.dead && e.hurt <= 0 && overlap(e, player)) hurtPlayer(1, e.x + e.w / 2, "slash");
   }
 
   function blit(img: HTMLImageElement | undefined, frame: number, cx: number, feet: number, height: number, facing: number, cols = 2) {
