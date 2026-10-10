@@ -60,6 +60,7 @@ export const STAGE_TRACK_URLS: Record<number, string> = {
 type SfxKind =
   | "slash"
   | "slashHeavy"
+  | "slice"
   | "chargeWind"
   | "chargeFire"
   | "spell"
@@ -360,6 +361,7 @@ class SoundEngine {
 
   // Dedicated instant-playback studio SFX pools
   private slashPool = new SfxAudioPool("/audio/sfx-slash.mp3", 8);
+  private slicePool = new SfxAudioPool("/audio/sfx-slice.mp3", 8);
   private spellPool = new SfxAudioPool("/audio/sfx-spell.mp3", 8);
   private interactionUnlocked = false;
 
@@ -560,6 +562,10 @@ class SoundEngine {
     }
     if (kind === "slashHeavy") {
       this.slashPool.play(Math.min(1, this.sfxVol * 1.25), 0.85);
+      return;
+    }
+    if (kind === "slice") {
+      this.slicePool.play(this.sfxVol, 0.96 + Math.random() * 0.08);
       return;
     }
     if (kind === "spell") {

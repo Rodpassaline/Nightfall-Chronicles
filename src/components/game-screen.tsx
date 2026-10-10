@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState, type PointerEvent } from "react";
 import { Maximize2, Minimize2, Volume2, VolumeX } from "lucide-react";
-import { loadProgress, mountCampaign, saveClear, type CampaignApi, type GameHud } from "@/game/campaign";
+import { loadProgress, mountCampaign, preloadAllGameAssets, saveClear, type CampaignApi, type GameHud } from "@/game/campaign";
 import { levels } from "@/game/levels";
 import { sound } from "@/game/audio";
 
@@ -33,6 +33,10 @@ export function GameScreen() {
   const [progress, setProgress] = useState({ unlocked: 1, cleared: [] as number[] });
   const [muted, setMuted] = useState(() => sound.isMuted());
   const [isFullscreen, setIsFullscreen] = useState(false);
+
+  useEffect(() => {
+    preloadAllGameAssets();
+  }, []);
 
   useEffect(() => {
     const onFsChange = () => {

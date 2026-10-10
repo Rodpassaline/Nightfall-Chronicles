@@ -281,13 +281,59 @@ function clamp(v: number, a: number, b: number) {
   return Math.max(a, Math.min(b, v));
 }
 
-function loadImage(src: string) {
+const IMAGE_CACHE = new Map<string, HTMLImageElement>();
+
+export function preloadImage(src: string): Promise<HTMLImageElement> {
   return new Promise<HTMLImageElement>((resolve) => {
-    const img = new Image();
-    img.onload = () => resolve(img);
-    img.onerror = () => resolve(img);
-    img.src = src;
+    if (typeof window === "undefined") {
+      resolve({} as HTMLImageElement);
+      return;
+    }
+    let img = IMAGE_CACHE.get(src);
+    if (img && img.complete && img.naturalWidth > 0) {
+      resolve(img);
+      return;
+    }
+    if (!img) {
+      img = new Image();
+      IMAGE_CACHE.set(src, img);
+      img.src = src;
+    }
+    if (img.complete && img.naturalWidth > 0) {
+      resolve(img);
+      return;
+    }
+    const onDone = () => {
+      img.removeEventListener("load", onDone);
+      img.removeEventListener("error", onDone);
+      resolve(img);
+    };
+    img.addEventListener("load", onDone);
+    img.addEventListener("error", onDone);
   });
+}
+
+// Background eager preloader for all game assets
+export function preloadAllGameAssets() {
+  if (typeof window === "undefined") return;
+  for (const src of Object.values(SRC)) void preloadImage(src);
+  for (const src of Object.values(PROP_SRC)) void preloadImage(src);
+  for (const src of Object.values(ITEM_SRC)) void preloadImage(src);
+  for (const src of Object.values(FG_SRC)) void preloadImage(src);
+  void preloadImage("/art/parallax/sky.jpg");
+  void preloadImage("/art/parallax/far.jpg");
+  void preloadImage("/art/parallax/fog.png");
+  for (let i = 1; i <= 7; i++) {
+    void preloadImage(`/art/stage-${i}.jpg`);
+    void preloadImage(`/art/stages/s${i}/back.jpg`);
+    void preloadImage(`/art/stages/s${i}/floor.jpg`);
+    void preloadImage(`/art/stages/s${i}/fg.png`);
+  }
+  void preloadImage("/art/stages/s1/mid.png");
+}
+
+if (typeof window !== "undefined") {
+  setTimeout(preloadAllGameAssets, 50);
 }
 
 export function mountCampaign(
@@ -323,26 +369,32 @@ export function mountCampaign(
   if (stageCfg.fg) {
     plateSrc.fg = `/art/stages/s${level.id}/fg.png`;
   }
-  void Promise.all([
+
+  let readyToRender = false;
+  const loadPromise = Promise.all([
     ...Object.entries(SRC).map(async ([key, src]) => {
-      art[key as ArtKey] = await loadImage(src);
+      art[key as ArtKey] = await preloadImage(src);
     }),
     ...Object.entries(PROP_SRC).map(async ([key, src]) => {
-      propsArt[key as PropKind] = await loadImage(src);
+      propsArt[key as PropKind] = await preloadImage(src);
     }),
     ...Object.entries(ITEM_SRC).map(async ([key, src]) => {
-      itemArt[key as ItemKind] = await loadImage(src);
+      itemArt[key as ItemKind] = await preloadImage(src);
     }),
     ...Object.entries(FG_SRC).map(async ([key, src]) => {
-      fgArt[key as FgKey] = await loadImage(src);
+      fgArt[key as FgKey] = await preloadImage(src);
     }),
     (async () => {
-      bg = await loadImage(level.bg);
+      bg = await preloadImage(level.bg);
     })(),
     ...Object.entries(plateSrc).map(async ([key, src]) => {
-      plates[key as keyof typeof plates] = await loadImage(src);
+      plates[key as keyof typeof plates] = await preloadImage(src);
     }),
   ]);
+
+  void loadPromise.then(() => {
+    readyToRender = true;
+  });
 
   const keys = new Set<string>();
   const injected = new Set<string>();
@@ -685,7 +737,7 @@ export function mountCampaign(
     }
   }
 
-  function hurtPlayer(dmg: number, fromX: number) {
+  function hurtPlayer(dmg: number, fromX: number, hitSource: "slash" | "spell" = "slash") {
     if (player.iframes > 0 || player.dead || player.won) return;
     if (player.guard && (fromX - (player.x + player.w / 2)) * player.facing > -6) {
       player.iframes = Math.max(player.iframes, 0.18);
@@ -693,7 +745,7 @@ export function mountCampaign(
       player.guardFlash = 0.18;
       hitstop = T.hitstopLight;
       shake = Math.max(shake, 2);
-      sound.playSfx("enemyHurt");
+      sound.playSfx("slash");
       return;
     }
     player.hp -= dmg;
@@ -710,6 +762,11 @@ export function mountCampaign(
     hitstop = T.hitstopLight;
     shake = 5;
     sound.playSfx("hurt");
+    if (hitSource === "spell") {
+      sound.playSfx("spell");
+    } else {
+      sound.playSfx("slice");
+    }
     if (player.hp <= 0) {
       if (player.lives > 1) {
         player.lives--;
@@ -761,7 +818,7 @@ export function mountCampaign(
     }
   }
 
-  function hurtEnemy(e: Enemy, dmg: number, pogo: boolean) {
+  function hurtEnemy(e: Enemy, dmg: number, pogo: boolean, hitSource: "slash" | "spell" = "slash") {
     if (e.dead || e.lastSwing === player.swingId) return;
 
     // Armored Skeleton buckler shield deflection (frontal horizontal attacks)
@@ -769,7 +826,7 @@ export function mountCampaign(
       const isFrontal = (player.x - (e.x + e.w / 2)) * e.facing < 0;
       if (isFrontal) {
         e.lastSwing = player.swingId;
-        sound.playSfx("enemyHurt");
+        sound.playSfx("slash");
         player.vx = -player.facing * 105;
         player.toast = "Bloqueado pelo Escudo! Pule e use Golpe Descendente!";
         player.toastT = 1.6;
@@ -797,7 +854,7 @@ export function mountCampaign(
       const isFrontal = (player.x - (e.x + e.w / 2)) * e.facing < 0;
       if (isFrontal) {
         e.lastSwing = player.swingId;
-        sound.playSfx("enemyHurt");
+        sound.playSfx("slash");
         player.vx = -player.facing * 110;
         player.toast = "Escudo de Valerius bloqueou o golpe! Ataque por cima ou pelas costas!";
         player.toastT = 1.8;
@@ -820,6 +877,11 @@ export function mountCampaign(
     hitstop = dmg >= 3 ? T.hitstopHeavy : T.hitstopLight;
     shake = Math.max(shake, 3);
     sound.playSfx(e.boss ? "bossHurt" : "enemyHurt");
+    if (hitSource === "spell") {
+      sound.playSfx("spell");
+    } else {
+      sound.playSfx(player.combo === 2 ? "slashHeavy" : "slice");
+    }
     if (pogo) {
       player.vy = -T.pogoV;
       player.jumps = 1;
@@ -1017,6 +1079,8 @@ export function mountCampaign(
           frameLock: 2,
         });
         sound.playSfx("chargeFire");
+        sound.playSfx("spell");
+        sound.playSfx("slashHeavy");
       }
       player.holdT = 0;
     }
@@ -1188,13 +1252,13 @@ export function mountCampaign(
                   w: 60,
                   h: 68,
                 };
-      for (const e of enemies) if (!e.dead && overlap(box, e)) hurtEnemy(e, player.combo === 2 ? T.finisherDamage : T.slashDamage, player.attackKind === "down");
+      for (const e of enemies) if (!e.dead && overlap(box, e)) hurtEnemy(e, player.combo === 2 ? T.finisherDamage : T.slashDamage, player.attackKind === "down", "slash");
 
       // Castlevania weapon strike parry: slash enemy projectiles out of the air!
       for (const s of shots) {
         if (!s.friendly && s.life > 0 && overlap(box, s)) {
           s.life = 0;
-          sound.playSfx("enemyHurt");
+          sound.playSfx("slash");
           shake = Math.max(shake, 2);
           for (let i = 0; i < 8; i++) {
             particles.push({
@@ -1293,11 +1357,11 @@ export function mountCampaign(
           if (e.dead || s.hits.includes(e.id) || !overlap(s, e)) continue;
           s.hits.push(e.id);
           player.swingId++;
-          hurtEnemy(e, s.dmg, false);
+          hurtEnemy(e, s.dmg, false, s.sprite === "spell" ? "spell" : "slash");
           if (s.sprite !== "slash") s.life = 0;
         }
       } else if (overlap(s, player)) {
-        hurtPlayer(s.dmg, s.x);
+        hurtPlayer(s.dmg, s.x, s.sprite === "spell" ? "spell" : "slash");
         s.life = 0;
       }
     }
@@ -2001,6 +2065,25 @@ export function mountCampaign(
   }
 
   function draw() {
+    if (!readyToRender) {
+      g.setTransform(1, 0, 0, 1, 0, 0);
+      g.fillStyle = "#0c0812";
+      g.fillRect(0, 0, T.viewW, T.viewH);
+
+      // Gothic Stage Card Transition (no flat untextured boxes visible)
+      g.save();
+      g.textAlign = "center";
+      g.textBaseline = "middle";
+      g.fillStyle = "#d4af37";
+      g.font = "bold 13px Cinzel, serif";
+      g.fillText(`FASE ${level.id} · ${level.title.toUpperCase()}`, T.viewW / 2, T.viewH / 2 - 8);
+      g.fillStyle = "rgba(215, 205, 225, 0.7)";
+      g.font = "9px Cinzel, serif";
+      g.fillText(level.place, T.viewW / 2, T.viewH / 2 + 10);
+      g.restore();
+      return;
+    }
+
     const ox = shake > 0 ? (Math.random() - 0.5) * shake : 0;
     g.setTransform(1, 0, 0, 1, ox, 0);
     g.fillStyle = "#100814";
@@ -2746,6 +2829,13 @@ export function mountCampaign(
 
   function frame(now: number) {
     if (!alive) return;
+    if (!readyToRender) {
+      last = now;
+      acc = 0;
+      draw();
+      raf = requestAnimationFrame(frame);
+      return;
+    }
     acc += Math.min(0.05, (now - last) / 1000);
     last = now;
     const held = actions();
