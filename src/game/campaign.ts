@@ -990,7 +990,6 @@ export function mountCampaign(
           sprite: "spell",
           drawCenterY: hand.y,
         });
-        sound.playSfx("spell");
       }
     }
 

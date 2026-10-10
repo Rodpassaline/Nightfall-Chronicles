@@ -307,6 +307,47 @@ const TRACKS: Partial<Record<Exclude<TrackName, "none">, SequencePattern>> = {
 };
 
 // -------------------------------------------------------------
+// HIGH PERFORMANCE PRELOADED SFX AUDIO POOL
+// -------------------------------------------------------------
+
+class SfxAudioPool {
+  private pool: HTMLAudioElement[] = [];
+  private index = 0;
+
+  constructor(src: string, size = 8) {
+    if (typeof window !== "undefined") {
+      try {
+        for (let i = 0; i < size; i++) {
+          const a = new Audio(src);
+          a.preload = "auto";
+          this.pool.push(a);
+        }
+      } catch {
+        // Ignore audio creation errors in restricted environments
+      }
+    }
+  }
+
+  public play(volume: number, rate = 1.0) {
+    if (typeof window === "undefined" || this.pool.length === 0 || volume <= 0) return;
+    try {
+      const a = this.pool[this.index];
+      this.index = (this.index + 1) % this.pool.length;
+      a.pause();
+      a.currentTime = 0;
+      a.volume = Math.max(0, Math.min(1, volume));
+      a.playbackRate = rate;
+      const p = a.play();
+      if (p !== undefined) {
+        p.catch(() => {});
+      }
+    } catch {
+      // Ignore
+    }
+  }
+}
+
+// -------------------------------------------------------------
 // AUDIO ENGINE SINGLETON & SOUND SYNTHESIS
 // -------------------------------------------------------------
 
@@ -316,6 +357,11 @@ class SoundEngine {
   private musicGain: GainNode | null = null;
   private sfxGain: GainNode | null = null;
   private noiseBuffer: AudioBuffer | null = null;
+
+  // Dedicated instant-playback studio SFX pools
+  private slashPool = new SfxAudioPool("/audio/sfx-slash.mp3", 8);
+  private spellPool = new SfxAudioPool("/audio/sfx-spell.mp3", 8);
+  private interactionUnlocked = false;
 
   // Music sequencer state
   private currentTrackName: TrackName = "none";
@@ -338,6 +384,26 @@ class SoundEngine {
 
   constructor() {
     this.loadSettings();
+    this.setupInteractionUnlock();
+  }
+
+  private setupInteractionUnlock() {
+    if (typeof window === "undefined" || this.interactionUnlocked) return;
+    const unlock = () => {
+      this.interactionUnlocked = true;
+      this.init();
+      if (this.isPlayingBgm && this.currentAudioElement && this.currentAudioElement.paused && !this.muted) {
+        this.currentAudioElement.play().catch(() => {});
+      }
+      window.removeEventListener("pointerdown", unlock);
+      window.removeEventListener("keydown", unlock);
+      window.removeEventListener("click", unlock);
+      window.removeEventListener("touchstart", unlock);
+    };
+    window.addEventListener("pointerdown", unlock, { passive: true });
+    window.addEventListener("keydown", unlock, { passive: true });
+    window.addEventListener("click", unlock, { passive: true });
+    window.addEventListener("touchstart", unlock, { passive: true });
   }
 
   private loadSettings() {
@@ -485,161 +551,27 @@ class SoundEngine {
   // -------------------------------------------------------------
 
   public playSfx(kind: SfxKind) {
+    if (this.muted) return;
+
+    // Instantaneous authentic studio audio playback for weapons & magic
+    if (kind === "slash") {
+      this.slashPool.play(this.sfxVol, 0.98 + Math.random() * 0.05);
+      return;
+    }
+    if (kind === "slashHeavy") {
+      this.slashPool.play(Math.min(1, this.sfxVol * 1.25), 0.85);
+      return;
+    }
+    if (kind === "spell") {
+      this.spellPool.play(this.sfxVol, 1.0);
+      return;
+    }
+
     const actx = this.init();
-    if (!actx || !this.sfxGain || this.muted) return;
+    if (!actx || !this.sfxGain) return;
     const now = actx.currentTime;
 
     switch (kind) {
-      case "slash": {
-        if (this.slashBuffer && actx && this.sfxGain) {
-          try {
-            const src = actx.createBufferSource();
-            src.buffer = this.slashBuffer;
-            src.playbackRate.value = 0.96 + Math.random() * 0.08;
-            src.connect(this.sfxGain);
-            src.start(now);
-            break;
-          } catch {
-            // fallback to synth
-          }
-        }
-
-        // Crisp sword whoosh with blade whistle
-        const osc = actx.createOscillator();
-        const gain = actx.createGain();
-        osc.type = "sawtooth";
-        osc.frequency.setValueAtTime(420, now);
-        osc.frequency.exponentialRampToValueAtTime(80, now + 0.12);
-        gain.gain.setValueAtTime(0.2, now);
-        gain.gain.exponentialRampToValueAtTime(0.001, now + 0.12);
-        osc.connect(gain);
-        gain.connect(this.sfxGain);
-        osc.start(now);
-        osc.stop(now + 0.12);
-
-        // Blade air friction noise
-        if (this.noiseBuffer) {
-          const noise = actx.createBufferSource();
-          noise.buffer = this.noiseBuffer;
-          const filter = actx.createBiquadFilter();
-          filter.type = "bandpass";
-          filter.frequency.setValueAtTime(1400, now);
-          filter.frequency.exponentialRampToValueAtTime(300, now + 0.08);
-          filter.Q.value = 3;
-          const nGain = actx.createGain();
-          nGain.gain.setValueAtTime(0.12, now);
-          nGain.gain.exponentialRampToValueAtTime(0.001, now + 0.08);
-          noise.connect(filter);
-          filter.connect(nGain);
-          nGain.connect(this.sfxGain);
-          noise.start(now);
-          noise.stop(now + 0.08);
-        }
-        break;
-      }
-
-      case "slashHeavy": {
-        if (this.slashBuffer && actx && this.sfxGain) {
-          try {
-            const src = actx.createBufferSource();
-            src.buffer = this.slashBuffer;
-            src.playbackRate.value = 0.82;
-            src.connect(this.sfxGain);
-            src.start(now);
-          } catch {
-            // fallback
-          }
-        }
-
-        // Heavy finisher / charged slash - deeper metallic impact
-        const osc = actx.createOscillator();
-        const gain = actx.createGain();
-        osc.type = "sawtooth";
-        osc.frequency.setValueAtTime(260, now);
-        osc.frequency.exponentialRampToValueAtTime(50, now + 0.22);
-        gain.gain.setValueAtTime(0.35, now);
-        gain.gain.exponentialRampToValueAtTime(0.001, now + 0.22);
-        osc.connect(gain);
-        gain.connect(this.sfxGain);
-        osc.start(now);
-        osc.stop(now + 0.22);
-
-        const sub = actx.createOscillator();
-        const subGain = actx.createGain();
-        sub.type = "sine";
-        sub.frequency.setValueAtTime(120, now);
-        sub.frequency.exponentialRampToValueAtTime(35, now + 0.25);
-        subGain.gain.setValueAtTime(0.4, now);
-        subGain.gain.exponentialRampToValueAtTime(0.001, now + 0.25);
-        sub.connect(subGain);
-        subGain.connect(this.sfxGain);
-        sub.start(now);
-        sub.stop(now + 0.25);
-        break;
-      }
-
-      case "chargeWind": {
-        // Energy gathering hum
-        const osc = actx.createOscillator();
-        const gain = actx.createGain();
-        osc.type = "triangle";
-        osc.frequency.setValueAtTime(220, now);
-        osc.frequency.linearRampToValueAtTime(580, now + 0.45);
-        gain.gain.setValueAtTime(0.02, now);
-        gain.gain.linearRampToValueAtTime(0.18, now + 0.45);
-        gain.gain.exponentialRampToValueAtTime(0.001, now + 0.5);
-        osc.connect(gain);
-        gain.connect(this.sfxGain);
-        osc.start(now);
-        osc.stop(now + 0.5);
-        break;
-      }
-
-      case "chargeFire": {
-        // Wave release burst
-        const osc = actx.createOscillator();
-        const gain = actx.createGain();
-        osc.type = "square";
-        osc.frequency.setValueAtTime(140, now);
-        osc.frequency.exponentialRampToValueAtTime(60, now + 0.3);
-        gain.gain.setValueAtTime(0.28, now);
-        gain.gain.exponentialRampToValueAtTime(0.001, now + 0.3);
-        osc.connect(gain);
-        gain.connect(this.sfxGain);
-        osc.start(now);
-        osc.stop(now + 0.3);
-        break;
-      }
-
-      case "spell": {
-        if (this.spellBuffer && actx && this.sfxGain) {
-          try {
-            const src = actx.createBufferSource();
-            src.buffer = this.spellBuffer;
-            src.playbackRate.value = 0.98 + Math.random() * 0.06;
-            src.connect(this.sfxGain);
-            src.start(now);
-            break;
-          } catch {
-            // fallback
-          }
-        }
-
-        // Holy spell "Luz de Véspera" - crystal chime and bright arpeggio
-        [640, 960, 1280].forEach((freq, idx) => {
-          const osc = actx.createOscillator();
-          const gain = actx.createGain();
-          osc.type = "sine";
-          osc.frequency.setValueAtTime(freq, now + idx * 0.03);
-          gain.gain.setValueAtTime(0.18, now + idx * 0.03);
-          gain.gain.exponentialRampToValueAtTime(0.001, now + idx * 0.03 + 0.25);
-          osc.connect(gain);
-          gain.connect(this.sfxGain!);
-          osc.start(now + idx * 0.03);
-          osc.stop(now + idx * 0.03 + 0.25);
-        });
-        break;
-      }
 
       case "dash": {
         // Air dash swoosh
@@ -897,7 +829,12 @@ class SoundEngine {
   }
 
   public playBgm(name: TrackName) {
-    if (this.currentTrackName === name && this.isPlayingBgm) return;
+    if (this.currentTrackName === name && this.isPlayingBgm) {
+      if (this.currentAudioElement && this.currentAudioElement.paused && !this.muted) {
+        this.currentAudioElement.play().catch(() => {});
+      }
+      return;
+    }
     this.stopBgm();
     if (name === "none") return;
 

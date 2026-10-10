@@ -1,5 +1,4 @@
 import { useEffect, useRef, useState, type PointerEvent } from "react";
-import { Link } from "@tanstack/react-router";
 import { Maximize2, Minimize2, Volume2, VolumeX } from "lucide-react";
 import { loadProgress, mountCampaign, saveClear, type CampaignApi, type GameHud } from "@/game/campaign";
 import { levels } from "@/game/levels";
@@ -220,6 +219,13 @@ export function GameScreen() {
     }
   };
 
+  // Automatically trigger title music on title and stage selection screens
+  useEffect(() => {
+    if (mode === "title" || mode === "stages") {
+      sound.playBgm("title");
+    }
+  }, [mode]);
+
   useEffect(() => {
     if (mode !== "play") return;
     const canvas = canvasRef.current;
@@ -253,7 +259,13 @@ export function GameScreen() {
 
   if (mode === "title") {
     return (
-      <div className="relative min-h-screen">
+      <div
+        className="relative min-h-screen"
+        onPointerDown={() => {
+          sound.init();
+          sound.playBgm("title");
+        }}
+      >
         <img src="/art/stage-7.jpg" alt="" className="pointer-events-none absolute inset-0 h-full w-full object-cover" />
         <div className="pointer-events-none absolute inset-0 bg-bg/80" />
         <div className="relative z-10 mx-auto flex min-h-screen max-w-3xl flex-col justify-center px-4 py-16 pb-28">
@@ -282,9 +294,6 @@ export function GameScreen() {
             >
               Fases
             </button>
-            <Link to="/escopo" className="inline-flex h-11 items-center justify-center border border-line px-5 font-display text-sm tracking-widest text-muted">
-              Escopo
-            </Link>
             <button
               type="button"
               className="inline-flex h-11 items-center gap-2 border border-line bg-surface/80 px-4 font-display text-xs tracking-widest text-fg hover:border-gold"
