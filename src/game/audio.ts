@@ -382,8 +382,14 @@ class SoundEngine {
     "7-2": new SfxAudioPool("/audio/bosses/boss7-atk2.mp3", 4),
   };
 
-  // Boss entrance speech elements cache
+  // Boss entrance speech elements cache & buffer decoding
   private bossVoices: Record<number, HTMLAudioElement> = {};
+  private bossVoiceBuffers: Map<number, AudioBuffer> = new Map();
+  private currentVoiceSource: AudioBufferSourceNode | null = null;
+  private voiceGain: GainNode | null = null;
+  private isDucking = false;
+  private duckTimerId: number | null = null;
+  private unduckFadeTimer: number | null = null;
   private interactionUnlocked = false;
 
   // Music sequencer state
@@ -408,6 +414,17 @@ class SoundEngine {
   constructor() {
     this.loadSettings();
     this.setupInteractionUnlock();
+    if (typeof window !== "undefined") {
+      for (let i = 1; i <= 7; i++) {
+        try {
+          const a = new Audio(`/audio/bosses/boss${i}-voice.mp3`);
+          a.preload = "auto";
+          this.bossVoices[i] = a;
+        } catch {
+          // Ignore
+        }
+      }
+    }
   }
 
   private setupInteractionUnlock() {
@@ -472,14 +489,29 @@ class SoundEngine {
       this.masterGain = this.ctx.createGain();
       this.musicGain = this.ctx.createGain();
       this.sfxGain = this.ctx.createGain();
+      this.voiceGain = this.ctx.createGain();
 
       this.musicGain.connect(this.masterGain);
       this.sfxGain.connect(this.masterGain);
-      this.masterGain.connect(this.ctx.destination);
+      this.voiceGain.connect(this.masterGain);
+
+      try {
+        const comp = this.ctx.createDynamicsCompressor();
+        comp.threshold.setValueAtTime(-4, this.ctx.currentTime);
+        comp.knee.setValueAtTime(18, this.ctx.currentTime);
+        comp.ratio.setValueAtTime(8, this.ctx.currentTime);
+        comp.attack.setValueAtTime(0.003, this.ctx.currentTime);
+        comp.release.setValueAtTime(0.12, this.ctx.currentTime);
+        this.masterGain.connect(comp);
+        comp.connect(this.ctx.destination);
+      } catch {
+        this.masterGain.connect(this.ctx.destination);
+      }
 
       this.updateGains();
       this.createNoiseBuffer();
       this.loadSfxBuffers();
+      this.loadBossVoiceBuffers();
     } catch {
       this.ctx = null;
     }
@@ -506,16 +538,41 @@ class SoundEngine {
     });
   }
 
+  private loadBossVoiceBuffers() {
+    if (!this.ctx || typeof window === "undefined") return;
+    for (let i = 1; i <= 7; i++) {
+      const stageId = i;
+      if (this.bossVoiceBuffers.has(stageId)) continue;
+      fetch(`/audio/bosses/boss${stageId}-voice.mp3`)
+        .then((res) => {
+          if (!res.ok) throw new Error(`HTTP ${res.status}`);
+          return res.arrayBuffer();
+        })
+        .then((buf) => this.ctx!.decodeAudioData(buf))
+        .then((audioBuf) => {
+          this.bossVoiceBuffers.set(stageId, audioBuf);
+        })
+        .catch(() => {
+          // If decoding fails, HTMLAudioElement fallback will play it
+        });
+    }
+  }
+
   private updateGains() {
+    const effectiveMusicVol = this.muted ? 0 : this.isDucking ? this.musicVol * 0.10 : this.musicVol;
     if (this.currentAudioElement) {
-      this.currentAudioElement.volume = this.muted ? 0 : this.musicVol;
+      this.currentAudioElement.volume = effectiveMusicVol;
     }
     if (!this.ctx || !this.masterGain || !this.musicGain || !this.sfxGain) return;
     const now = this.ctx.currentTime;
     const targetMaster = this.muted ? 0 : 1;
     this.masterGain.gain.setValueAtTime(targetMaster, now);
-    this.musicGain.gain.setValueAtTime(this.musicVol, now);
+    this.musicGain.gain.setValueAtTime(effectiveMusicVol, now);
     this.sfxGain.gain.setValueAtTime(this.sfxVol, now);
+    if (this.voiceGain) {
+      // Powerful amplification (2.2x SFX volume) for commanding boss voice presence
+      this.voiceGain.gain.setValueAtTime(this.sfxVol * 2.2, now);
+    }
   }
 
   private createNoiseBuffer() {
@@ -570,11 +627,111 @@ class SoundEngine {
   }
 
   // -------------------------------------------------------------
+  // AUDIO DUCKING (BACKGROUND MUSIC DROP DURING BOSS QUOTES)
+  // -------------------------------------------------------------
+
+  public duckMusic() {
+    if (this.unduckFadeTimer !== null) {
+      window.clearInterval(this.unduckFadeTimer);
+      this.unduckFadeTimer = null;
+    }
+    this.isDucking = true;
+    this.updateGains();
+  }
+
+  public unduckMusic() {
+    if (!this.isDucking) return;
+    this.isDucking = false;
+    if (this.duckTimerId !== null) {
+      window.clearTimeout(this.duckTimerId);
+      this.duckTimerId = null;
+    }
+    if (this.unduckFadeTimer !== null) {
+      window.clearInterval(this.unduckFadeTimer);
+      this.unduckFadeTimer = null;
+    }
+
+    // Smooth restoration of HTMLAudioElement volume over 500ms
+    if (this.currentAudioElement && !this.muted) {
+      const targetVol = this.musicVol;
+      const startVol = this.currentAudioElement.volume;
+      const startTime = performance.now();
+      const fadeDuration = 500;
+      this.unduckFadeTimer = window.setInterval(() => {
+        if (!this.currentAudioElement || this.isDucking) {
+          if (this.unduckFadeTimer !== null) {
+            window.clearInterval(this.unduckFadeTimer);
+            this.unduckFadeTimer = null;
+          }
+          return;
+        }
+        const elapsed = performance.now() - startTime;
+        const progress = Math.min(1, elapsed / fadeDuration);
+        this.currentAudioElement.volume = startVol + (targetVol - startVol) * progress;
+        if (progress >= 1) {
+          if (this.unduckFadeTimer !== null) {
+            window.clearInterval(this.unduckFadeTimer);
+            this.unduckFadeTimer = null;
+          }
+          this.updateGains();
+        }
+      }, 25);
+    } else {
+      this.updateGains();
+    }
+
+    if (this.ctx && this.musicGain) {
+      const now = this.ctx.currentTime;
+      this.musicGain.gain.cancelScheduledValues(now);
+      this.musicGain.gain.setValueAtTime(this.musicGain.gain.value, now);
+      this.musicGain.gain.linearRampToValueAtTime(this.muted ? 0 : this.musicVol, now + 0.5);
+    }
+  }
+
+  // -------------------------------------------------------------
   // BOSS VOICE LINES & SIGNATURE ATTACK SFX
   // -------------------------------------------------------------
 
   public playBossVoice(stageNum: number) {
     if (this.muted || typeof window === "undefined") return;
+
+    // Halt any previous boss voice playback
+    this.stopBossVoice();
+
+    // Duck music immediately so the quote is prominent and clear
+    this.duckMusic();
+
+    const actx = this.init();
+    const buffer = this.bossVoiceBuffers.get(stageNum);
+
+    // If decoded buffer is available in Web Audio API, play boosted through voiceGain (+120% boost!)
+    if (actx && buffer && this.voiceGain) {
+      try {
+        const source = actx.createBufferSource();
+        source.buffer = buffer;
+        source.connect(this.voiceGain);
+        this.currentVoiceSource = source;
+
+        source.onended = () => {
+          if (this.currentVoiceSource === source) {
+            this.currentVoiceSource = null;
+            this.unduckMusic();
+          }
+        };
+
+        source.start();
+
+        const durationSec = (buffer.duration || 4.5) + 0.3;
+        this.duckTimerId = window.setTimeout(() => {
+          this.unduckMusic();
+        }, durationSec * 1000);
+        return;
+      } catch (err) {
+        console.warn("[audio] Buffer voice failed, fallback to Audio element:", err);
+      }
+    }
+
+    // HTMLAudioElement fallback
     try {
       let a = this.bossVoices[stageNum];
       if (!a) {
@@ -584,15 +741,42 @@ class SoundEngine {
       }
       a.pause();
       a.currentTime = 0;
-      a.volume = Math.min(1, this.sfxVol * 1.15);
-      void a.play().catch(() => {});
+      a.volume = 1.0;
+
+      const onEnded = () => {
+        a.removeEventListener("ended", onEnded);
+        this.unduckMusic();
+      };
+      a.addEventListener("ended", onEnded, { once: true });
+
+      const playPromise = a.play();
+      if (playPromise) {
+        playPromise.catch(() => {
+          this.unduckMusic();
+        });
+      }
+
+      this.duckTimerId = window.setTimeout(() => {
+        this.unduckMusic();
+      }, 5500);
     } catch {
-      // Ignore
+      this.unduckMusic();
     }
   }
 
   public stopBossVoice(stageNum?: number) {
     if (typeof window === "undefined") return;
+
+    if (this.currentVoiceSource) {
+      try {
+        this.currentVoiceSource.stop();
+        this.currentVoiceSource.disconnect();
+      } catch {
+        // Ignore
+      }
+      this.currentVoiceSource = null;
+    }
+
     if (stageNum && this.bossVoices[stageNum]) {
       this.bossVoices[stageNum].pause();
       this.bossVoices[stageNum].currentTime = 0;
@@ -602,6 +786,8 @@ class SoundEngine {
         a.currentTime = 0;
       }
     }
+
+    this.unduckMusic();
   }
 
   public playBossAttack(stageNum: number, attackIndex: 1 | 2 = 1) {
@@ -936,7 +1122,7 @@ class SoundEngine {
           this.audioElementsCache.set(mp3Url, audio);
         }
         audio.currentTime = 0;
-        audio.volume = this.muted ? 0 : this.musicVol;
+        audio.volume = this.muted ? 0 : this.isDucking ? this.musicVol * 0.10 : this.musicVol;
         this.currentAudioElement = audio;
         const playPromise = audio.play();
         if (playPromise !== undefined) {

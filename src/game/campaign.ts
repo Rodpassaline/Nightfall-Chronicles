@@ -814,6 +814,7 @@ export function mountCampaign(
         player.lives = 0;
         player.hp = 0;
         player.dead = true;
+        sound.stopBossVoice();
         player.toast = "Fim de jogo! Todas as 3 vidas foram perdidas.";
         player.toastT = 4.0;
         sound.playBgm("gameover");
