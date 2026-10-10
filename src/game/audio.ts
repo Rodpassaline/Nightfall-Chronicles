@@ -914,6 +914,9 @@ class SoundEngine {
     } else if (name === "boss") {
       // Stage 6 epic horror battle track for standard boss battles
       mp3Url = "/audio/stage-6.mp3";
+    } else if (name === "title") {
+      // Studio Emblematic main theme for title and menu
+      mp3Url = "/audio/title.mp3";
     }
 
     if (mp3Url && typeof window !== "undefined") {
