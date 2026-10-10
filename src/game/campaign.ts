@@ -1410,8 +1410,7 @@ export function mountCampaign(
   function updateEnemy(e: Enemy, dt: number) {
     e.t += dt;
     e.hurt = Math.max(0, e.hurt - dt);
-    if (e.state === "slash") e.cd -= dt;
-    else e.cd = Math.max(0, e.cd - dt);
+    e.cd = Math.max(0, e.cd - dt);
     if (e.dead) return;
 
     const dx = player.x + player.w / 2 - (e.x + e.w / 2);
@@ -1419,10 +1418,11 @@ export function mountCampaign(
     e.facing = dx >= 0 ? 1 : -1;
 
     // =========================================================================
-    // PROXIMITY ACTIVATION: Off-screen enemies & bosses remain dormant!
-    // This strictly prevents distant bosses or mobs from attacking across the map.
+    // PROXIMITY ACTIVATION: Full-screen aggressive detection!
+    // Enemies spot and hunt Aldric as soon as he is anywhere on screen or approaching.
     // =========================================================================
-    if (dist > 280) {
+    const maxActiveDist = e.boss ? 620 : 480;
+    if (dist > maxActiveDist) {
       e.vx = 0;
       if (e.kind !== "bat") {
         e.vy = Math.min(e.vy + T.gravDown * dt, T.terminal);
@@ -1432,19 +1432,18 @@ export function mountCampaign(
     }
 
     // =========================================================================
-    // 1. BAT (Common flying enemy - predatory sine-wave swoop flight)
+    // 1. BAT (Common flying predator - aggressive aerial swoop flight)
     // =========================================================================
     if (e.kind === "bat") {
-      if (dist < 240) {
-        // Predatory sine-wave swoop intercepting jumps (Classic Castlevania bat AI)
-        const swoopSpeed = e.boss ? 110 : 85;
+      if (dist < 380) {
+        // Fast predatory sine-wave swoop intercepting player
+        const swoopSpeed = e.boss ? 135 : 105;
         e.vx = Math.sign(dx) * swoopSpeed;
-        const wave = Math.sin(e.t * 5.2) * 28;
-        const targetY = player.y - 10 + wave;
-        e.y += (targetY - e.y) * Math.min(1, dt * 3.4);
+        const wave = Math.sin(e.t * 5.6) * 32;
+        const targetY = player.y - 12 + wave;
+        e.y += (targetY - e.y) * Math.min(1, dt * 4.2);
         e.x += e.vx * dt;
       } else {
-        // Roosting hover around home
         const tx = e.homeX + Math.sin(e.t * 2.2) * 32;
         const ty = e.homeY + Math.sin(e.t * 3.4) * 10;
         e.x += (tx - e.x) * Math.min(1, dt * 2.0);
@@ -1457,24 +1456,21 @@ export function mountCampaign(
     // =========================================================================
     else if (e.kind === "bossPetros") {
       const isEnraged = e.hp / e.max < 0.5;
-      if (e.cd <= 0 && dist > 60 && e.state !== "dive") {
-        // High leap and dive smash
+      if (e.cd <= 0 && dist > 70 && e.state !== "dive") {
+        // High leap and crushing dive smash
         e.state = "dive";
-        e.vy = isEnraged ? -220 : -180;
-        e.cd = isEnraged ? 1.8 : 2.5;
+        e.vy = isEnraged ? -240 : -200;
+        e.cd = isEnraged ? 1.4 : 1.9;
       }
       if (e.state === "dive") {
-        e.vx = Math.sign(dx) * (isEnraged ? 125 : 100);
-        // Crash down onto ground
+        e.vx = Math.sign(dx) * (isEnraged ? 140 : 115);
         if (e.grounded || e.y >= e.homeY - 8) {
           e.state = "idle";
           e.vx = 0;
           shake = isEnraged ? 7 : 5;
           sound.playSfx("bossHurt");
-          // Shockwaves traveling both directions
-          fire({ x: e.x - 20, y: e.y + e.h - 18, w: 16, h: 18, vx: -160, vy: 0, life: 1.2, dmg: 1, friendly: false, sprite: "spell" });
-          fire({ x: e.x + e.w + 4, y: e.y + e.h - 18, w: 16, h: 18, vx: 160, vy: 0, life: 1.2, dmg: 1, friendly: false, sprite: "spell" });
-          // Enrage: Ceiling stone rubble falls near Petros
+          fire({ x: e.x - 20, y: e.y + e.h - 18, w: 16, h: 18, vx: -170, vy: 0, life: 1.2, dmg: 1, friendly: false, sprite: "spell" });
+          fire({ x: e.x + e.w + 4, y: e.y + e.h - 18, w: 16, h: 18, vx: 170, vy: 0, life: 1.2, dmg: 1, friendly: false, sprite: "spell" });
           if (isEnraged) {
             for (let r = 0; r < 2; r++) {
               fire({
@@ -1483,7 +1479,7 @@ export function mountCampaign(
                 w: 16,
                 h: 18,
                 vx: (Math.random() - 0.5) * 20,
-                vy: 190,
+                vy: 200,
                 life: 1.6,
                 dmg: 1,
                 friendly: false,
@@ -1493,20 +1489,24 @@ export function mountCampaign(
           }
         }
       } else {
-        if (dist < 52 && e.cd <= 0) {
-          e.wind = 0.22;
-          e.cd = 0.8;
+        if (dist <= 56 && e.cd <= 0) {
+          e.wind = 0.18;
+          e.cd = 0.6;
           e.state = "slash";
-        } else if (dist >= 52 && dist < 240) {
-          e.vx = Math.sign(dx) * (isEnraged ? 55 : 40);
-        } else {
-          e.vx = 0;
         }
-      }
-      if (e.state === "slash" && e.wind <= 0) {
-        const box = { x: e.facing > 0 ? e.x + e.w : e.x - 34, y: e.y + 12, w: 36, h: 48 };
-        if (overlap(box, player)) hurtPlayer(1, e.x);
-        e.state = "idle";
+        if (e.wind > 0) {
+          e.wind -= dt;
+          e.vx = e.facing * (isEnraged ? 60 : 45);
+          if (e.wind <= 0) {
+            const box = { x: e.facing > 0 ? e.x + e.w : e.x - 38, y: e.y + 12, w: 42, h: 48 };
+            if (overlap(box, player)) hurtPlayer(2, e.x, "slash");
+            e.state = "idle";
+          }
+        } else {
+          // Relentless forward march into Aldric
+          e.state = "idle";
+          e.vx = Math.sign(dx) * (isEnraged ? 65 : 48);
+        }
       }
       e.vy = Math.min(e.vy + T.gravDown * dt, T.terminal);
       resolve(e, dt, false);
@@ -1516,29 +1516,24 @@ export function mountCampaign(
     // =========================================================================
     else if (e.kind === "bossValerius") {
       const isEnraged = e.hp / e.max < 0.5;
-      if (e.state === "shield") {
-        e.vx = e.facing * (isEnraged ? 40 : 26);
-        if (e.cd <= 0) {
-          e.state = "slash";
-          e.wind = isEnraged ? 0.2 : 0.28;
-          e.cd = 0.25;
-        }
-      } else if (e.state === "slash") {
-        if (e.wind > 0) {
-          e.wind -= dt;
-          e.vx = 0;
-        } else {
-          // Swift shadow rush lunge
-          e.vx = e.facing * (isEnraged ? 170 : 135);
-          const box = { x: e.facing > 0 ? e.x + e.w : e.x - 36, y: e.y + 14, w: 42, h: 46 };
-          if (overlap(box, player)) hurtPlayer(2, e.x);
+      if (dist <= 54 && e.cd <= 0) {
+        e.state = "slash";
+        e.wind = 0.15;
+        e.cd = 0.5;
+      }
+      if (e.wind > 0) {
+        e.wind -= dt;
+        e.vx = e.facing * (isEnraged ? 180 : 145);
+        if (e.wind <= 0) {
+          const box = { x: e.facing > 0 ? e.x + e.w : e.x - 42, y: e.y + 14, w: 48, h: 46 };
+          if (overlap(box, player)) hurtPlayer(2, e.x, "slash");
           // Dark crescent ground wave
           fire({
             x: e.x + (e.facing > 0 ? e.w : -24),
             y: e.y + e.h - 32,
             w: 24,
             h: 32,
-            vx: e.facing * 180,
+            vx: e.facing * 190,
             vy: 0,
             life: 1.2,
             dmg: 1,
@@ -1546,17 +1541,11 @@ export function mountCampaign(
             sprite: "slash",
           });
           e.state = "shield";
-          e.cd = isEnraged ? 1.2 : 1.7;
         }
       } else {
-        if (dist < 48) {
-          e.state = "slash";
-          e.wind = 0.2;
-          e.cd = 0.2;
-        } else {
-          e.state = "shield";
-          e.cd = isEnraged ? 1.1 : 1.5;
-        }
+        // Relentless disciplined shield advance
+        e.state = "shield";
+        e.vx = e.facing * (isEnraged ? 60 : 44);
       }
       e.vy = Math.min(e.vy + T.gravDown * dt, T.terminal);
       resolve(e, dt, false);
@@ -1566,24 +1555,27 @@ export function mountCampaign(
     // =========================================================================
     else if (e.kind === "bossSeraphine") {
       const isEnraged = e.hp / e.max < 0.5;
-      e.y = e.homeY + Math.sin(e.t * 3.2) * 12;
-      if (e.cd <= 0) {
-        e.cd = isEnraged ? 1.6 : 2.1;
-        // Teleport within arena if player is close
-        if (dist < 56) {
-          e.x = clamp(player.x + (e.facing > 0 ? 110 : -110), e.homeX - 140, e.homeX + 140);
+      e.y = e.homeY + Math.sin(e.t * 3.2) * 14;
+      if (dist < 60) {
+        // Immediate escape teleport and counter-barrage if player gets too close!
+        if (e.cd <= 0.4) {
+          e.x = clamp(player.x + (e.facing > 0 ? -120 : 120), e.homeX - 150, e.homeX + 150);
           sound.playSfx("spell");
+          e.cd = isEnraged ? 0.9 : 1.2;
         }
-        // Fan of blood orbs fired towards player (dodgable and parryable)
+      }
+      if (e.cd <= 0) {
+        e.cd = isEnraged ? 1.1 : 1.5;
+        // Fan of blood orbs fired towards player
         const orbCount = isEnraged ? 4 : 3;
         for (let i = 0; i < orbCount; i++) {
-          const spreadY = (i - Math.floor(orbCount / 2)) * 30;
+          const spreadY = (i - Math.floor(orbCount / 2)) * 32;
           fire({
             x: e.x + (e.facing > 0 ? e.w : -12),
             y: e.y + 20,
             w: 14,
             h: 14,
-            vx: e.facing * (isEnraged ? 145 : 120),
+            vx: e.facing * (isEnraged ? 155 : 130),
             vy: spreadY,
             life: 1.8,
             dmg: 1,
@@ -1598,12 +1590,12 @@ export function mountCampaign(
     // =========================================================================
     else if (e.kind === "bossNocturne") {
       const isEnraged = e.hp / e.max < 0.5;
-      const tx = player.x + Math.sin(e.t * 2.8) * 50;
-      const ty = clamp(player.y - 38 + Math.cos(e.t * 3.4) * 34, 20, GROUND_Y - 40);
-      e.x += (tx - e.x) * Math.min(1, dt * (isEnraged ? 3.0 : 2.4));
-      e.y += (ty - e.y) * Math.min(1, dt * (isEnraged ? 3.0 : 2.4));
+      const tx = player.x + Math.sin(e.t * 3.2) * 45;
+      const ty = clamp(player.y - 32 + Math.cos(e.t * 3.8) * 30, 20, GROUND_Y - 40);
+      e.x += (tx - e.x) * Math.min(1, dt * (isEnraged ? 3.6 : 2.8));
+      e.y += (ty - e.y) * Math.min(1, dt * (isEnraged ? 3.6 : 2.8));
       if (e.cd <= 0) {
-        e.cd = isEnraged ? 1.5 : 2.1;
+        e.cd = isEnraged ? 1.1 : 1.5;
         sound.playSfx("bossHurt");
         // Sonic screech shockwave
         fire({
@@ -1611,7 +1603,7 @@ export function mountCampaign(
           y: e.y + e.h / 2 - 8,
           w: 22,
           h: 22,
-          vx: e.facing * (isEnraged ? 180 : 150),
+          vx: e.facing * (isEnraged ? 190 : 160),
           vy: 0,
           life: 1.5,
           dmg: 1,
@@ -1625,23 +1617,23 @@ export function mountCampaign(
     // =========================================================================
     else if (e.kind === "bossVeyne") {
       const isEnraged = e.hp / e.max < 0.5;
-      if (dist > 46) {
-        e.vx = Math.sign(dx) * (isEnraged ? 44 : 32);
-      } else {
-        e.vx = 0;
-      }
-      if (e.cd <= 0) {
-        e.cd = isEnraged ? 1.4 : 2.0;
+      if (dist <= 52 && e.cd <= 0) {
+        // Close range arcane burst
+        e.cd = 0.55;
         e.state = "slash";
-        e.wind = 0.35;
-        // Flaming arcane skulls in parabolic arcs towards player
+        e.wind = 0.16;
+      } else if (dist > 52 && e.cd <= 0) {
+        e.cd = isEnraged ? 1.0 : 1.4;
+        e.state = "slash";
+        e.wind = 0.25;
+        // Flaming arcane skulls
         fire({
           x: e.x + (e.facing > 0 ? e.w : -16),
           y: e.y + 14,
           w: 16,
           h: 16,
-          vx: e.facing * (isEnraged ? 135 : 115),
-          vy: -120,
+          vx: e.facing * (isEnraged ? 145 : 125),
+          vy: -130,
           gravity: 320,
           life: 2.1,
           dmg: 1,
@@ -1654,8 +1646,8 @@ export function mountCampaign(
             y: e.y + 14,
             w: 16,
             h: 16,
-            vx: e.facing * 90,
-            vy: -150,
+            vx: e.facing * 95,
+            vy: -160,
             gravity: 320,
             life: 2.1,
             dmg: 1,
@@ -1663,9 +1655,21 @@ export function mountCampaign(
             sprite: "spell",
           });
         }
-      } else if (e.wind > 0) {
+      }
+
+      if (e.wind > 0) {
         e.wind -= dt;
-        if (e.wind <= 0) e.state = "idle";
+        e.vx = e.facing * (isEnraged ? 45 : 30);
+        if (e.wind <= 0) {
+          if (dist <= 56) {
+            const box = { x: e.facing > 0 ? e.x + e.w : e.x - 38, y: e.y + 12, w: 42, h: 44 };
+            if (overlap(box, player)) hurtPlayer(2, e.x, "spell");
+          }
+          e.state = "idle";
+        }
+      } else {
+        e.state = "idle";
+        e.vx = Math.sign(dx) * (isEnraged ? 55 : 42);
       }
       e.vy = Math.min(e.vy + T.gravDown * dt, T.terminal);
       resolve(e, dt, false);
@@ -1675,37 +1679,43 @@ export function mountCampaign(
     // =========================================================================
     else if (e.kind === "bossCalx") {
       const isEnraged = e.hp / e.max < 0.5;
-      if (e.cd <= 0 && dist > 60) {
-        e.cd = isEnraged ? 1.8 : 2.4;
-        // Toxic alchemy flask thrown in arc
+      if (dist <= 56 && e.cd <= 0) {
+        // Seismic Stomp & Cleave
+        e.state = "smash";
+        e.wind = 0.16;
+        e.cd = isEnraged ? 0.9 : 1.3;
+        shake = 6;
+        sound.playSfx("bossHurt");
+        if (player.grounded && dist < 90) {
+          hurtPlayer(1, e.x, "slash");
+        }
+        fire({ x: e.x - 18, y: e.y + e.h - 16, w: 16, h: 16, vx: -160, vy: 0, life: 1.2, dmg: 1, friendly: false, sprite: "spell" });
+        fire({ x: e.x + e.w + 4, y: e.y + e.h - 16, w: 16, h: 16, vx: 160, vy: 0, life: 1.2, dmg: 1, friendly: false, sprite: "spell" });
+      } else if (dist > 56 && e.cd <= 0) {
+        e.cd = isEnraged ? 1.2 : 1.6;
+        // Toxic alchemy flask
         fire({
           x: e.x + (e.facing > 0 ? e.w : -14),
           y: e.y + 12,
           w: 16,
           h: 16,
-          vx: e.facing * (isEnraged ? 135 : 110),
-          vy: -130,
+          vx: e.facing * (isEnraged ? 145 : 120),
+          vy: -135,
           gravity: 350,
           life: 2.0,
           dmg: 1,
           friendly: false,
           sprite: "spell",
         });
-      } else if (dist <= 52 && e.cd <= 0) {
-        // Seismic Stomp: only hits grounded players close by (jump to dodge!)
-        e.state = "smash";
-        e.cd = isEnraged ? 1.4 : 1.9;
-        shake = 6;
-        sound.playSfx("bossHurt");
-        if (player.grounded && dist < 85) {
-          hurtPlayer(1, e.x);
-        }
-        fire({ x: e.x - 18, y: e.y + e.h - 16, w: 16, h: 16, vx: -150, vy: 0, life: 1.2, dmg: 1, friendly: false, sprite: "spell" });
-        fire({ x: e.x + e.w + 4, y: e.y + e.h - 16, w: 16, h: 16, vx: 150, vy: 0, life: 1.2, dmg: 1, friendly: false, sprite: "spell" });
-      } else if (dist > 45) {
-        e.vx = Math.sign(dx) * (isEnraged ? 44 : 34);
+      }
+
+      if (e.wind > 0) {
+        e.wind -= dt;
+        e.vx = e.facing * 40;
+        if (e.wind <= 0) e.state = "idle";
       } else {
-        e.vx = 0;
+        e.state = "idle";
+        e.vx = Math.sign(dx) * (isEnraged ? 56 : 42);
       }
       e.vy = Math.min(e.vy + T.gravDown * dt, T.terminal);
       resolve(e, dt, false);
@@ -1720,263 +1730,340 @@ export function mountCampaign(
       const minX = e.homeX - 110;
       const maxX = e.homeX + 90;
 
+      if (dist <= 52 && e.cd <= 0) {
+        // Immediate Demonic Vampire Claw Strike when player is near!
+        e.state = "slash";
+        e.wind = 0.12;
+        e.cd = draculaPhase === 3 ? 0.35 : 0.5;
+      }
+
       if (e.wind > 0) {
         e.wind -= dt;
+        e.vx = e.facing * 75;
         if (e.wind <= 0) {
-          // Hellfire Volley fired forward
-          const count = draculaPhase === 1 ? 3 : draculaPhase === 2 ? 4 : 5;
-          for (let i = 0; i < count; i++) {
-            const chest = e.y + e.h - 78;
-            const spreadY = -25 + i * 20;
-            fire({
-              x: e.x + (e.facing > 0 ? e.w : -12),
-              y: chest - 6,
-              w: 16,
-              h: 28,
-              vx: e.facing * (120 + draculaPhase * 20),
-              vy: spreadY,
-              life: 2.1,
-              dmg: 1,
-              friendly: false,
-              sprite: "blood",
-              drawCenterY: chest,
-            });
-          }
-          // Phase 3 Meteors in throne room
-          if (draculaPhase === 3) {
-            shake = 5;
-            for (let m = 0; m < 2; m++) {
+          if (e.state === "slash") {
+            const box = { x: e.facing > 0 ? e.x + e.w : e.x - 42, y: e.y + e.h - 70, w: 46, h: 48 };
+            if (overlap(box, player)) hurtPlayer(2, e.x, "slash");
+            e.state = "idle";
+          } else {
+            // Hellfire Volley fired forward
+            const count = draculaPhase === 1 ? 3 : draculaPhase === 2 ? 4 : 5;
+            for (let i = 0; i < count; i++) {
+              const chest = e.y + e.h - 78;
+              const spreadY = -25 + i * 20;
               fire({
-                x: e.x + (m === 0 ? -50 : 50) + (Math.random() - 0.5) * 30,
-                y: -15,
+                x: e.x + (e.facing > 0 ? e.w : -12),
+                y: chest - 6,
                 w: 16,
-                h: 26,
-                vx: (Math.random() - 0.5) * 20,
-                vy: 190,
-                life: 1.7,
+                h: 28,
+                vx: e.facing * (130 + draculaPhase * 25),
+                vy: spreadY,
+                life: 2.1,
                 dmg: 1,
                 friendly: false,
                 sprite: "blood",
+                drawCenterY: chest,
               });
             }
+            if (draculaPhase === 3) {
+              shake = 5;
+              for (let m = 0; m < 2; m++) {
+                fire({
+                  x: e.x + (m === 0 ? -50 : 50) + (Math.random() - 0.5) * 30,
+                  y: -15,
+                  w: 16,
+                  h: 26,
+                  vx: (Math.random() - 0.5) * 20,
+                  vy: 200,
+                  life: 1.7,
+                  dmg: 1,
+                  friendly: false,
+                  sprite: "blood",
+                });
+              }
+            }
+            e.state = "idle";
           }
         }
-      } else if (e.cd <= 0 && dist > 40) {
+      } else if (e.cd <= 0 && dist > 55) {
         // Teleport within throne arena
         e.x = clamp(player.x + (player.x < e.homeX ? 75 : -75), minX, maxX);
         sound.playSfx("spell");
-        e.wind = draculaPhase === 3 ? 0.28 : 0.38;
-        e.cd = draculaPhase === 3 ? 0.95 : draculaPhase === 2 ? 1.25 : 1.55;
-      } else if (dist > 46) {
-        e.vx = Math.sign(dx) * (draculaPhase === 2 ? 80 : 50);
-        e.x = clamp(e.x + e.vx * dt, minX, maxX);
+        e.wind = draculaPhase === 3 ? 0.22 : 0.32;
+        e.cd = draculaPhase === 3 ? 0.8 : draculaPhase === 2 ? 1.05 : 1.35;
       } else {
-        e.vx = 0;
-        if (e.cd <= 0) {
-          e.state = "slash";
-          e.cd = 0.2;
-        }
-      }
-      if (e.state === "slash" && e.cd <= 0) {
-        const box = { x: e.facing > 0 ? e.x + e.w : e.x - 30, y: e.y + e.h - 70, w: 34, h: 48 };
-        if (overlap(box, player)) hurtPlayer(2, e.x);
-        e.state = "idle";
-        e.cd = draculaPhase === 3 ? 0.4 : draculaPhase === 2 ? 0.5 : 0.8;
+        // Advances relentlessly
+        e.vx = Math.sign(dx) * (draculaPhase === 3 ? 85 : draculaPhase === 2 ? 70 : 55);
+        e.x = clamp(e.x + e.vx * dt, minX, maxX);
       }
     }
     // =========================================================================
     // 9. REGULAR GROUND ENEMIES (Armored Skeleton, Red Skeleton, Skeleton, Knight, Zombie, Vampire, Gargoyle)
     // =========================================================================
     else {
-      // Armored Skeleton Castlevania AI: Frontal Shield Deflection & Forward Gladius Thrust
+      // -----------------------------------------------------------------------
+      // A. ARMORED SKELETON: Frontal Brass Shield Guard & Lethal Gladius Thrust
+      // -----------------------------------------------------------------------
       if (e.kind === "armoredSkeleton") {
-        if (dist <= 48 && e.cd <= 0) {
-          e.wind = 0.24; // Sword lunge windup
-          e.cd = 0.95;
+        if (dist <= 52 && e.cd <= 0) {
+          e.wind = 0.15;
+          e.cd = 0.52;
           e.state = "slash";
-          e.vx = 0;
-        } else if (e.wind > 0) {
-          e.wind -= dt;
-          e.vx = 0;
-        } else if (e.state === "slash") {
-          if (e.cd <= 0) {
-            // Forward gladius lunge (reach 38px, 2 damage)
-            const box = {
-              x: e.facing > 0 ? e.x + e.w - 4 : e.x - 38,
-              y: e.y + 12,
-              w: 38,
-              h: 32,
-            };
-            if (overlap(box, player)) hurtPlayer(2, e.x);
-            e.state = "idle";
-            e.cd = 0.85;
-          }
-        } else {
-          e.state = "idle";
-          if (dist > 48 && dist < 250) {
-            e.vx = e.facing * 40; // Steady disciplined march
-          } else {
-            e.vx = 0;
-          }
         }
-      }
-      // Red Skeleton Castlevania AI: High-Perch Bone Hurling & Patrolling
-      else if (e.kind === "redSkeleton") {
-        if (e.cd <= 0 && dist < 250 && dist > 40) {
-          e.cd = 1.9;
-          e.wind = 0.22;
-          e.state = "slash"; // Bone toss frame
-          fire({
-            x: e.x + (e.facing > 0 ? e.w : -12),
-            y: e.y + 12,
-            w: 14,
-            h: 14,
-            vx: e.facing * (115 + Math.random() * 25),
-            vy: -155,
-            gravity: 370,
-            life: 2.2,
-            dmg: 1,
-            friendly: false,
-            sprite: "spell",
-          });
-        }
+
         if (e.wind > 0) {
           e.wind -= dt;
-          e.vx = 0;
-          if (e.wind <= 0) e.state = "idle";
-        } else {
-          if (dist < 55) {
-            e.vx = -e.facing * 38; // Backpedal
-          } else if (dist > 140 && dist < 240) {
-            e.vx = e.facing * 36;
-          } else {
-            e.vx = 0;
-          }
-        }
-      }
-      // Skeleton Castlevania AI: Parabolic Bone Toss & Backpedaling
-      else if (e.kind === "skeleton") {
-        if (e.cd <= 0 && dist < 220 && dist > 50) {
-          e.cd = 2.0;
-          fire({
-            x: e.x + (e.facing > 0 ? e.w : -12),
-            y: e.y + 10,
-            w: 14,
-            h: 14,
-            vx: e.facing * (105 + Math.random() * 30),
-            vy: -140,
-            gravity: 360,
-            life: 2.0,
-            dmg: 1,
-            friendly: false,
-            sprite: "spell",
-          });
-        }
-        if (dist < 60) {
-          e.vx = -e.facing * 44;
-        } else if (dist > 150 && dist < 250) {
-          e.vx = e.facing * 38;
-        } else {
-          e.vx = 0;
-        }
-      }
-      // Knight Castlevania AI: Heavy Shield Guard & Halberd Thrust
-      else if (e.kind === "knight") {
-        if (dist <= 48 && e.cd <= 0) {
-          e.wind = 0.32;
-          e.cd = 0.95;
-          e.state = "slash";
-          e.vx = 0;
-        } else if (e.wind > 0) {
-          e.wind -= dt;
-          e.vx = 0;
-        } else if (e.state === "slash") {
-          if (e.cd <= 0) {
-            // Extended halberd thrust (reach 44px, 2 damage)
+          e.vx = e.facing * 55; // Gladius lunge forward!
+          if (e.wind <= 0) {
+            // Forward gladius lunge (reach 44px, 2 damage)
             const box = {
               x: e.facing > 0 ? e.x + e.w - 4 : e.x - 44,
               y: e.y + 10,
-              w: 44,
-              h: 26,
+              w: 46,
+              h: 34,
             };
-            if (overlap(box, player)) hurtPlayer(2, e.x);
+            if (overlap(box, player)) hurtPlayer(2, e.x, "slash");
             e.state = "shield";
           }
         } else {
+          // Relentless disciplined shield march - NEVER stands still!
           e.state = "shield";
-          if (dist > 48 && dist < 260) {
-            e.vx = e.facing * 38;
-          } else {
-            e.vx = 0;
-          }
+          e.vx = e.facing * 50;
         }
       }
-      // Zombie AI: Relentless slow march
-      else if (e.kind === "zombie") {
-        if (dist < 280 && dist > 28) {
-          e.vx = e.facing * 34;
-        } else if (dist <= 28 && e.cd <= 0) {
-          e.wind = 0.3;
-          e.cd = 0.8;
-          e.state = "slash";
-          e.vx = 0;
-        }
-        if (e.state === "slash" && e.wind <= 0) {
-          const box = { x: e.facing > 0 ? e.x + e.w : e.x - 30, y: e.y + 12, w: 32, h: 36 };
-          if (overlap(box, player)) hurtPlayer(1, e.x);
-          e.state = "idle";
-        }
-      }
-      // Vampire & Gargoyle ground AI
-      else {
-        if (e.wind > 0) {
-          e.wind -= dt;
-          e.vx = 0;
-          if (e.wind <= 0) {
+      // -----------------------------------------------------------------------
+      // B. RED SKELETON: Cursed Blood Bone Hurler & Vicious Close-Quarters Cleave
+      // -----------------------------------------------------------------------
+      else if (e.kind === "redSkeleton") {
+        if (dist <= 52) {
+          // Close quarters: Cursed bone cleave!
+          if (e.cd <= 0) {
             e.state = "slash";
-            e.cd = 0.18;
+            e.wind = 0.12;
+            e.cd = 0.42;
           }
-        } else if (e.state === "slash") {
-          if (e.cd <= -0.1) {
-            e.state = "idle";
-            e.cd = 0.7;
-          } else if (e.cd <= 0) {
-            const box = {
-              x: e.facing > 0 ? e.x + e.w - 4 : e.x - 34,
-              y: e.y + 8,
-              w: 34,
-              h: 24,
-            };
-            if (overlap(box, player)) hurtPlayer(1, e.x);
+        } else if (dist <= 400) {
+          // Blood bone throw
+          if (e.cd <= 0) {
+            e.cd = 0.8;
+            e.state = "slash";
+            e.wind = 0.12;
+            fire({
+              x: e.x + (e.facing > 0 ? e.w : -12),
+              y: e.y + 12,
+              w: 14,
+              h: 14,
+              vx: e.facing * (125 + Math.random() * 30),
+              vy: -155,
+              gravity: 370,
+              life: 2.2,
+              dmg: 1,
+              friendly: false,
+              sprite: "spell",
+            });
           }
-        } else if (dist < 280 && dist > 36) {
-          const dir = Math.sign(dx) || -1;
-          const speed = e.kind === "gargoyle" ? 40 : 55;
-          e.vx = dir * speed;
-        } else if (dist <= 36 && e.cd <= 0) {
-          e.wind = 0.28;
-          e.cd = 0.85;
-          e.vx = 0;
-        } else {
-          e.vx = 0;
         }
 
-        // Vampire ranged blood orb attack
-        if (e.kind === "vampire" && e.cd <= 0 && dist > 70 && dist < 220 && e.wind <= 0) {
-          e.cd = 2.4;
+        if (e.wind > 0) {
+          e.wind -= dt;
+          e.vx = e.facing * 40;
+          if (e.wind <= 0) {
+            if (dist <= 56) {
+              const box = {
+                x: e.facing > 0 ? e.x + e.w - 4 : e.x - 42,
+                y: e.y + 8,
+                w: 44,
+                h: 36,
+              };
+              if (overlap(box, player)) hurtPlayer(1, e.x, "slash");
+            }
+            e.state = "idle";
+          }
+        } else {
+          e.state = "idle";
+          e.vx = e.facing * 56; // Relentless undead sprint
+        }
+      }
+      // -----------------------------------------------------------------------
+      // C. SKELETON: Parabolic Bone Volley & Close-Quarters Bone Dagger Thrust
+      // -----------------------------------------------------------------------
+      else if (e.kind === "skeleton") {
+        if (dist <= 48) {
+          // Close quarters: Lethal bone dagger thrust!
+          if (e.cd <= 0) {
+            e.state = "slash";
+            e.wind = 0.14;
+            e.cd = 0.5;
+          }
+        } else if (dist <= 380) {
+          // Parabolic bone toss
+          if (e.cd <= 0) {
+            e.cd = 0.85;
+            e.state = "slash";
+            e.wind = 0.12;
+            fire({
+              x: e.x + (e.facing > 0 ? e.w : -12),
+              y: e.y + 10,
+              w: 14,
+              h: 14,
+              vx: e.facing * (115 + Math.random() * 30),
+              vy: -145,
+              gravity: 360,
+              life: 2.1,
+              dmg: 1,
+              friendly: false,
+              sprite: "spell",
+            });
+          }
+        }
+
+        if (e.wind > 0) {
+          e.wind -= dt;
+          e.vx = e.facing * 35; // Steps forward aggressively during attack
+          if (e.wind <= 0) {
+            if (dist <= 52) {
+              const box = {
+                x: e.facing > 0 ? e.x + e.w - 4 : e.x - 38,
+                y: e.y + 10,
+                w: 40,
+                h: 34,
+              };
+              if (overlap(box, player)) hurtPlayer(1, e.x, "slash");
+            }
+            e.state = "idle";
+          }
+        } else {
+          e.state = "idle";
+          e.vx = e.facing * 52; // Always pursues Aldric!
+        }
+      }
+      // -----------------------------------------------------------------------
+      // D. KNIGHT: Tower Armor Guard & Heavy Halberd Cleave
+      // -----------------------------------------------------------------------
+      else if (e.kind === "knight") {
+        if (dist <= 58 && e.cd <= 0) {
+          e.wind = 0.18;
+          e.cd = 0.55;
+          e.state = "slash";
+        }
+
+        if (e.wind > 0) {
+          e.wind -= dt;
+          e.vx = e.facing * 60; // Halberd thrust rush!
+          if (e.wind <= 0) {
+            // Extended halberd thrust (reach 52px, 2 damage)
+            const box = {
+              x: e.facing > 0 ? e.x + e.w - 4 : e.x - 52,
+              y: e.y + 8,
+              w: 54,
+              h: 36,
+            };
+            if (overlap(box, player)) hurtPlayer(2, e.x, "slash");
+            e.state = "shield";
+          }
+        } else {
+          // Armored pursuit with halberd guard
+          e.state = "shield";
+          e.vx = e.facing * 48;
+        }
+      }
+      // -----------------------------------------------------------------------
+      // E. ZOMBIE: Shambling Predatory Sprint & Feral Claw Strike
+      // -----------------------------------------------------------------------
+      else if (e.kind === "zombie") {
+        if (dist <= 46 && e.cd <= 0) {
+          e.wind = 0.12;
+          e.cd = 0.42;
+          e.state = "slash";
+        }
+
+        if (e.wind > 0) {
+          e.wind -= dt;
+          e.vx = e.facing * 45; // Feral leap into player!
+          if (e.wind <= 0) {
+            const box = {
+              x: e.facing > 0 ? e.x + e.w - 4 : e.x - 38,
+              y: e.y + 10,
+              w: 40,
+              h: 36,
+            };
+            if (overlap(box, player)) hurtPlayer(1, e.x, "slash");
+            e.state = "idle";
+          }
+        } else {
+          e.state = "idle";
+          e.vx = e.facing * 62; // Shambling predatory sprint!
+        }
+      }
+      // -----------------------------------------------------------------------
+      // F. VAMPIRE: High-Speed Stalker, Shadow Claw Rush & Blood Orbs
+      // -----------------------------------------------------------------------
+      else if (e.kind === "vampire") {
+        if (dist <= 54 && e.cd <= 0) {
+          e.wind = 0.12;
+          e.cd = 0.45;
+          e.state = "slash";
+        } else if (dist > 70 && dist <= 380 && e.cd <= 0) {
+          e.cd = 0.95;
           fire({
             x: e.x,
             y: e.y + e.h - 60,
-            w: 14,
+            w: 16,
             h: 28,
-            vx: e.facing * 125,
-            vy: 6,
-            life: 1.4,
+            vx: e.facing * 145,
+            vy: 4,
+            life: 1.6,
             dmg: 1,
             friendly: false,
             sprite: "blood",
             drawCenterY: e.y + e.h - 54,
           });
+        }
+
+        if (e.wind > 0) {
+          e.wind -= dt;
+          e.vx = e.facing * 115; // Rapid shadow rush
+          if (e.wind <= 0) {
+            const box = {
+              x: e.facing > 0 ? e.x + e.w - 4 : e.x - 44,
+              y: e.y + 8,
+              w: 46,
+              h: 36,
+            };
+            if (overlap(box, player)) hurtPlayer(2, e.x, "slash");
+            e.state = "idle";
+          }
+        } else {
+          e.state = "idle";
+          e.vx = e.facing * 88; // High speed stalker
+        }
+      }
+      // -----------------------------------------------------------------------
+      // G. GARGOYLE: Relentless Stone Chase & Heavy Stone Claw Swipe
+      // -----------------------------------------------------------------------
+      else {
+        if (dist <= 50 && e.cd <= 0) {
+          e.wind = 0.14;
+          e.cd = 0.48;
+          e.state = "slash";
+        }
+
+        if (e.wind > 0) {
+          e.wind -= dt;
+          e.vx = e.facing * 65; // Stone dive
+          if (e.wind <= 0) {
+            const box = {
+              x: e.facing > 0 ? e.x + e.w - 4 : e.x - 42,
+              y: e.y + 8,
+              w: 44,
+              h: 36,
+            };
+            if (overlap(box, player)) hurtPlayer(1, e.x, "slash");
+            e.state = "idle";
+          }
+        } else {
+          e.state = "idle";
+          e.vx = e.facing * 66; // Relentless stone chase
         }
       }
 
