@@ -42,11 +42,13 @@ export function GameScreen() {
   const [levelId, setLevelId] = useState(1);
   const [hud, setHud] = useState<GameHud>(empty);
   const [progress, setProgress] = useState({ unlocked: 1, cleared: [] as number[] });
-  const [muted, setMuted] = useState(() => sound.isMuted());
+  const [muted, setMuted] = useState(false);
   const [isFullscreen, setIsFullscreen] = useState(false);
 
   useEffect(() => {
     preloadAllGameAssets();
+    sound.setMuted(false);
+    setMuted(false);
   }, []);
 
   useEffect(() => {
@@ -262,22 +264,22 @@ export function GameScreen() {
   }, []);
 
   useEffect(() => {
-    if (mode === "title" || mode === "stages") {
-      const handleGesture = () => {
-        sound.init();
-        if (!sound.isMuted() && (mode === "title" || mode === "stages")) {
-          sound.playBgm("title");
-        }
-      };
-      window.addEventListener("pointerdown", handleGesture, { once: true });
-      window.addEventListener("keydown", handleGesture, { once: true });
-      return () => {
-        window.removeEventListener("pointerdown", handleGesture);
-        window.removeEventListener("keydown", handleGesture);
-      };
-    } else if (mode === "ending") {
-      sound.playBgm("victory");
-    }
+    const handleGesture = () => {
+      sound.resumePlayback();
+      if (!sound.isMuted() && (mode === "title" || mode === "stages")) {
+        sound.playBgm("title");
+      }
+    };
+    window.addEventListener("pointerdown", handleGesture, { passive: true });
+    window.addEventListener("keydown", handleGesture, { passive: true });
+    window.addEventListener("click", handleGesture, { passive: true });
+    window.addEventListener("touchstart", handleGesture, { passive: true });
+    return () => {
+      window.removeEventListener("pointerdown", handleGesture);
+      window.removeEventListener("keydown", handleGesture);
+      window.removeEventListener("click", handleGesture);
+      window.removeEventListener("touchstart", handleGesture);
+    };
   }, [mode]);
 
   const toggleAudio = () => {
@@ -322,9 +324,11 @@ export function GameScreen() {
   const level = levels.find((item) => item.id === levelId) ?? levels[0];
   const continueId = levels.find((item) => item.id <= progress.unlocked && !progress.cleared.includes(item.id))?.id ?? progress.unlocked;
 
-
   const play = (id: number) => {
+    sound.setMuted(false);
+    setMuted(false);
     sound.init();
+    sound.playStageBgm(id);
     setLevelId(id);
     setHud(empty);
     setMode("play");

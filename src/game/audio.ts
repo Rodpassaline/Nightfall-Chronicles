@@ -427,18 +427,22 @@ class SoundEngine {
     }
   }
 
+  public resumePlayback() {
+    if (this.muted) return;
+    const actx = this.init();
+    if (actx && actx.state === "suspended") {
+      void actx.resume().catch(() => {});
+    }
+    if (this.isPlayingBgm && this.currentAudioElement && this.currentAudioElement.paused && !this.muted) {
+      void this.currentAudioElement.play().catch(() => {});
+    }
+  }
+
   private setupInteractionUnlock() {
-    if (typeof window === "undefined" || this.interactionUnlocked) return;
+    if (typeof window === "undefined") return;
     const unlock = () => {
       this.interactionUnlocked = true;
-      this.init();
-      if (this.isPlayingBgm && this.currentAudioElement && this.currentAudioElement.paused && !this.muted) {
-        this.currentAudioElement.play().catch(() => {});
-      }
-      window.removeEventListener("pointerdown", unlock);
-      window.removeEventListener("keydown", unlock);
-      window.removeEventListener("click", unlock);
-      window.removeEventListener("touchstart", unlock);
+      this.resumePlayback();
     };
     window.addEventListener("pointerdown", unlock, { passive: true });
     window.addEventListener("keydown", unlock, { passive: true });
@@ -447,12 +451,13 @@ class SoundEngine {
   }
 
   private loadSettings() {
+    // Sound ALWAYS starts enabled by default
+    this.muted = false;
     if (typeof window === "undefined") return;
     try {
       const saved = localStorage.getItem("nightfall_audio_settings");
       if (saved) {
         const parsed = JSON.parse(saved);
-        if (typeof parsed.muted === "boolean") this.muted = parsed.muted;
         if (typeof parsed.musicVol === "number") this.musicVol = Math.max(0, Math.min(1, parsed.musicVol));
         if (typeof parsed.sfxVol === "number") this.sfxVol = Math.max(0, Math.min(1, parsed.sfxVol));
       }
@@ -590,8 +595,11 @@ class SoundEngine {
     this.muted = !this.muted;
     this.updateGains();
     this.saveSettings();
-    if (!this.muted && !this.ctx) {
-      this.init();
+    if (!this.muted) {
+      if (!this.ctx) {
+        this.init();
+      }
+      this.resumePlayback();
     }
     return this.muted;
   }
@@ -600,6 +608,9 @@ class SoundEngine {
     this.muted = muted;
     this.updateGains();
     this.saveSettings();
+    if (!muted) {
+      this.resumePlayback();
+    }
   }
 
   public isMuted() {
