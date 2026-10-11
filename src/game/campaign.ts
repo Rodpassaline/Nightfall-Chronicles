@@ -2942,7 +2942,8 @@ export function mountCampaign(
 
   function publish() {
     const boss = enemies.find((e) => e.boss && !e.dead) || enemies.find((e) => e.boss);
-    const bossOn = !!boss && (boss.boss && (player.x > boss.homeX - 280 || boss.hp < boss.max));
+    const bossInSight = !!boss && (boss.x < camX + T.viewW + 24 && boss.x + boss.w > camX - 32);
+    const bossOn = !!boss && (boss.boss && (bossInSight || player.x > boss.homeX - 460 || boss.hp < boss.max));
     if (bossOn && !player.dead && !player.won && boss && !boss.dead) {
       if (!bossIntroPlayed) {
         bossIntroPlayed = true;
@@ -3017,7 +3018,9 @@ export function mountCampaign(
       steps++;
     }
     draw();
-    if (steps > 0 && Math.floor(time * 60) % 4 === 0) publish();
+    const bossObj = enemies.find((e) => e.boss && !e.dead);
+    const wantsBossIntro = !!bossObj && !bossIntroPlayed && (bossObj.x < camX + T.viewW + 24 || player.x > bossObj.homeX - 460 || bossObj.hp < bossObj.max);
+    if (steps > 0 && (wantsBossIntro || Math.floor(time * 60) % 4 === 0)) publish();
     raf = requestAnimationFrame(frame);
   }
 
