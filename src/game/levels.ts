@@ -200,7 +200,7 @@ const level1_props: Prop[] = [
 ];
 
 const level1_spawns: Spawn[] = [
-  { kind: "zombie", x: 260, y: G, hp: 4 },
+  { kind: "zombie", x: 420, y: G, hp: 4 },
   { kind: "bat", x: 460, y: 75, hp: 2 },
   { kind: "skeleton", x: 580, y: 110, hp: 5 },
   { kind: "zombie", x: 860, y: G, hp: 4 },
@@ -476,7 +476,7 @@ const level3_props: Prop[] = [
 ];
 
 const level3_spawns: Spawn[] = [
-  { kind: "zombie", x: 320, y: G, hp: 5 },
+  { kind: "zombie", x: 420, y: G, hp: 5 },
   { kind: "bat", x: 520, y: 75, hp: 2 },
   { kind: "skeleton", x: 620, y: 110, hp: 5 },
   { kind: "vampire", x: 960, y: G, hp: 7 },
@@ -585,7 +585,7 @@ const level4_props: Prop[] = [
 ];
 
 const level4_spawns: Spawn[] = [
-  { kind: "zombie", x: 320, y: G, hp: 5 },
+  { kind: "zombie", x: 420, y: G, hp: 5 },
   { kind: "bat", x: 540, y: 75, hp: 2 },
   { kind: "skeleton", x: 640, y: 110, hp: 6 },
   { kind: "knight", x: 1040, y: G, hp: 8 },
@@ -695,7 +695,7 @@ const level5_props: Prop[] = [
 ];
 
 const level5_spawns: Spawn[] = [
-  { kind: "knight", x: 320, y: G, hp: 8 },
+  { kind: "knight", x: 420, y: G, hp: 8 },
   { kind: "bat", x: 520, y: 75, hp: 2 },
   { kind: "skeleton", x: 640, y: 110, hp: 6 },
   { kind: "vampire", x: 980, y: G, hp: 8 },
@@ -804,7 +804,7 @@ const level6_props: Prop[] = [
 ];
 
 const level6_spawns: Spawn[] = [
-  { kind: "zombie", x: 320, y: G, hp: 5 },
+  { kind: "zombie", x: 420, y: G, hp: 5 },
   { kind: "bat", x: 520, y: 75, hp: 2 },
   { kind: "skeleton", x: 640, y: 110, hp: 6 },
   { kind: "knight", x: 1020, y: G, hp: 8 },
@@ -918,7 +918,7 @@ const level7_props: Prop[] = [
 ];
 
 const level7_spawns: Spawn[] = [
-  { kind: "knight", x: 340, y: G, hp: 8 },
+  { kind: "knight", x: 440, y: G, hp: 8 },
   { kind: "bat", x: 540, y: 75, hp: 2 },
   { kind: "vampire", x: 680, y: G, hp: 8 },
   { kind: "skeleton", x: 880, y: 75, hp: 6 },

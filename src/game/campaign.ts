@@ -637,11 +637,13 @@ export function mountCampaign(
   }
 
   function spawn() {
-    player.x = 40;
+    player.x = Math.round(T.viewW / 2 - player.w / 2); // Start exactly in the center of the screen
     player.h = STAND_H;
     player.y = GROUND_Y - STAND_H;
     player.vx = 0;
     player.vy = 0;
+    camX = 0;
+    camY = 0;
     player.facing = 1;
     player.crouching = false;
     player.hp = T.maxHp;

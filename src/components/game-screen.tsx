@@ -1,5 +1,16 @@
-import { useEffect, useRef, useState, type PointerEvent } from "react";
-import { Maximize2, Minimize2, Volume2, VolumeX } from "lucide-react";
+import { useEffect, useRef, useState } from "react";
+import {
+  Maximize2,
+  Minimize2,
+  Volume2,
+  VolumeX,
+  Gamepad2,
+  Sword,
+  ChevronsUp,
+  Wind,
+  Sparkles,
+  Shield,
+} from "lucide-react";
 import { loadProgress, mountCampaign, preloadAllGameAssets, saveClear, type CampaignApi, type GameHud } from "@/game/campaign";
 import { levels } from "@/game/levels";
 import { sound } from "@/game/audio";
@@ -54,138 +65,196 @@ export function GameScreen() {
     }
   };
 
-  // Invisible gesture controls for smartphones & touch devices
-  const activeTouches = useRef<
-    Map<
-      number,
-      {
-        startX: number;
-        startY: number;
-        side: "left" | "right";
-        startTime: number;
-        lastAction?: "left" | "right" | "jump" | "aimDown" | "attack" | "dash" | "spell";
-      }
-    >
-  >(new Map());
-  const lastRightTapTime = useRef(0);
+  // Touchscreen Controls State (Default on for mobile/tablets or screens <= 1024px)
+  const [showTouchControls, setShowTouchControls] = useState(() => {
+    if (typeof window === "undefined") return true;
+    return (
+      "ontouchstart" in window ||
+      navigator.maxTouchPoints > 0 ||
+      window.innerWidth <= 1024
+    );
+  });
 
-  const handlePointerDown = (e: PointerEvent<HTMLCanvasElement>) => {
-    if (e.pointerType === "mouse") return;
-    const canvas = canvasRef.current;
-    if (!canvas || !apiRef.current) return;
+  // Floating Virtual Joystick state (Left Half)
+  const [joystick, setJoystick] = useState<{
+    active: boolean;
+    pointerId: number | null;
+    originX: number;
+    originY: number;
+    currentX: number;
+    currentY: number;
+    dx: number;
+    dy: number;
+    clampedDx: number;
+    clampedDy: number;
+  }>({
+    active: false,
+    pointerId: null,
+    originX: 0,
+    originY: 0,
+    currentX: 0,
+    currentY: 0,
+    dx: 0,
+    dy: 0,
+    clampedDx: 0,
+    clampedDy: 0,
+  });
+
+  const joystickRef = useRef(joystick);
+  joystickRef.current = joystick;
+
+  // Track active pressed state of action buttons for visual feedback
+  const [heldActions, setHeldActions] = useState<Set<string>>(new Set());
+
+  // Left Half Dynamic Joystick Handlers (Anywhere on the left 50% of the screen)
+  const handleLeftPointerDown = (e: React.PointerEvent<HTMLDivElement>) => {
+    if (joystickRef.current.active) return;
     try {
-      canvas.setPointerCapture(e.pointerId);
+      e.currentTarget.setPointerCapture(e.pointerId);
     } catch {
       // ignore
     }
-
-    const rect = canvas.getBoundingClientRect();
-    const x = e.clientX - rect.left;
-    const y = e.clientY - rect.top;
-    const isLeft = x < rect.width * 0.45;
-    const now = Date.now();
-
-    if (isLeft) {
-      activeTouches.current.set(e.pointerId, {
-        startX: x,
-        startY: y,
-        side: "left",
-        startTime: now,
-      });
-    } else {
-      if (now - lastRightTapTime.current < 280) {
-        apiRef.current.setHeld("spell", true);
-        window.setTimeout(() => apiRef.current?.setHeld("spell", false), 200);
-        activeTouches.current.set(e.pointerId, {
-          startX: x,
-          startY: y,
-          side: "right",
-          startTime: now,
-          lastAction: "spell",
-        });
-      } else {
-        apiRef.current.setHeld("attack", true);
-        activeTouches.current.set(e.pointerId, {
-          startX: x,
-          startY: y,
-          side: "right",
-          startTime: now,
-          lastAction: "attack",
-        });
-      }
-      lastRightTapTime.current = now;
-    }
+    const originX = e.clientX;
+    const originY = e.clientY;
+    const nextState = {
+      active: true,
+      pointerId: e.pointerId,
+      originX,
+      originY,
+      currentX: originX,
+      currentY: originY,
+      dx: 0,
+      dy: 0,
+      clampedDx: 0,
+      clampedDy: 0,
+    };
+    setJoystick(nextState);
   };
 
-  const handlePointerMove = (e: PointerEvent<HTMLCanvasElement>) => {
-    const touch = activeTouches.current.get(e.pointerId);
-    if (!touch || !canvasRef.current || !apiRef.current) return;
+  const handleLeftPointerMove = (e: React.PointerEvent<HTMLDivElement>) => {
+    const cur = joystickRef.current;
+    if (!cur.active || cur.pointerId !== e.pointerId || !apiRef.current) return;
 
-    const rect = canvasRef.current.getBoundingClientRect();
-    const x = e.clientX - rect.left;
-    const y = e.clientY - rect.top;
-    const dx = x - touch.startX;
-    const dy = y - touch.startY;
+    let dx = e.clientX - cur.originX;
+    let dy = e.clientY - cur.originY;
+    const dist = Math.hypot(dx, dy);
 
-    if (touch.side === "left") {
-      if (dx > 20) {
-        apiRef.current.setHeld("right", true);
-        apiRef.current.setHeld("left", false);
-      } else if (dx < -20) {
-        apiRef.current.setHeld("left", true);
-        apiRef.current.setHeld("right", false);
-      } else {
-        apiRef.current.setHeld("left", false);
-        apiRef.current.setHeld("right", false);
-      }
+    let originX = cur.originX;
+    let originY = cur.originY;
 
-      if (dy > 30) {
-        apiRef.current.setHeld("aimDown", true);
-      } else {
-        apiRef.current.setHeld("aimDown", false);
-      }
+    // Smoothly drag joystick origin along if pulled past 52px (floating joystick feel)
+    if (dist > 52) {
+      const angle = Math.atan2(dy, dx);
+      originX = e.clientX - Math.cos(angle) * 52;
+      originY = e.clientY - Math.sin(angle) * 52;
+      dx = e.clientX - originX;
+      dy = e.clientY - originY;
+    }
 
-      if (dy < -35) {
+    const currentDist = Math.hypot(dx, dy);
+    const clampedDx = currentDist > 38 ? (dx / currentDist) * 38 : dx;
+    const clampedDy = currentDist > 38 ? (dy / currentDist) * 38 : dy;
+
+    setJoystick({
+      active: true,
+      pointerId: cur.pointerId,
+      originX,
+      originY,
+      currentX: e.clientX,
+      currentY: e.clientY,
+      dx,
+      dy,
+      clampedDx,
+      clampedDy,
+    });
+
+    // Horizontal movement (Deadzone: 12px)
+    const deadX = 12;
+    if (dx < -deadX) {
+      apiRef.current.setHeld("left", true);
+      apiRef.current.setHeld("right", false);
+    } else if (dx > deadX) {
+      apiRef.current.setHeld("right", true);
+      apiRef.current.setHeld("left", false);
+    } else {
+      apiRef.current.setHeld("left", false);
+      apiRef.current.setHeld("right", false);
+    }
+
+    // Vertical movement (aimDown to crouch/drop, aimUp to look/jump)
+    const deadY = 16;
+    if (dy > deadY) {
+      apiRef.current.setHeld("aimDown", true);
+      apiRef.current.setHeld("aimUp", false);
+      apiRef.current.setHeld("jump", false);
+    } else if (dy < -deadY) {
+      apiRef.current.setHeld("aimUp", true);
+      apiRef.current.setHeld("aimDown", false);
+      // If pushed further up, also trigger jump
+      if (dy < -28) {
         apiRef.current.setHeld("jump", true);
       } else {
         apiRef.current.setHeld("jump", false);
       }
     } else {
-      const duration = Date.now() - touch.startTime;
-      if (duration < 350) {
-        if (dy < -30 && touch.lastAction !== "jump") {
-          apiRef.current.setHeld("attack", false);
-          apiRef.current.setHeld("jump", true);
-          touch.lastAction = "jump";
-          window.setTimeout(() => apiRef.current?.setHeld("jump", false), 200);
-        } else if (Math.abs(dx) > 35 && touch.lastAction !== "dash") {
-          apiRef.current.setHeld("attack", false);
-          apiRef.current.setHeld("dash", true);
-          touch.lastAction = "dash";
-          window.setTimeout(() => apiRef.current?.setHeld("dash", false), 200);
-        }
-      }
+      apiRef.current.setHeld("aimDown", false);
+      apiRef.current.setHeld("aimUp", false);
+      apiRef.current.setHeld("jump", false);
     }
   };
 
-  const handlePointerUp = (e: PointerEvent<HTMLCanvasElement>) => {
-    const touch = activeTouches.current.get(e.pointerId);
-    if (!touch || !apiRef.current) return;
+  const handleLeftPointerUp = (e: React.PointerEvent<HTMLDivElement>) => {
+    const cur = joystickRef.current;
+    if (!cur.active || cur.pointerId !== e.pointerId) return;
 
-    if (touch.side === "left") {
+    setJoystick({
+      active: false,
+      pointerId: null,
+      originX: 0,
+      originY: 0,
+      currentX: 0,
+      currentY: 0,
+      dx: 0,
+      dy: 0,
+      clampedDx: 0,
+      clampedDy: 0,
+    });
+
+    if (apiRef.current) {
       apiRef.current.setHeld("left", false);
       apiRef.current.setHeld("right", false);
       apiRef.current.setHeld("aimDown", false);
+      apiRef.current.setHeld("aimUp", false);
       apiRef.current.setHeld("jump", false);
-    } else {
-      if (touch.lastAction === "attack") {
-        apiRef.current.setHeld("attack", false);
-      } else if (touch.lastAction === "spell") {
-        apiRef.current.setHeld("spell", false);
-      }
     }
+  };
 
-    activeTouches.current.delete(e.pointerId);
+  // Right Side Action Button Handlers (Attack, Jump, Dash, Spell, Guard)
+  const handleActionDown = (e: React.PointerEvent<HTMLButtonElement>, action: "attack" | "jump" | "dash" | "spell" | "guard") => {
+    e.preventDefault();
+    e.stopPropagation();
+    try {
+      e.currentTarget.setPointerCapture(e.pointerId);
+    } catch {
+      // ignore
+    }
+    setHeldActions((prev) => {
+      const next = new Set(prev);
+      next.add(action);
+      return next;
+    });
+    apiRef.current?.setHeld(action, true);
+  };
+
+  const handleActionUp = (e: React.PointerEvent<HTMLButtonElement>, action: "attack" | "jump" | "dash" | "spell" | "guard") => {
+    e.preventDefault();
+    e.stopPropagation();
+    setHeldActions((prev) => {
+      const next = new Set(prev);
+      next.delete(action);
+      return next;
+    });
+    apiRef.current?.setHeld(action, false);
   };
 
   useEffect(() => {
@@ -398,11 +467,178 @@ export function GameScreen() {
         tabIndex={0}
         aria-label={`Fase ${level.title}`}
         className="pixel-canvas-fullscreen focus:outline-none"
-        onPointerDown={handlePointerDown}
-        onPointerMove={handlePointerMove}
-        onPointerUp={handlePointerUp}
-        onPointerCancel={handlePointerUp}
+        onMouseDown={() => apiRef.current?.setHeld("attack", true)}
+        onMouseUp={() => apiRef.current?.setHeld("attack", false)}
       />
+
+      {/* Left Half Touchscreen Movement Zone (Active across the entire left 50% of the screen) */}
+      {showTouchControls ? (
+        <div
+          data-touch-left
+          className="absolute inset-y-0 left-0 w-1/2 z-20 touch-none select-none cursor-crosshair"
+          onPointerDown={handleLeftPointerDown}
+          onPointerMove={handleLeftPointerMove}
+          onPointerUp={handleLeftPointerUp}
+          onPointerCancel={handleLeftPointerUp}
+        />
+      ) : null}
+
+      {/* Floating Joystick Visual Indicator on Left Half */}
+      {showTouchControls && joystick.active ? (
+        <div
+          className="absolute pointer-events-none z-30 select-none -translate-x-1/2 -translate-y-1/2 transition-opacity duration-75"
+          style={{
+            left: `${joystick.originX}px`,
+            top: `${joystick.originY}px`,
+          }}
+        >
+          {/* Base Ring with Pips */}
+          <div className="relative w-24 h-24 rounded-full border-2 border-gold/70 bg-black/60 backdrop-blur-sm shadow-[0_0_20px_rgba(200,160,80,0.4)] flex items-center justify-center">
+            {/* Directional Pips */}
+            <span
+              className={`absolute top-1 text-[11px] font-bold ${
+                joystick.dy < -16 ? "text-gold scale-125 shadow-[0_0_8px_rgba(255,215,0,0.9)]" : "text-gold/40"
+              }`}
+            >
+              ▲
+            </span>
+            <span
+              className={`absolute bottom-1 text-[11px] font-bold ${
+                joystick.dy > 16 ? "text-gold scale-125 shadow-[0_0_8px_rgba(255,215,0,0.9)]" : "text-gold/40"
+              }`}
+            >
+              ▼
+            </span>
+            <span
+              className={`absolute left-1.5 text-[11px] font-bold ${
+                joystick.dx < -12 ? "text-gold scale-125 shadow-[0_0_8px_rgba(255,215,0,0.9)]" : "text-gold/40"
+              }`}
+            >
+              ◀
+            </span>
+            <span
+              className={`absolute right-1.5 text-[11px] font-bold ${
+                joystick.dx > 12 ? "text-gold scale-125 shadow-[0_0_8px_rgba(255,215,0,0.9)]" : "text-gold/40"
+              }`}
+            >
+              ▶
+            </span>
+
+            {/* Moving Thumb Knob */}
+            <div
+              className="absolute w-12 h-12 rounded-full border-2 border-gold bg-gradient-to-br from-gold/90 via-blood/80 to-black shadow-[0_0_12px_rgba(200,160,80,0.7)] flex items-center justify-center"
+              style={{
+                transform: `translate(${joystick.clampedDx}px, ${joystick.clampedDy}px)`,
+              }}
+            >
+              <div className="w-3.5 h-3.5 rounded-full bg-gold/90 border border-white/50" />
+            </div>
+          </div>
+        </div>
+      ) : null}
+
+      {/* Idle Left Touch Zone Guide */}
+      {showTouchControls && !joystick.active ? (
+        <div className="absolute bottom-6 left-6 pointer-events-none z-20 flex flex-col items-center opacity-40 select-none animate-pulse">
+          <div className="w-20 h-20 rounded-full border border-gold/40 bg-black/40 backdrop-blur-xs flex items-center justify-center">
+            <span className="text-gold/80 text-sm">✦</span>
+          </div>
+          <span className="font-display text-[9px] text-gold/70 tracking-widest mt-1">
+            TOQUE PARA MOVER
+          </span>
+        </div>
+      ) : null}
+
+      {/* Right Half Touchscreen Action Buttons */}
+      {showTouchControls ? (
+        <div className="absolute bottom-4 right-4 sm:bottom-6 sm:right-6 z-30 flex flex-col items-end gap-2.5 pointer-events-none select-none">
+          {/* Top Row: Guard & Magic */}
+          <div className="flex items-center gap-2.5">
+            {/* Guard Button */}
+            <button
+              type="button"
+              className={`pointer-events-auto h-12 w-12 rounded-full border-2 flex flex-col items-center justify-center transition-all duration-75 active:scale-90 shadow-xl ${
+                heldActions.has("guard")
+                  ? "border-gold bg-blood/80 scale-90 shadow-[0_0_15px_rgba(200,160,80,0.8)] text-white"
+                  : "border-gold/50 bg-black/65 backdrop-blur-sm text-gold/90 hover:border-gold"
+              }`}
+              onPointerDown={(e) => handleActionDown(e, "guard")}
+              onPointerUp={(e) => handleActionUp(e, "guard")}
+              onPointerCancel={(e) => handleActionUp(e, "guard")}
+            >
+              <Shield className="h-4 w-4" />
+              <span className="text-[7.5px] font-display font-bold tracking-tighter leading-none mt-0.5">ESCUDO</span>
+            </button>
+
+            {/* Magic Button */}
+            <button
+              type="button"
+              className={`pointer-events-auto h-14 w-14 rounded-full border-2 flex flex-col items-center justify-center transition-all duration-75 active:scale-90 shadow-xl ${
+                heldActions.has("spell")
+                  ? "border-purple-400 bg-purple-900/90 scale-90 shadow-[0_0_15px_rgba(168,85,247,0.9)] text-white"
+                  : "border-purple-400/60 bg-black/65 backdrop-blur-sm text-purple-300 hover:border-purple-400"
+              }`}
+              onPointerDown={(e) => handleActionDown(e, "spell")}
+              onPointerUp={(e) => handleActionUp(e, "spell")}
+              onPointerCancel={(e) => handleActionUp(e, "spell")}
+            >
+              <Sparkles className="h-5 w-5" />
+              <span className="text-[8px] font-display font-bold tracking-tighter leading-none mt-0.5">MAGIA</span>
+            </button>
+          </div>
+
+          {/* Bottom Row: Dash, Jump & Primary Attack */}
+          <div className="flex items-center gap-2.5">
+            {/* Dash Button */}
+            <button
+              type="button"
+              className={`pointer-events-auto h-13 w-13 rounded-full border-2 flex flex-col items-center justify-center transition-all duration-75 active:scale-90 shadow-xl ${
+                heldActions.has("dash")
+                  ? "border-cyan-400 bg-cyan-900/90 scale-90 shadow-[0_0_15px_rgba(34,211,238,0.9)] text-white"
+                  : "border-cyan-500/60 bg-black/65 backdrop-blur-sm text-cyan-300 hover:border-cyan-400"
+              }`}
+              onPointerDown={(e) => handleActionDown(e, "dash")}
+              onPointerUp={(e) => handleActionUp(e, "dash")}
+              onPointerCancel={(e) => handleActionUp(e, "dash")}
+            >
+              <Wind className="h-5 w-5" />
+              <span className="text-[8px] font-display font-bold tracking-tighter leading-none mt-0.5">DASH</span>
+            </button>
+
+            {/* Jump Button */}
+            <button
+              type="button"
+              className={`pointer-events-auto h-15 w-15 rounded-full border-2 flex flex-col items-center justify-center transition-all duration-75 active:scale-90 shadow-xl ${
+                heldActions.has("jump")
+                  ? "border-gold bg-gold/50 scale-90 shadow-[0_0_18px_rgba(200,160,80,0.9)] text-white"
+                  : "border-gold/70 bg-black/70 backdrop-blur-sm text-gold hover:border-gold"
+              }`}
+              onPointerDown={(e) => handleActionDown(e, "jump")}
+              onPointerUp={(e) => handleActionUp(e, "jump")}
+              onPointerCancel={(e) => handleActionUp(e, "jump")}
+            >
+              <ChevronsUp className="h-6 w-6" />
+              <span className="text-[9px] font-display font-bold tracking-wider leading-none mt-0.5">PULO</span>
+            </button>
+
+            {/* Attack Button (Master Attack & Charge Button) */}
+            <button
+              type="button"
+              className={`pointer-events-auto h-18 w-18 rounded-full border-3 flex flex-col items-center justify-center transition-all duration-75 active:scale-90 shadow-2xl ${
+                heldActions.has("attack")
+                  ? "border-blood bg-blood scale-90 shadow-[0_0_24px_rgba(180,35,48,1)] text-white"
+                  : "border-blood/80 bg-black/75 backdrop-blur-sm text-blood hover:border-blood shadow-[0_0_12px_rgba(180,35,48,0.4)]"
+              }`}
+              onPointerDown={(e) => handleActionDown(e, "attack")}
+              onPointerUp={(e) => handleActionUp(e, "attack")}
+              onPointerCancel={(e) => handleActionUp(e, "attack")}
+            >
+              <Sword className="h-7 w-7 text-fg" />
+              <span className="text-[9px] font-display font-bold tracking-wider leading-none mt-0.5 text-fg">ATAQUE</span>
+            </button>
+          </div>
+        </div>
+      ) : null}
 
       {/* Floating Minimalist Gothic HUD (Top) */}
       <header className="absolute top-2 left-2 right-2 sm:top-3 sm:left-4 sm:right-4 z-30 pointer-events-none flex items-start justify-between gap-2">
@@ -462,6 +698,17 @@ export function GameScreen() {
 
         {/* Right: Quick Controls (Pointer Events Enabled) */}
         <div className="pointer-events-auto flex items-center gap-1 sm:gap-1.5 bg-black/75 backdrop-blur-md border border-gold/40 p-1 sm:p-1.5 rounded shadow-2xl">
+          <button
+            type="button"
+            className={`flex h-8 sm:h-9 px-2 sm:px-2.5 items-center gap-1 border border-line bg-surface/80 font-display text-[11px] sm:text-xs tracking-wider rounded transition ${
+              showTouchControls ? "border-gold text-gold" : "text-fg/70 hover:border-gold hover:text-gold"
+            }`}
+            onClick={() => setShowTouchControls((prev) => !prev)}
+            title={showTouchControls ? "Ocultar Controles Touch" : "Exibir Controles Touch"}
+          >
+            <Gamepad2 className="h-4 w-4" />
+            <span className="hidden sm:inline">Touch</span>
+          </button>
           <button
             type="button"
             className="flex h-8 w-8 sm:h-9 sm:w-9 items-center justify-center border border-line bg-surface/80 text-fg hover:border-gold hover:text-gold rounded transition"
