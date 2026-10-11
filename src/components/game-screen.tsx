@@ -33,17 +33,27 @@ const empty: GameHud = {
   charge: 0,
 };
 
-type Mode = "title" | "stages" | "play" | "ending";
+type Mode = "title" | "intro" | "stages" | "play" | "ending";
 
 export function GameScreen() {
   const canvasRef = useRef<HTMLCanvasElement>(null);
+  const videoRef = useRef<HTMLVideoElement>(null);
   const apiRef = useRef<CampaignApi | null>(null);
+  const isStartingRef = useRef(false);
   const [mode, setMode] = useState<Mode>("title");
   const [levelId, setLevelId] = useState(1);
   const [hud, setHud] = useState<GameHud>(empty);
   const [progress, setProgress] = useState({ unlocked: 1, cleared: [] as number[] });
   const [muted, setMuted] = useState(false);
   const [isFullscreen, setIsFullscreen] = useState(false);
+  const [hasSeenIntro, setHasSeenIntro] = useState(() => {
+    if (typeof window === "undefined") return false;
+    try {
+      return localStorage.getItem("nightfall_intro_seen") === "true";
+    } catch {
+      return false;
+    }
+  });
 
   useEffect(() => {
     preloadAllGameAssets();
@@ -285,6 +295,9 @@ export function GameScreen() {
   const toggleAudio = () => {
     const next = sound.toggleMute();
     setMuted(next);
+    if (videoRef.current) {
+      videoRef.current.muted = next;
+    }
     if (!next) {
       if (mode === "title" || mode === "stages") {
         sound.playBgm("title");
@@ -293,6 +306,52 @@ export function GameScreen() {
       }
     }
   };
+
+  const startIntro = () => {
+    sound.init();
+    sound.stopBgm();
+    setMode("intro");
+  };
+
+  const handleStartGame = () => {
+    if (isStartingRef.current) return;
+    isStartingRef.current = true;
+    setTimeout(() => {
+      isStartingRef.current = false;
+    }, 500);
+
+    sound.init();
+    // Se o jogador clica em iniciar pela primeira vez (ou se não assistiu à intro), exibe o vídeo
+    if (!hasSeenIntro && progress.cleared.length === 0) {
+      startIntro();
+    } else {
+      play(continueId);
+    }
+  };
+
+  const finishIntro = () => {
+    try {
+      localStorage.setItem("nightfall_intro_seen", "true");
+    } catch {
+      // ignore
+    }
+    setHasSeenIntro(true);
+    // Vai direto para a primeira fase após o vídeo
+    play(1);
+  };
+
+  // Atalho de teclado para pular vídeo (Espaço, Escape, Enter)
+  useEffect(() => {
+    if (mode !== "intro") return;
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.key === "Escape" || e.key === " " || e.key === "Enter") {
+        e.preventDefault();
+        finishIntro();
+      }
+    };
+    window.addEventListener("keydown", handleKeyDown);
+    return () => window.removeEventListener("keydown", handleKeyDown);
+  }, [mode]);
 
   // Automatically trigger title music on title and stage selection screens
   useEffect(() => {
@@ -334,6 +393,74 @@ export function GameScreen() {
     setMode("play");
   };
 
+  if (mode === "intro") {
+    return (
+      <div className="fixed inset-0 z-50 flex items-center justify-center bg-black select-none overflow-hidden">
+        <video
+          ref={(el) => {
+            if (el) {
+              videoRef.current = el;
+              el.muted = muted;
+              const p = el.play();
+              if (p !== undefined) {
+                p.catch(() => {
+                  el.muted = true;
+                  el.play().catch(() => {});
+                });
+              }
+            }
+          }}
+          src="/video/intro.mp4"
+          playsInline
+          autoPlay
+          onEnded={finishIntro}
+          onError={() => {
+            console.warn("Erro ao reproduzir /video/intro.mp4, avançando para a Fase 1...");
+            finishIntro();
+          }}
+          className="w-full h-full max-h-screen object-contain"
+        />
+
+        {/* Top Control Bar */}
+        <div className="absolute top-4 right-4 sm:top-6 sm:right-6 z-30 flex items-center gap-2 sm:gap-3">
+          <button
+            type="button"
+            className="inline-flex h-10 w-10 items-center justify-center border border-line bg-black/80 backdrop-blur-sm font-display text-xs text-fg hover:border-gold rounded transition-all cursor-pointer"
+            onClick={toggleFullscreen}
+            title={isFullscreen ? "Sair da Tela Cheia" : "Tela Cheia"}
+          >
+            {isFullscreen ? <Minimize2 className="h-4 w-4 text-gold" /> : <Maximize2 className="h-4 w-4 text-gold" />}
+          </button>
+
+          <button
+            type="button"
+            className="inline-flex h-10 items-center gap-2 border border-line bg-black/80 backdrop-blur-sm px-3 font-display text-xs tracking-widest text-fg hover:border-gold rounded transition-all cursor-pointer"
+            onClick={toggleAudio}
+          >
+            {muted ? <VolumeX className="h-4 w-4 text-blood" /> : <Volume2 className="h-4 w-4 text-gold" />}
+            <span className="hidden sm:inline">{muted ? "Mudo" : "Som"}</span>
+          </button>
+
+          <button
+            type="button"
+            className="inline-flex h-10 items-center gap-2 border border-gold/70 bg-blood/90 hover:bg-blood backdrop-blur-sm px-4 font-display text-xs tracking-widest text-fg rounded shadow-[0_0_15px_rgba(200,160,80,0.3)] hover:scale-105 active:scale-95 transition-all cursor-pointer"
+            onClick={finishIntro}
+          >
+            <span>Pular Introdução</span>
+            <span className="text-[10px] text-fg/70 hidden md:inline">[ESPAÇO / ESC]</span>
+          </button>
+        </div>
+
+        {/* Cinematic Title Footer */}
+        <div className="absolute bottom-4 left-1/2 -translate-x-1/2 pointer-events-none z-20 text-center">
+          <p className="font-display text-[10px] sm:text-xs text-gold/70 tracking-widest uppercase drop-shadow-[0_2px_4px_rgba(0,0,0,0.9)] animate-pulse">
+            Nightfall Chronicles · Prólogo
+          </p>
+        </div>
+      </div>
+    );
+  }
+
   if (mode === "title") {
     return (
       <div
@@ -354,15 +481,22 @@ export function GameScreen() {
           <div className="mt-8 flex flex-wrap items-center gap-2">
             <button
               type="button"
-              className="h-12 bg-blood px-6 font-display text-sm tracking-widest text-fg"
-              onPointerDown={() => play(continueId)}
-              onClick={() => play(continueId)}
+              className="h-12 bg-blood px-6 font-display text-sm tracking-widest text-fg hover:brightness-110 active:scale-95 transition-all cursor-pointer"
+              onPointerDown={handleStartGame}
+              onClick={handleStartGame}
             >
-              {progress.cleared.length > 0 ? "Continuar" : "Jogar"}
+              {progress.cleared.length > 0 ? "Continuar" : "Iniciar"}
             </button>
             <button
               type="button"
-              className="h-11 border border-line px-5 font-display text-sm tracking-widest text-fg"
+              className="h-11 border border-line px-5 font-display text-sm tracking-widest text-fg hover:border-gold hover:text-gold transition-all cursor-pointer"
+              onClick={startIntro}
+            >
+              Prólogo (Vídeo)
+            </button>
+            <button
+              type="button"
+              className="h-11 border border-line px-5 font-display text-sm tracking-widest text-fg hover:border-gold hover:text-gold transition-all cursor-pointer"
               onClick={() => {
                 sound.init();
                 sound.playBgm("title");
@@ -373,7 +507,7 @@ export function GameScreen() {
             </button>
             <button
               type="button"
-              className="inline-flex h-11 items-center gap-2 border border-line bg-surface/80 px-4 font-display text-xs tracking-widest text-fg hover:border-gold"
+              className="inline-flex h-11 items-center gap-2 border border-line bg-surface/80 px-4 font-display text-xs tracking-widest text-fg hover:border-gold transition-all cursor-pointer"
               onClick={toggleAudio}
             >
               {muted ? <VolumeX className="h-4 w-4 text-blood" /> : <Volume2 className="h-4 w-4 text-gold" />}
