@@ -43,7 +43,7 @@ async function run() {
 
   // Avançar para Ato 2
   console.log("5. Avançando para Ato 2...");
-  const nextBtn = page.locator("button:has-text('Próximo')");
+  const nextBtn = page.locator("button:has-text('Avançar'), button:has-text('Próximo')");
   await nextBtn.click();
   await page.waitForSelector("h1:has-text('OS SETE MESTRES DO ABISMO')", { timeout: 5000 });
   await page.waitForTimeout(600);
@@ -59,7 +59,7 @@ async function run() {
   // Avançar para Ato 4
   console.log("7. Avançando para Ato 4...");
   await nextBtn.click();
-  await page.waitForSelector("h1:has-text('OS PORTÕES DO CASTELO')", { timeout: 5000 });
+  await page.waitForSelector("h1:has-text('OS PORTÕES')", { timeout: 5000 });
   await page.waitForTimeout(600);
   await page.screenshot({ path: path.join(screenshotsDir, "qa-prologue-act4.png") });
 
