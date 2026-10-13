@@ -29,6 +29,7 @@ interface StoryBeat {
   subtitle: string;
   paragraphs: string[];
   accentBorder: string;
+  voiceSrc: string;
   sfx?: () => void;
   durationMs: number;
 }
@@ -45,7 +46,8 @@ const STORY_BEATS: StoryBeat[] = [
       "Das profundezas do abismo ancestral, Conde Drácula desperta mais uma vez com sede de vingança e poder eterno.",
     ],
     accentBorder: "border-red-600/70 text-red-500",
-    durationMs: 9500,
+    voiceSrc: "/audio/prologue/act1.wav",
+    durationMs: 17500,
     sfx: () => {
       sound.playSfx("bell");
     },
@@ -61,7 +63,8 @@ const STORY_BEATS: StoryBeat[] = [
       "Titãs de pedra, lâminas de sangue e abominações alquímicas selaram cada um dos portões com feitiçaria proibida. Nenhum guerreiro comum jamais sobreviveu.",
     ],
     accentBorder: "border-purple-500/70 text-purple-400",
-    durationMs: 9500,
+    voiceSrc: "/audio/prologue/act2.wav",
+    durationMs: 15500,
     sfx: () => {
       sound.playSfx("spell");
     },
@@ -77,7 +80,8 @@ const STORY_BEATS: StoryBeat[] = [
       "Empunhando a lâmina ancestral e a centelha do fogo arcano herdada de seus antepassados, ele caminha sozinho em direção ao castelo.",
     ],
     accentBorder: "border-gold/70 text-gold",
-    durationMs: 9500,
+    voiceSrc: "/audio/prologue/act3.wav",
+    durationMs: 12800,
     sfx: () => {
       sound.playSfx("slashHeavy");
       setTimeout(() => sound.playSfx("thunder"), 200);
@@ -94,7 +98,8 @@ const STORY_BEATS: StoryBeat[] = [
       "Destrua os sete mestres, quebre os selos amaldiçoados e liberte a noite!",
     ],
     accentBorder: "border-cyan-400/70 text-cyan-300",
-    durationMs: 12000,
+    voiceSrc: "/audio/prologue/act4.wav",
+    durationMs: 14000,
     sfx: () => {
       sound.playSfx("gateOpen");
       setTimeout(() => sound.playSfx("thunder"), 300);
@@ -114,6 +119,7 @@ export function PrologueScreen({
   const [isTransitioning, setIsTransitioning] = useState(false);
   const [progressPercent, setProgressPercent] = useState(0);
   const videoRef = useRef<HTMLVideoElement>(null);
+  const voiceAudioRef = useRef<HTMLAudioElement | null>(null);
   const canvasRef = useRef<HTMLCanvasElement>(null);
 
   const beat = STORY_BEATS[currentIdx];
@@ -122,6 +128,39 @@ export function PrologueScreen({
   useEffect(() => {
     if (videoRef.current) {
       videoRef.current.muted = muted;
+      videoRef.current.volume = 0.25; // Volume de fundo suave para destacar a narração
+    }
+  }, [muted]);
+
+  // Reproduz a voz narrada do ato atual com clareza
+  useEffect(() => {
+    if (voiceAudioRef.current) {
+      voiceAudioRef.current.pause();
+      voiceAudioRef.current.currentTime = 0;
+    }
+
+    const audio = new Audio(beat.voiceSrc);
+    audio.muted = muted;
+    audio.volume = 1.0;
+    voiceAudioRef.current = audio;
+
+    const playPromise = audio.play();
+    if (playPromise !== undefined) {
+      playPromise.catch((err) => {
+        console.warn("Voz narrada bloqueada pelo navegador:", err);
+      });
+    }
+
+    return () => {
+      audio.pause();
+      audio.currentTime = 0;
+    };
+  }, [currentIdx, muted, beat.voiceSrc]);
+
+  // Sincroniza estado de mudo com a voz
+  useEffect(() => {
+    if (voiceAudioRef.current) {
+      voiceAudioRef.current.muted = muted;
     }
   }, [muted]);
 
@@ -135,29 +174,43 @@ export function PrologueScreen({
     }
   }, [currentIdx]);
 
+  const stopVoice = useCallback(() => {
+    if (voiceAudioRef.current) {
+      voiceAudioRef.current.pause();
+      voiceAudioRef.current.currentTime = 0;
+    }
+  }, []);
+
+  const handleFinish = useCallback(() => {
+    stopVoice();
+    sound.playSfx("gateOpen");
+    onFinish();
+  }, [stopVoice, onFinish]);
+
   const goToNext = useCallback(() => {
     if (isTransitioning) return;
     if (currentIdx < STORY_BEATS.length - 1) {
       setIsTransitioning(true);
+      stopVoice();
       setTimeout(() => {
         setCurrentIdx((prev) => prev + 1);
         setIsTransitioning(false);
       }, 200);
     } else {
       // Final do prólogo: toca o portão e entra na Fase 1
-      sound.playSfx("gateOpen");
-      onFinish();
+      handleFinish();
     }
-  }, [currentIdx, isTransitioning, onFinish]);
+  }, [currentIdx, isTransitioning, stopVoice, handleFinish]);
 
   const goToPrev = useCallback(() => {
     if (isTransitioning || currentIdx <= 0) return;
     setIsTransitioning(true);
+    stopVoice();
     setTimeout(() => {
       setCurrentIdx((prev) => prev - 1);
       setIsTransitioning(false);
     }, 200);
-  }, [currentIdx, isTransitioning]);
+  }, [currentIdx, isTransitioning, stopVoice]);
 
   // Avanço automático contínuo com barra de progresso (estilo cinema)
   useEffect(() => {
@@ -183,7 +236,7 @@ export function PrologueScreen({
     const handleKeyDown = (e: KeyboardEvent) => {
       if (e.key === "Escape") {
         e.preventDefault();
-        onFinish();
+        handleFinish();
       } else if (e.key === " " || e.key === "Enter" || e.key === "ArrowRight") {
         e.preventDefault();
         goToNext();
@@ -194,7 +247,7 @@ export function PrologueScreen({
     };
     window.addEventListener("keydown", handleKeyDown);
     return () => window.removeEventListener("keydown", handleKeyDown);
-  }, [goToNext, goToPrev, onFinish]);
+  }, [goToNext, goToPrev, handleFinish]);
 
   // Efeito de partículas de cinzas / brasas flutuantes no canvas sobreposto
   useEffect(() => {
@@ -278,7 +331,7 @@ export function PrologueScreen({
           playsInline
           autoPlay
           loop
-          onEnded={onFinish}
+          onEnded={handleFinish}
           onError={() => {
             console.warn("Vídeo não carregado, usando modo fallback visual");
           }}
@@ -346,7 +399,7 @@ export function PrologueScreen({
           <button
             type="button"
             className="inline-flex h-9 items-center gap-1.5 border border-gold/60 bg-blood/85 hover:bg-blood backdrop-blur-sm px-3.5 font-display text-xs tracking-widest text-fg rounded shadow-[0_0_12px_rgba(180,35,48,0.4)] transition-all cursor-pointer hover:scale-105 active:scale-95"
-            onClick={onFinish}
+            onClick={handleFinish}
           >
             <span>Pular</span>
             <span className="text-[10px] text-fg/70 hidden sm:inline">[ESC]</span>
