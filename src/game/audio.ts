@@ -78,7 +78,9 @@ type SfxKind =
   | "itemLife"
   | "itemHeal"
   | "itemMana"
-  | "revive";
+  | "revive"
+  | "thunder"
+  | "bell";
 
 interface SequencePattern {
   bpm: number;
@@ -1080,6 +1082,57 @@ class SoundEngine {
           gain.connect(this.sfxGain!);
           osc.start(now + 0.1 + idx * 0.07);
           osc.stop(now + 0.1 + idx * 0.07 + 0.5);
+        });
+        break;
+      }
+
+      case "thunder": {
+        // Deep rumbling thunder strike with lightning crackle
+        if (this.noiseBuffer) {
+          const noise = actx.createBufferSource();
+          noise.buffer = this.noiseBuffer;
+          const filter = actx.createBiquadFilter();
+          filter.type = "lowpass";
+          filter.frequency.setValueAtTime(350, now);
+          filter.frequency.exponentialRampToValueAtTime(70, now + 1.2);
+          const gain = actx.createGain();
+          gain.gain.setValueAtTime(0.5, now);
+          gain.gain.exponentialRampToValueAtTime(0.001, now + 1.4);
+          noise.connect(filter);
+          filter.connect(gain);
+          gain.connect(this.sfxGain!);
+          noise.start(now);
+          noise.stop(now + 1.4);
+        }
+        // Sub-bass rumble
+        const sub = actx.createOscillator();
+        const subGain = actx.createGain();
+        sub.type = "sine";
+        sub.frequency.setValueAtTime(90, now);
+        sub.frequency.exponentialRampToValueAtTime(35, now + 1.0);
+        subGain.gain.setValueAtTime(0.6, now);
+        subGain.gain.exponentialRampToValueAtTime(0.001, now + 1.2);
+        sub.connect(subGain);
+        subGain.connect(this.sfxGain!);
+        sub.start(now);
+        sub.stop(now + 1.2);
+        break;
+      }
+
+      case "bell": {
+        // Ominous gothic church bell tolling (A2 partials)
+        [110, 220, 330, 440, 587].forEach((freq, idx) => {
+          const osc = actx.createOscillator();
+          const gain = actx.createGain();
+          osc.type = "sine";
+          osc.frequency.setValueAtTime(freq, now);
+          const baseGain = 0.35 / (idx + 1);
+          gain.gain.setValueAtTime(baseGain, now);
+          gain.gain.exponentialRampToValueAtTime(0.0001, now + 2.5);
+          osc.connect(gain);
+          gain.connect(this.sfxGain!);
+          osc.start(now);
+          osc.stop(now + 2.5);
         });
         break;
       }

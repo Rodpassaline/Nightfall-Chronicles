@@ -14,6 +14,7 @@ import {
 import { loadProgress, mountCampaign, preloadAllGameAssets, saveClear, type CampaignApi, type GameHud } from "@/game/campaign";
 import { levels } from "@/game/levels";
 import { sound } from "@/game/audio";
+import { PrologueScreen } from "./prologue-screen";
 
 const empty: GameHud = {
   hp: 6,
@@ -309,7 +310,7 @@ export function GameScreen() {
 
   const startIntro = () => {
     sound.init();
-    sound.stopBgm();
+    sound.playBgm("title");
     setMode("intro");
   };
 
@@ -321,7 +322,7 @@ export function GameScreen() {
     }, 500);
 
     sound.init();
-    // Se o jogador clica em iniciar pela primeira vez (ou se não assistiu à intro), exibe o vídeo
+    // Se o jogador clica em iniciar pela primeira vez (ou se não assistiu ao prólogo), exibe a narrativa épica
     if (!hasSeenIntro && progress.cleared.length === 0) {
       startIntro();
     } else {
@@ -336,22 +337,9 @@ export function GameScreen() {
       // ignore
     }
     setHasSeenIntro(true);
-    // Vai direto para a primeira fase após o vídeo
+    // Vai direto para a primeira fase após o prólogo
     play(1);
   };
-
-  // Atalho de teclado para pular vídeo (Espaço, Escape, Enter)
-  useEffect(() => {
-    if (mode !== "intro") return;
-    const handleKeyDown = (e: KeyboardEvent) => {
-      if (e.key === "Escape" || e.key === " " || e.key === "Enter") {
-        e.preventDefault();
-        finishIntro();
-      }
-    };
-    window.addEventListener("keydown", handleKeyDown);
-    return () => window.removeEventListener("keydown", handleKeyDown);
-  }, [mode]);
 
   // Automatically trigger title music on title and stage selection screens
   useEffect(() => {
@@ -395,69 +383,13 @@ export function GameScreen() {
 
   if (mode === "intro") {
     return (
-      <div className="fixed inset-0 z-50 flex items-center justify-center bg-black select-none overflow-hidden">
-        <video
-          ref={(el) => {
-            if (el) {
-              videoRef.current = el;
-              el.muted = muted;
-              const p = el.play();
-              if (p !== undefined) {
-                p.catch(() => {
-                  el.muted = true;
-                  el.play().catch(() => {});
-                });
-              }
-            }
-          }}
-          src="/video/intro.mp4"
-          playsInline
-          autoPlay
-          onEnded={finishIntro}
-          onError={() => {
-            console.warn("Erro ao reproduzir /video/intro.mp4, avançando para a Fase 1...");
-            finishIntro();
-          }}
-          className="w-full h-full max-h-screen object-contain"
-        />
-
-        {/* Top Control Bar */}
-        <div className="absolute top-4 right-4 sm:top-6 sm:right-6 z-30 flex items-center gap-2 sm:gap-3">
-          <button
-            type="button"
-            className="inline-flex h-10 w-10 items-center justify-center border border-line bg-black/80 backdrop-blur-sm font-display text-xs text-fg hover:border-gold rounded transition-all cursor-pointer"
-            onClick={toggleFullscreen}
-            title={isFullscreen ? "Sair da Tela Cheia" : "Tela Cheia"}
-          >
-            {isFullscreen ? <Minimize2 className="h-4 w-4 text-gold" /> : <Maximize2 className="h-4 w-4 text-gold" />}
-          </button>
-
-          <button
-            type="button"
-            className="inline-flex h-10 items-center gap-2 border border-line bg-black/80 backdrop-blur-sm px-3 font-display text-xs tracking-widest text-fg hover:border-gold rounded transition-all cursor-pointer"
-            onClick={toggleAudio}
-          >
-            {muted ? <VolumeX className="h-4 w-4 text-blood" /> : <Volume2 className="h-4 w-4 text-gold" />}
-            <span className="hidden sm:inline">{muted ? "Mudo" : "Som"}</span>
-          </button>
-
-          <button
-            type="button"
-            className="inline-flex h-10 items-center gap-2 border border-gold/70 bg-blood/90 hover:bg-blood backdrop-blur-sm px-4 font-display text-xs tracking-widest text-fg rounded shadow-[0_0_15px_rgba(200,160,80,0.3)] hover:scale-105 active:scale-95 transition-all cursor-pointer"
-            onClick={finishIntro}
-          >
-            <span>Pular Introdução</span>
-            <span className="text-[10px] text-fg/70 hidden md:inline">[ESPAÇO / ESC]</span>
-          </button>
-        </div>
-
-        {/* Cinematic Title Footer */}
-        <div className="absolute bottom-4 left-1/2 -translate-x-1/2 pointer-events-none z-20 text-center">
-          <p className="font-display text-[10px] sm:text-xs text-gold/70 tracking-widest uppercase drop-shadow-[0_2px_4px_rgba(0,0,0,0.9)] animate-pulse">
-            Nightfall Chronicles · Prólogo
-          </p>
-        </div>
-      </div>
+      <PrologueScreen
+        onFinish={finishIntro}
+        muted={muted}
+        onToggleMute={toggleAudio}
+        isFullscreen={isFullscreen}
+        onToggleFullscreen={toggleFullscreen}
+      />
     );
   }
 
@@ -492,7 +424,7 @@ export function GameScreen() {
               className="h-11 border border-line px-5 font-display text-sm tracking-widest text-fg hover:border-gold hover:text-gold transition-all cursor-pointer"
               onClick={startIntro}
             >
-              Prólogo (Vídeo)
+              Prólogo
             </button>
             <button
               type="button"
