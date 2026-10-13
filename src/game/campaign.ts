@@ -2211,20 +2211,8 @@ export function mountCampaign(
   function draw() {
     if (!readyToRender) {
       g.setTransform(1, 0, 0, 1, 0, 0);
-      g.fillStyle = "#0c0812";
+      g.fillStyle = "#0a060f";
       g.fillRect(0, 0, T.viewW, T.viewH);
-
-      // Gothic Stage Card Transition (no flat untextured boxes visible)
-      g.save();
-      g.textAlign = "center";
-      g.textBaseline = "middle";
-      g.fillStyle = "#d4af37";
-      g.font = "bold 13px Cinzel, serif";
-      g.fillText(`FASE ${level.id} · ${level.title.toUpperCase()}`, T.viewW / 2, T.viewH / 2 - 8);
-      g.fillStyle = "rgba(215, 205, 225, 0.7)";
-      g.font = "9px Cinzel, serif";
-      g.fillText(level.place, T.viewW / 2, T.viewH / 2 + 10);
-      g.restore();
       return;
     }
 

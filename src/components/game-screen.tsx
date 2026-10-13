@@ -15,6 +15,7 @@ import { loadProgress, mountCampaign, preloadAllGameAssets, saveClear, type Camp
 import { levels } from "@/game/levels";
 import { sound } from "@/game/audio";
 import { PrologueScreen } from "./prologue-screen";
+import { StageIntroCard } from "./stage-intro-card";
 
 const empty: GameHud = {
   hp: 6,
@@ -55,6 +56,7 @@ export function GameScreen() {
       return false;
     }
   });
+  const [stageIntroId, setStageIntroId] = useState<number | null>(null);
 
   useEffect(() => {
     preloadAllGameAssets();
@@ -379,6 +381,7 @@ export function GameScreen() {
     setLevelId(id);
     setHud(empty);
     setMode("play");
+    setStageIntroId(id);
   };
 
   if (mode === "intro") {
@@ -834,7 +837,10 @@ export function GameScreen() {
                 <button
                   type="button"
                   className="h-11 bg-blood px-5 font-display text-xs tracking-widest text-fg hover:brightness-110 rounded shadow transition"
-                  onClick={() => apiRef.current?.reset()}
+                  onClick={() => {
+                    apiRef.current?.reset();
+                    setStageIntroId(level.id);
+                  }}
                 >
                   Reiniciar Fase (3 Vidas)
                 </button>
@@ -865,6 +871,14 @@ export function GameScreen() {
             </div>
           </div>
         </div>
+      ) : null}
+
+      {/* Crisp High-Resolution Stage Introduction Card */}
+      {stageIntroId !== null ? (
+        <StageIntroCard
+          stageId={stageIntroId}
+          onDismiss={() => setStageIntroId(null)}
+        />
       ) : null}
     </div>
   );
