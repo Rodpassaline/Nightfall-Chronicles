@@ -37,35 +37,35 @@ async function run() {
 
   // Ato 1
   console.log("4. Verificando Ato 1 do Prólogo...");
-  await page.waitForSelector("h1:has-text('A NOITE ETERNA DESPERTA')", { timeout: 8000 });
+  await page.waitForSelector("text='Ato 1 de 4'", { timeout: 8000 });
   await page.waitForTimeout(600);
-  await page.screenshot({ path: path.join(screenshotsDir, "qa-prologue-act1.png") });
+  await page.screenshot({ path: path.join(screenshotsDir, "qa-prologue-clean-act1.png") });
 
   // Avançar para Ato 2
   console.log("5. Avançando para Ato 2...");
   const nextBtn = page.locator("button:has-text('Avançar'), button:has-text('Próximo')");
   await nextBtn.click();
-  await page.waitForSelector("h1:has-text('OS SETE MESTRES DO ABISMO')", { timeout: 5000 });
+  await page.waitForSelector("text='Ato 2 de 4'", { timeout: 5000 });
   await page.waitForTimeout(600);
-  await page.screenshot({ path: path.join(screenshotsDir, "qa-prologue-act2.png") });
+  await page.screenshot({ path: path.join(screenshotsDir, "qa-prologue-clean-act2.png") });
 
   // Avançar para Ato 3
   console.log("6. Avançando para Ato 3...");
   await nextBtn.click();
-  await page.waitForSelector("h1:has-text('ALDRIC VALE')", { timeout: 5000 });
+  await page.waitForSelector("text='Ato 3 de 4'", { timeout: 5000 });
   await page.waitForTimeout(600);
-  await page.screenshot({ path: path.join(screenshotsDir, "qa-prologue-act3.png") });
+  await page.screenshot({ path: path.join(screenshotsDir, "qa-prologue-clean-act3.png") });
 
   // Avançar para Ato 4
   console.log("7. Avançando para Ato 4...");
   await nextBtn.click();
-  await page.waitForSelector("h1:has-text('OS PORTÕES')", { timeout: 5000 });
+  await page.waitForSelector("text='Ato 4 de 4'", { timeout: 5000 });
   await page.waitForTimeout(600);
-  await page.screenshot({ path: path.join(screenshotsDir, "qa-prologue-act4.png") });
+  await page.screenshot({ path: path.join(screenshotsDir, "qa-prologue-clean-act4.png") });
 
-  // Clicar em "ENTRAR NO CASTELO"
-  console.log("8. Clicando em 'ENTRAR NO CASTELO' para iniciar a Fase 1...");
-  const enterBtn = page.locator("button:has-text('ENTRAR NO CASTELO')");
+  // Clicar em "Entrar no Castelo"
+  console.log("8. Clicando em 'Entrar no Castelo' para iniciar a Fase 1...");
+  const enterBtn = page.locator("button:has-text('Entrar no Castelo')");
   await enterBtn.click();
 
   console.log("9. Aguardando canvas e HUD da Fase 1...");

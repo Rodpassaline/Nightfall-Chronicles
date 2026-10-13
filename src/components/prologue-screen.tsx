@@ -6,10 +6,6 @@ import {
   Minimize2,
   ChevronRight,
   ChevronLeft,
-  Sparkles,
-  Sword,
-  ShieldAlert,
-  Skull,
 } from "lucide-react";
 import { sound } from "@/game/audio";
 
@@ -315,14 +311,7 @@ export function PrologueScreen({
   }, []);
 
   return (
-    <div
-      className="fixed inset-0 z-50 flex flex-col justify-between bg-black text-white select-none overflow-hidden"
-      onClick={(e) => {
-        // Clicar fora dos botões avança o texto
-        if ((e.target as HTMLElement).closest("button")) return;
-        goToNext();
-      }}
-    >
+    <div className="fixed inset-0 z-50 flex flex-col justify-between bg-black text-white select-none overflow-hidden">
       {/* 1. HD Animated Background Video */}
       <div className="absolute inset-0 z-0 overflow-hidden flex items-center justify-center bg-black">
         <video
@@ -335,18 +324,17 @@ export function PrologueScreen({
           onError={() => {
             console.warn("Vídeo não carregado, usando modo fallback visual");
           }}
-          className="h-full w-full object-cover sm:object-contain transition-opacity duration-700"
+          className="h-full w-full object-cover transition-opacity duration-700"
         />
 
-        {/* Subtle cinematic vignette to make video edges blend into pure black */}
-        <div className="absolute inset-0 bg-radial-[circle_at_center,transparent_45%,rgba(0,0,0,0.7)_100%] pointer-events-none" />
-        <div className="absolute inset-0 bg-gradient-to-t from-black/85 via-transparent to-black/60 pointer-events-none" />
+        {/* Subtle cinematic vignette at top and bottom to keep controls legible without darkening the video */}
+        <div className="absolute inset-0 bg-gradient-to-b from-black/50 via-transparent to-black/60 pointer-events-none" />
       </div>
 
       {/* 2. Floating Fire Embers Canvas */}
       <canvas
         ref={canvasRef}
-        className="pointer-events-none absolute inset-0 z-10 opacity-75"
+        className="pointer-events-none absolute inset-0 z-10 opacity-50"
       />
 
       {/* 3. Dynamic Lightning Flash */}
@@ -357,7 +345,7 @@ export function PrologueScreen({
       />
 
       {/* 4. Top Header & Cinematic Controls */}
-      <header className="relative z-30 flex items-center justify-between px-4 sm:px-8 py-4 sm:py-5 bg-gradient-to-b from-black/95 via-black/70 to-transparent backdrop-blur-xs">
+      <header className="relative z-30 flex items-center justify-between px-4 sm:px-8 py-3.5 sm:py-4 bg-gradient-to-b from-black/80 via-black/40 to-transparent">
         <div className="flex items-center gap-2.5">
           <div className="h-2 w-2 rounded-full bg-blood animate-pulse shadow-[0_0_8px_rgba(220,38,38,0.9)]" />
           <span className="font-display text-xs sm:text-sm tracking-widest text-gold uppercase drop-shadow-[0_2px_4px_rgba(0,0,0,1)]">
@@ -369,7 +357,7 @@ export function PrologueScreen({
           {/* Fullscreen Button */}
           <button
             type="button"
-            className="inline-flex h-9 w-9 items-center justify-center border border-line bg-black/80 backdrop-blur-sm font-display text-xs text-fg hover:border-gold rounded transition-all cursor-pointer shadow-md"
+            className="inline-flex h-8 w-8 sm:h-9 sm:w-9 items-center justify-center border border-line bg-black/70 backdrop-blur-sm font-display text-xs text-fg hover:border-gold rounded transition-all cursor-pointer shadow-md"
             onClick={onToggleFullscreen}
             title={isFullscreen ? "Sair da Tela Cheia" : "Tela Cheia"}
           >
@@ -383,7 +371,7 @@ export function PrologueScreen({
           {/* Audio Button */}
           <button
             type="button"
-            className="inline-flex h-9 items-center gap-2 border border-line bg-black/80 backdrop-blur-sm px-3 font-display text-xs tracking-widest text-fg hover:border-gold rounded transition-all cursor-pointer shadow-md"
+            className="inline-flex h-8 sm:h-9 items-center gap-2 border border-line bg-black/70 backdrop-blur-sm px-3 font-display text-xs tracking-widest text-fg hover:border-gold rounded transition-all cursor-pointer shadow-md"
             onClick={onToggleMute}
             title={muted ? "Ativar Áudio" : "Mutar Áudio"}
           >
@@ -398,7 +386,7 @@ export function PrologueScreen({
           {/* Skip Button */}
           <button
             type="button"
-            className="inline-flex h-9 items-center gap-1.5 border border-gold/60 bg-blood/85 hover:bg-blood backdrop-blur-sm px-3.5 font-display text-xs tracking-widest text-fg rounded shadow-[0_0_12px_rgba(180,35,48,0.4)] transition-all cursor-pointer hover:scale-105 active:scale-95"
+            className="inline-flex h-8 sm:h-9 items-center gap-1.5 border border-gold/60 bg-blood/85 hover:bg-blood backdrop-blur-sm px-3.5 font-display text-xs tracking-widest text-fg rounded shadow-[0_0_12px_rgba(180,35,48,0.4)] transition-all cursor-pointer hover:scale-105 active:scale-95"
             onClick={handleFinish}
           >
             <span>Pular</span>
@@ -407,65 +395,11 @@ export function PrologueScreen({
         </div>
       </header>
 
-      {/* 5. Main Story Overlay: Floating Gothic Cinematic Box */}
-      <main className="relative z-30 mx-auto flex w-full max-w-3xl flex-1 flex-col justify-end sm:justify-center px-4 sm:px-8 pb-6 sm:pb-0">
-        <div
-          className={`rounded-lg border border-gold/40 bg-black/75 p-5 sm:p-8 backdrop-blur-md shadow-[0_0_35px_rgba(0,0,0,0.95)] transition-all duration-300 ease-out ${
-            isTransitioning ? "opacity-0 translate-y-3 scale-98" : "opacity-100 translate-y-0 scale-100"
-          }`}
-        >
-          {/* Story Badge */}
-          <div className="inline-flex items-center gap-2 rounded-full border border-gold/50 bg-black/90 px-3.5 py-1 shadow-sm">
-            {beat.badgeIcon === "moon" && <Sparkles className="h-3.5 w-3.5 text-gold" />}
-            {beat.badgeIcon === "skull" && <Skull className="h-3.5 w-3.5 text-purple-400" />}
-            {beat.badgeIcon === "sword" && <Sword className="h-3.5 w-3.5 text-gold" />}
-            {beat.badgeIcon === "gate" && <ShieldAlert className="h-3.5 w-3.5 text-cyan-400" />}
-            <span className="font-display text-[11px] sm:text-xs font-semibold tracking-widest text-gold drop-shadow-sm">
-              {beat.badge}
-            </span>
-          </div>
-
-          {/* Title */}
-          <h1 className="brand-title mt-3 font-display text-2xl sm:text-4xl md:text-5xl text-fg drop-shadow-[0_4px_16px_rgba(0,0,0,1)]">
-            {beat.title}
-          </h1>
-
-          {/* Subtitle */}
-          <p className="mt-1 text-xs sm:text-sm font-display tracking-wider text-gold/85 italic">
-            {beat.subtitle}
-          </p>
-
-          {/* Story Paragraphs */}
-          <div className="mt-4 space-y-2.5">
-            {beat.paragraphs.map((p, idx) => (
-              <p
-                key={idx}
-                className="text-sm sm:text-base md:text-lg font-body leading-relaxed text-slate-100 drop-shadow-[0_2px_4px_rgba(0,0,0,1)]"
-              >
-                {p}
-              </p>
-            ))}
-          </div>
-
-          {/* Act 4 Highlight Action */}
-          {currentIdx === STORY_BEATS.length - 1 ? (
-            <div className="mt-6 flex items-center gap-4">
-              <button
-                type="button"
-                className="h-12 sm:h-14 px-6 sm:px-8 bg-gradient-to-r from-blood via-red-800 to-blood hover:from-red-700 hover:to-red-800 border-2 border-gold font-display text-sm sm:text-base tracking-widest text-white rounded shadow-[0_0_25px_rgba(200,30,30,0.8)] hover:scale-105 active:scale-95 transition-all flex items-center gap-3 cursor-pointer group"
-                onClick={goToNext}
-              >
-                <Sword className="h-5 w-5 text-gold group-hover:rotate-12 transition-transform" />
-                <span>ENTRAR NO CASTELO</span>
-                <ChevronRight className="h-5 w-5 text-gold animate-bounce" />
-              </button>
-            </div>
-          ) : null}
-        </div>
-      </main>
+      {/* 5. Center Space: Left completely empty and unobstructed so the video and voiceover shine */}
+      <div className="flex-1 pointer-events-none" />
 
       {/* 6. Bottom Bar: Progress Bar & Cinematic Navigation */}
-      <footer className="relative z-30 flex flex-col gap-3 px-4 sm:px-8 py-4 bg-gradient-to-t from-black/95 via-black/75 to-transparent backdrop-blur-xs border-t border-gold/15">
+      <footer className="relative z-30 flex flex-col gap-2.5 px-4 sm:px-8 py-3 bg-gradient-to-t from-black/80 via-black/40 to-transparent">
         {/* Subtle Chapter Progress Line */}
         <div className="h-1 w-full rounded-full bg-white/10 overflow-hidden">
           <div
@@ -516,7 +450,7 @@ export function PrologueScreen({
               onClick={goToNext}
             >
               <span>
-                {currentIdx === STORY_BEATS.length - 1 ? "Entrar" : "Avançar"}
+                {currentIdx === STORY_BEATS.length - 1 ? "Entrar no Castelo" : "Avançar"}
               </span>
               <ChevronRight className="h-3.5 w-3.5" />
             </button>
