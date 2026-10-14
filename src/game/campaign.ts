@@ -1312,33 +1312,64 @@ export function mountCampaign(
     if (!player.dead && !player.won) {
       for (let i = 0; i < enemies.length; i++) {
         const e1 = enemies[i];
-        if (e1.dead || e1.kind === "bat") continue;
+        if (e1.dead) continue;
 
-        // Player vs Enemy horizontal solid body separation
-        const pTop = player.y;
-        const pBot = player.y + player.h;
-        const eTop = e1.y;
-        const eBot = e1.y + e1.h;
-        const vert = Math.min(pBot, eBot) - Math.max(pTop, eTop);
+        if (e1.kind !== "bat") {
+          // Player vs Ground Enemy horizontal solid body separation
+          const pTop = player.y;
+          const pBot = player.y + player.h;
+          const eTop = e1.y;
+          const eBot = e1.y + e1.h;
+          const vert = Math.min(pBot, eBot) - Math.max(pTop, eTop);
 
-        // Only block when at the same ground elevation (allows jumping/pogoing over)
-        if (vert > 12) {
-          const eMid = e1.x + e1.w / 2;
+          // Only block when at the same ground elevation (allows jumping/pogoing over)
+          if (vert > 12) {
+            const eMid = e1.x + e1.w / 2;
+            const pMid = player.x + player.w / 2;
+            const minD = (e1.w + player.w) / 2;
+            const dist = Math.abs(pMid - eMid);
+
+            if (dist < minD) {
+              if (eMid < pMid) {
+                // Enemy on the LEFT of player
+                e1.x = player.x - e1.w;
+                if (e1.vx > 0) e1.vx = 0;
+                if (player.vx < 0) player.vx = 0;
+              } else {
+                // Enemy on the RIGHT of player
+                e1.x = player.x + player.w;
+                if (e1.vx < 0) e1.vx = 0;
+                if (player.vx > 0) player.vx = 0;
+              }
+            }
+          }
+        } else {
+          // Player vs Aerial Enemy (Bat) solid body resolution:
+          // Bats swoop at the head, but MUST NEVER occupy the same space as Aldric!
+          const headTop = player.y;
           const pMid = player.x + player.w / 2;
-          const minD = (e1.w + player.w) / 2;
-          const dist = Math.abs(pMid - eMid);
+          const eMid = e1.x + e1.w / 2;
 
-          if (dist < minD) {
+          // 1. Head top boundary: bat cannot penetrate below the top of Aldric's head
+          if (e1.x + e1.w > player.x && e1.x < player.x + player.w) {
+            if (e1.y + e1.h > headTop) {
+              e1.y = headTop - e1.h;
+              if (e1.vy > 0) e1.vy = 0;
+            }
+          }
+
+          // 2. Horizontal body boundary: bat cannot penetrate inside Aldric's torso
+          if (e1.y + e1.h > headTop && e1.y < player.y + player.h) {
             if (eMid < pMid) {
-              // Enemy on the LEFT of player
-              e1.x = player.x - e1.w;
-              if (e1.vx > 0) e1.vx = 0;
-              if (player.vx < 0) player.vx = 0;
+              if (e1.x + e1.w > player.x) {
+                e1.x = player.x - e1.w;
+                if (e1.vx > 0) e1.vx = 0;
+              }
             } else {
-              // Enemy on the RIGHT of player
-              e1.x = player.x + player.w;
-              if (e1.vx < 0) e1.vx = 0;
-              if (player.vx > 0) player.vx = 0;
+              if (e1.x < player.x + player.w) {
+                e1.x = player.x + player.w;
+                if (e1.vx < 0) e1.vx = 0;
+              }
             }
           }
         }
@@ -1346,17 +1377,36 @@ export function mountCampaign(
         // Soft spacing between enemy pairs so they don't merge into a single sprite
         for (let j = i + 1; j < enemies.length; j++) {
           const e2 = enemies[j];
-          if (e2.dead || e2.kind === "bat") continue;
-          if (Math.abs(e1.y - e2.y) < 18) {
-            const e1Mid = e1.x + e1.w / 2;
-            const e2Mid = e2.x + e2.w / 2;
-            const spacing = (e1.w + e2.w) / 2;
-            const delta = e2Mid - e1Mid;
-            if (Math.abs(delta) < spacing && Math.abs(delta) > 0) {
-              const push = (spacing - Math.abs(delta)) * 0.25;
-              const dir = delta > 0 ? 1 : -1;
-              e2.x += dir * push;
-              e1.x -= dir * push;
+          if (e2.dead) continue;
+
+          if (e1.kind === "bat" && e2.kind === "bat") {
+            // Aerial flock spacing between bats
+            const bdx = (e2.x + e2.w / 2) - (e1.x + e1.w / 2);
+            const bdy = (e2.y + e2.h / 2) - (e1.y + e1.h / 2);
+            const bDist = Math.hypot(bdx, bdy);
+            const minBatDist = 28;
+            if (bDist < minBatDist && bDist > 0) {
+              const push = (minBatDist - bDist) * 0.3;
+              const nx = bdx / bDist;
+              const ny = bdy / bDist;
+              e2.x += nx * push;
+              e2.y += ny * push;
+              e1.x -= nx * push;
+              e1.y -= ny * push;
+            }
+          } else if (e1.kind !== "bat" && e2.kind !== "bat") {
+            // Ground enemy spacing
+            if (Math.abs(e1.y - e2.y) < 18) {
+              const e1Mid = e1.x + e1.w / 2;
+              const e2Mid = e2.x + e2.w / 2;
+              const spacing = (e1.w + e2.w) / 2;
+              const delta = e2Mid - e1Mid;
+              if (Math.abs(delta) < spacing && Math.abs(delta) > 0) {
+                const push = (spacing - Math.abs(delta)) * 0.25;
+                const dir = delta > 0 ? 1 : -1;
+                e2.x += dir * push;
+                e1.x -= dir * push;
+              }
             }
           }
         }
@@ -1534,24 +1584,41 @@ export function mountCampaign(
     }
 
     // =========================================================================
-    // 1. BAT (Common flying predator - aggressive aerial swoop flight)
+    // 1. BAT (Common flying predator - swoops at Aldric's head, never inside)
     // =========================================================================
     if (e.kind === "bat") {
-      if (dist < 380) {
-        // Fast predatory sine-wave swoop intercepting player
-        const swoopSpeed = e.boss ? 135 : 105;
-        e.vx = Math.sign(dx) * swoopSpeed;
-        const wave = Math.sin(e.t * 5.6) * 32;
-        const targetY = player.y - 12 + wave;
-        e.y += (targetY - e.y) * Math.min(1, dt * 4.2);
+      const headTop = player.y;
+
+      if (e.cd > 0) {
+        // Recovery / Ascending state after attack or recoil: climbs back to flight height
+        const cruiseY = headTop - 54 + Math.sin(e.t * 3.2) * 6;
+        e.y += (cruiseY - e.y) * Math.min(1, dt * 5.0);
+        e.vx = -e.facing * 55;
         e.x += e.vx * dt;
+      } else if (dist < 380) {
+        if (dist > 180) {
+          // Approach at cruising altitude above player
+          const cruiseY = headTop - 46 + Math.sin(e.t * 3.5) * 8;
+          e.y += (cruiseY - e.y) * Math.min(1, dt * 3.8);
+          e.vx = Math.sign(dx) * 85;
+          e.x += e.vx * dt;
+        } else {
+          // Predatory dive targeting Aldric's head!
+          // Aims directly at the head perimeter (just above the skull: player.y - e.h)
+          const swoopSpeed = e.boss ? 135 : 110;
+          const headTargetY = headTop - e.h - 1;
+          e.y += (headTargetY - e.y) * Math.min(1, dt * 5.8);
+          e.vx = Math.sign(dx) * swoopSpeed;
+          e.x += e.vx * dt;
+        }
       } else {
+        // Idling around perch/home coordinates
         const tx = e.homeX + Math.sin(e.t * 2.2) * 32;
         const ty = e.homeY + Math.sin(e.t * 3.4) * 10;
         e.x += (tx - e.x) * Math.min(1, dt * 2.0);
         e.y += (ty - e.y) * Math.min(1, dt * 2.0);
       }
-      e.y = clamp(e.y, 16, GROUND_Y - 20);
+      e.y = clamp(e.y, 16, GROUND_Y - 22);
     }
     // =========================================================================
     // 2. BOSS 1: Petros, Gárgula Colossal de Pedra (Os Portões)
@@ -2233,12 +2300,50 @@ export function mountCampaign(
           }
         }
       }
-    } else if (!e.dead && e.kind === "bat") {
-      // Flying bats: deal damage and swoop up/away on hit so they don't stick to player
-      if (e.hurt <= 0 && overlap(e, player)) {
-        hurtPlayer(1, e.x + e.w / 2, "slash");
-        e.vy = -110;
-        e.vx = -e.facing * 80;
+    } else if (!e.dead && e.kind === "bat" && !player.dead) {
+      const pCenterX = player.x + player.w / 2;
+      const eCenterX = e.x + e.w / 2;
+      const horizDist = Math.abs(pCenterX - eCenterX);
+      const minHorizDist = (e.w + player.w) / 2;
+      const headTop = player.y;
+
+      // Check if bat is close to Aldric's head perimeter to deliver its attack
+      const nearHeadHoriz = horizDist <= minHorizDist + 6;
+      const nearHeadVert = e.y + e.h >= headTop - 6 && e.y <= headTop + 14;
+
+      if (nearHeadHoriz && nearHeadVert) {
+        if (e.cd <= 0 && e.hurt <= 0) {
+          hurtPlayer(1, eCenterX, "slash");
+          sound.playSfx("slice");
+          shake = Math.max(shake, 1.5);
+          e.cd = 0.95; // Recovery cooldown before next dive
+          e.vy = -160; // Upward flap
+          e.vx = -e.facing * 75; // Flap away
+        }
+      }
+
+      // STRICT SOLID EXCLUSION: The bat must NEVER occupy the same space as Aldric!
+      // 1. Vertical head clamp: bat cannot penetrate below the top of Aldric's head
+      if (e.x + e.w > player.x && e.x < player.x + player.w) {
+        if (e.y + e.h > headTop) {
+          e.y = headTop - e.h;
+          if (e.vy > 0) e.vy = 0;
+        }
+      }
+
+      // 2. Horizontal body clamp: bat cannot penetrate into Aldric's torso from either side
+      if (e.y + e.h > headTop && e.y < player.y + player.h) {
+        if (eCenterX < pCenterX) {
+          if (e.x + e.w > player.x) {
+            e.x = player.x - e.w;
+            if (e.vx > 0) e.vx = 0;
+          }
+        } else {
+          if (e.x < player.x + player.w) {
+            e.x = player.x + player.w;
+            if (e.vx < 0) e.vx = 0;
+          }
+        }
       }
     }
   }

@@ -854,10 +854,19 @@ export function mountArena(canvas: HTMLCanvasElement, onHud: (hud: HudSnap) => v
       if (e.kind === "bat") {
         const hoverX = e.homeX + Math.sin(e.t * 2) * 36;
         const hoverY = e.homeY + Math.sin(e.t * 3.1) * 12;
-        const tx = dist < 110 ? player.x : hoverX;
-        const ty = dist < 110 ? player.y + 4 : hoverY;
-        e.x += (tx - e.x) * Math.min(1, dt * 2.2);
-        e.y += (ty - e.y) * Math.min(1, dt * 2.2);
+        const headTop = player.y;
+        if (e.cd > 0) {
+          const cruiseY = headTop - 50 + Math.sin(e.t * 3) * 6;
+          e.y += (cruiseY - e.y) * Math.min(1, dt * 4.5);
+          e.x += -e.facing * 50 * dt;
+        } else if (dist < 180) {
+          const targetY = headTop - e.h - 1;
+          e.x += (player.x - e.x) * Math.min(1, dt * 3.5);
+          e.y += (targetY - e.y) * Math.min(1, dt * 4.5);
+        } else {
+          e.x += (hoverX - e.x) * Math.min(1, dt * 2.2);
+          e.y += (hoverY - e.y) * Math.min(1, dt * 2.2);
+        }
       } else if (e.kind === "gargoyle") {
         if (e.state === "perch" && dist < 150 && player.x > e.homeX - 220) {
           e.state = "dive";
@@ -952,7 +961,33 @@ export function mountArena(canvas: HTMLCanvasElement, onHud: (hud: HudSnap) => v
       }
 
       if (!e.dead && e.kind !== "bat" && overlap(e, player) && e.hurt <= 0) hurtPlayer(1, e.x + e.w / 2);
-      if (e.kind === "bat" && !e.dead && overlap(e, player)) hurtPlayer(1, e.x);
+      if (e.kind === "bat" && !e.dead) {
+        const headTop = player.y;
+        const pMid = player.x + player.w / 2;
+        const eMid = e.x + e.w / 2;
+        const minHoriz = (e.w + player.w) / 2;
+        const horizDist = Math.abs(pMid - eMid);
+
+        if (horizDist <= minHoriz + 5 && e.y + e.h >= headTop - 6 && e.y <= headTop + 14) {
+          if (e.cd <= 0 && e.hurt <= 0) {
+            hurtPlayer(1, e.x);
+            e.cd = 0.95;
+            e.vy = -140;
+          }
+        }
+
+        // Physical solid exclusion for bat
+        if (e.x + e.w > player.x && e.x < player.x + player.w && e.y + e.h > headTop) {
+          e.y = headTop - e.h;
+        }
+        if (e.y + e.h > headTop && e.y < player.y + player.h) {
+          if (eMid < pMid) {
+            if (e.x + e.w > player.x) e.x = player.x - e.w;
+          } else {
+            if (e.x < player.x + player.w) e.x = player.x + player.w;
+          }
+        }
+      }
     }
   }
 
