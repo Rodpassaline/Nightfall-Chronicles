@@ -120,7 +120,10 @@ function platform(x: number, y: number, w: number): Solid {
 // =========================================================================
 const level1_solids: Solid[] = [
   ...hallFloor(5400),
-  // Section 1: Graveyard elevated platforms
+  // Section 1: Graveyard elevated platforms & stepped ramparts
+  { x: 300, y: 185, w: 32, h: 15 },
+  { x: 332, y: 170, w: 32, h: 30 },
+  { x: 364, y: 155, w: 32, h: 45 },
   platform(396, 145, 180),
   platform(640, 105, 180),
   platform(880, 145, 140),
@@ -128,6 +131,8 @@ const level1_solids: Solid[] = [
   platform(1060, 120, 70),
 
   // Section 2: Outer Ramparts & Watchtower platforms
+  { x: 1300, y: 185, w: 32, h: 15 },
+  { x: 1332, y: 170, w: 32, h: 30 },
   platform(1364, 150, 160),
   platform(1580, 110, 160),
   platform(1820, 75, 180), // High watchtower perch with extra life

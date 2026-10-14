@@ -5,14 +5,14 @@ import path from "path";
 const BRAIN = "C:/Users/rodpa/.gemini/antigravity/brain/ca749cb1-0bbc-4c6a-810b-5903a41e7c31/";
 const OUT_DIR = path.join(process.cwd(), "public/sprites");
 
-// Exact target heights and baseline positions matching normal living sprites
+// Exact target heights and baseline positions matching normal living sprites 1:1
 const CONFIGS = [
   {
     key: "hero-die",
     file: "aldric_death_spritesheet_1791978525887.jpg",
     cellSize: 320,
     thresh: 14,
-    targetStandingH: 148, // EXACT match to hero-idle (148px)
+    targetStandingH: 185, // Full 1:1 scale matching living Aldric's body volume (shoulders 115px wide)
     targetBaselineY: 265, // EXACT match to hero-idle (maxY: 265, bottomPadding: 55px)
     standingFrame: 0,
   },
@@ -21,8 +21,8 @@ const CONFIGS = [
     file: "zombie_death_sequence_pure_black_1791978651862.jpg",
     cellSize: 256,
     thresh: 14,
-    targetStandingH: 226, // EXACT match to zombie.png (113/128 * 256 = 226px)
-    targetBaselineY: 244, // EXACT match to zombie.png (bottomPadding: 12px)
+    targetStandingH: 236, // Exact 1:1 match to zombie.png
+    targetBaselineY: 246,
     standingFrame: 0,
   },
   {
@@ -30,8 +30,8 @@ const CONFIGS = [
     file: "skeleton_death_animation_sequence_black_bg_1791978649103.jpg",
     cellSize: 256,
     thresh: 14,
-    targetStandingH: 208, // EXACT match to skeleton.png (104/128 * 256 = 208px)
-    targetBaselineY: 232, // EXACT match to skeleton.png (bottomPadding: 24px)
+    targetStandingH: 224, // Matches living skeleton's large skull and ribcage
+    targetBaselineY: 238,
     standingFrame: 0,
   },
   {
@@ -39,8 +39,8 @@ const CONFIGS = [
     file: "knight_death_spritesheet_black_bg_1791978644632.jpg",
     cellSize: 256,
     thresh: 14,
-    targetStandingH: 246, // EXACT match to knight.png (123/128 * 256 = 246px)
-    targetBaselineY: 250, // EXACT match to knight.png (bottomPadding: 6px)
+    targetStandingH: 248, // Heavy armored warrior matching knight.png
+    targetBaselineY: 252,
     standingFrame: 0,
   },
   {
@@ -48,8 +48,8 @@ const CONFIGS = [
     file: "armored_skeleton_death_sequence_1791978733689.jpg",
     cellSize: 256,
     thresh: 14,
-    targetStandingH: 220, // EXACT match to armored-skeleton.png (441/512 * 256 = 220px)
-    targetBaselineY: 255, // EXACT match to armored-skeleton.png
+    targetStandingH: 235, // Full brass armor & shield matching armored-skeleton.png
+    targetBaselineY: 250,
     standingFrame: 0,
   },
   {
@@ -57,8 +57,8 @@ const CONFIGS = [
     file: "red_skeleton_death_sequence_1791978732640.jpg",
     cellSize: 256,
     thresh: 14,
-    targetStandingH: 173, // EXACT match to red-skeleton.png (346/512 * 256 = 173px)
-    targetBaselineY: 243, // EXACT match to red-skeleton.png (bottomPadding: 13px)
+    targetStandingH: 205, // Broad cursed skeleton matching red-skeleton.png width
+    targetBaselineY: 244,
     standingFrame: 0,
   },
   {
@@ -66,8 +66,8 @@ const CONFIGS = [
     file: "gargoyle_death_sequence_1791978734312.jpg",
     cellSize: 256,
     thresh: 14,
-    targetStandingH: 248, // EXACT match to gargoyle.png
-    targetBaselineY: 254, // EXACT match to gargoyle.png
+    targetStandingH: 248, // Massive stone demon matching gargoyle.png
+    targetBaselineY: 252,
     standingFrame: 0,
   },
   {
@@ -75,8 +75,8 @@ const CONFIGS = [
     file: "vampire_death_animation_spritesheet_fixed_1791978764963.jpg",
     cellSize: 256,
     thresh: 14,
-    targetStandingH: 188, // EXACT match to vampire.png (94/128 * 256 = 188px)
-    targetBaselineY: 232, // EXACT match to vampire.png (bottomPadding: 24px)
+    targetStandingH: 204, // Noble vampire matching vampire.png
+    targetBaselineY: 238,
     standingFrame: 0,
   },
   {
@@ -84,8 +84,8 @@ const CONFIGS = [
     file: "bat_death_animation_1791978624469.jpg",
     cellSize: 256,
     thresh: 14,
-    targetStandingH: 174, // EXACT match to bat.png (87/128 * 256 = 174px)
-    targetBaselineY: 240, // Aerial bat center/baseline
+    targetStandingH: 174, // Aerial bat matching bat.png
+    targetBaselineY: 240,
     standingFrame: 0,
     isAerial: true,
   },
@@ -107,7 +107,7 @@ async function main() {
     console.log(`Processando ${cfg.key}...`);
 
     const resultDataUrl = await page.evaluate(
-      async ({ b64, cellSize, thresh, targetStandingH, targetBaselineY, standingFrame }) => {
+      async ({ b64, cellSize, thresh, targetStandingH, targetBaselineY, standingFrame, isAerial }) => {
         function loadImage(src) {
           return new Promise((res) => {
             const img = new Image();
@@ -264,12 +264,10 @@ async function main() {
           frameBoxes.push({ minX, maxX, minY, maxY, w: maxX - minX + 1, h: maxY - minY + 1 });
         }
 
-        // Ground baseline in source image is the standing frame's feet bottom:
-        const groundBaselineY = frameBoxes[standingFrame].maxY;
         const standingSourceH = frameBoxes[standingFrame].h;
 
-        // SCALE FACTOR: Calibrated so the character in death animation is 100% IDENTICAL
-        // in size to the living character sprite (NO SHRINKING!):
+        // UNIFORM SCALE: Calibrated so the character in death animation is 100% IDENTICAL
+        // in body mass, shoulders, and head to the living character sprite (NO SHRINKING!):
         const uniformScale = targetStandingH / standingSourceH;
 
         // Output canvas: 2x2 grid
@@ -292,11 +290,17 @@ async function main() {
           // Center horizontally in cell
           const destX = cellX + (cellSize - scaledW) / 2;
 
-          // Align to ground baseline:
-          // In standing frame, bottom is at targetBaselineY.
-          // For subsequent frames, relative distance to ground plane is preserved:
-          const bottomDeltaFromGround = (b.maxY - groundBaselineY) * uniformScale;
-          const destY = cellY + targetBaselineY - scaledH + bottomDeltaFromGround;
+          let destY;
+          if (isAerial) {
+            // Aerial enemy (Bat): center vertically in the cell so it stays in mid-air
+            destY = cellY + (cellSize - scaledH) / 2;
+          } else {
+            // GROUND CHARACTERS: Every single frame is anchored FIRMLY TO THE FLOOR!
+            // The bottom of the character (feet in frame 0, knees in frame 1,
+            // hands/torso in frame 2, flat body/rubble in frame 3) touches targetBaselineY.
+            // NO MIDAIR COLLAPSING! NO ENCOLHIMENTO NO ALTO!
+            destY = cellY + targetBaselineY - scaledH;
+          }
 
           outCtx.save();
           outCtx.beginPath();
@@ -319,17 +323,18 @@ async function main() {
         targetStandingH: cfg.targetStandingH,
         targetBaselineY: cfg.targetBaselineY,
         standingFrame: cfg.standingFrame,
+        isAerial: !!cfg.isAerial,
       }
     );
 
     const outBuffer = Buffer.from(resultDataUrl.split(",")[1], "base64");
     const outFilePath = path.join(OUT_DIR, `${cfg.key}.png`);
     fs.writeFileSync(outFilePath, outBuffer);
-    console.log(`Perfeito (1:1 scale): ${cfg.key}.png salvo (${outBuffer.length} bytes)`);
+    console.log(`Perfeito (1:1 scale, chão cravado): ${cfg.key}.png salvo (${outBuffer.length} bytes)`);
   }
 
   await browser.close();
-  console.log("Todos os spritesheets de morte reconstruídos com escala 1:1 e baseline de chão exato!");
+  console.log("Todos os spritesheets de morte reconstruídos com escala 1:1 e chão cravado!");
 }
 
 main().catch(console.error);

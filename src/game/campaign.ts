@@ -806,7 +806,7 @@ export function mountCampaign(
     if (!body.grounded && body.vy >= 0) {
       for (const s of level.solids) {
         if (body.x + body.w > s.x && body.x < s.x + s.w) {
-          if (Math.abs(body.y + body.h - s.y) <= 1.5) {
+          if (Math.abs(body.y + body.h - s.y) <= 2.5) {
             body.y = s.y - body.h;
             body.vy = 0;
             body.grounded = true;
@@ -857,6 +857,7 @@ export function mountCampaign(
       player.crouching = false;
       player.vx = player.facing * -20;
       player.vy = 0; // ZERO vertical pop on fatal hit!
+      player.grounded = true;
       player.willRevive = player.lives > 1;
       shake = 6;
       if (!player.willRevive) {
@@ -936,6 +937,7 @@ export function mountCampaign(
       e.wind = 0;
       e.vx = knockDir * (e.boss ? 10 : 16);
       e.vy = 0; // ZERO vertical pop on fatal hit!
+      if (e.kind !== "bat") e.grounded = true;
       sound.playSfx(e.boss ? "bossHurt" : "enemyDie");
       shake = Math.max(shake, e.boss ? 8 : 4);
 
@@ -976,13 +978,13 @@ export function mountCampaign(
     e.wind = 0; // Interrupt active windup on enemies
     if (!e.boss && e.state === "slash") e.state = "idle";
 
-    // Dynamic recoil impulse (knocks the enemy back away from player strike)
+    // Dynamic recoil impulse (knocks the enemy back horizontally along the stone floor)
     const baseKnock = e.boss ? 42 : (e.kind === "armoredSkeleton" || e.kind === "knight") ? 85 : 125;
     const knockSpeed = isHeavy ? baseKnock * 1.35 : baseKnock;
     e.vx = knockDir * knockSpeed;
-    if (!e.boss && e.grounded) {
-      e.vy = -55; // Subtle recoil pop up off the floor only on living hits
-      e.grounded = false;
+    if (e.kind !== "bat") {
+      e.vy = 0; // Pure horizontal recoil on the stone floor, never pop up into the air!
+      e.grounded = true;
     }
 
     hitstop = dmg >= 3 ? T.hitstopHeavy : T.hitstopLight;
