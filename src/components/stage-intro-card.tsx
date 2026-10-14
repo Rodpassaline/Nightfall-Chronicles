@@ -101,7 +101,6 @@ interface StageIntroCardProps {
 
 export function StageIntroCard({ stageId, onDismiss }: StageIntroCardProps) {
   const [isClosing, setIsClosing] = useState(false);
-  const [progressPct, setProgressPct] = useState(0);
 
   const meta = STAGE_INTROS[stageId] || STAGE_INTROS[1];
 
@@ -122,26 +121,7 @@ export function StageIntroCard({ stageId, onDismiss }: StageIntroCardProps) {
     }
   }, [stageId]);
 
-  // Temporizador de progresso (fecha sozinho em 2.8s)
-  useEffect(() => {
-    const duration = 2800;
-    const start = Date.now();
-
-    const interval = setInterval(() => {
-      const elapsed = Date.now() - start;
-      const pct = Math.min(100, (elapsed / duration) * 100);
-      setProgressPct(pct);
-
-      if (elapsed >= duration) {
-        clearInterval(interval);
-        handleClose();
-      }
-    }, 40);
-
-    return () => clearInterval(interval);
-  }, [handleClose]);
-
-  // Teclado: qualquer tecla fecha e começa a jogar instantaneamente
+  // Teclado: Espaço, Enter, Esc ou qualquer tecla fecha e inicia a fase
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
       e.stopPropagation();
@@ -150,6 +130,7 @@ export function StageIntroCard({ stageId, onDismiss }: StageIntroCardProps) {
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
   }, [handleClose]);
+
 
   return (
     <div
@@ -236,26 +217,20 @@ export function StageIntroCard({ stageId, onDismiss }: StageIntroCardProps) {
           ) : null}
         </div>
 
-        {/* Progress Bar & Quick Start CTA Button */}
+        {/* Quick Start CTA Button */}
         <div className="mt-6 flex flex-col gap-2.5">
-          <div className="h-1 w-full rounded-full bg-white/10 overflow-hidden">
-            <div
-              className="h-full bg-gradient-to-r from-blood via-gold to-white transition-all duration-75"
-              style={{ width: `${progressPct}%` }}
-            />
-          </div>
-
           <button
             type="button"
-            className="w-full h-11 bg-gradient-to-r from-blood via-red-800 to-blood hover:from-red-700 hover:to-red-800 border border-gold font-display text-xs sm:text-sm tracking-widest text-white rounded shadow-[0_0_20px_rgba(180,35,48,0.5)] hover:scale-101 active:scale-99 transition-all flex items-center justify-center gap-2 cursor-pointer mt-1"
+            className="w-full h-12 bg-gradient-to-r from-blood via-red-800 to-blood hover:from-red-700 hover:to-red-800 border-2 border-gold font-display text-sm sm:text-base tracking-widest text-white rounded shadow-[0_0_25px_rgba(180,35,48,0.7)] hover:scale-102 active:scale-98 transition-all flex items-center justify-center gap-2.5 cursor-pointer"
             onClick={handleClose}
           >
-            <span>ENTRAR NA FASE</span>
+            <Sword className="h-4 w-4 text-gold" />
+            <span>INICIAR FASE</span>
             <ChevronRight className="h-4 w-4 text-gold animate-bounce" />
           </button>
 
-          <span className="text-[10px] sm:text-[11px] font-display text-muted/80 tracking-wider">
-            [ Toque na tela ou pressione qualquer tecla para começar ]
+          <span className="text-[11px] font-display text-gold/90 tracking-wider">
+            [ Clique em INICIAR FASE ou pressione ESPAÇO / ENTER ]
           </span>
         </div>
       </div>

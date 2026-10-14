@@ -40,18 +40,34 @@ async function run() {
   await page.screenshot({ path: stage1ScreenshotPath });
   console.log("Screenshot do Stage 1 Card salvo:", stage1ScreenshotPath);
 
-  console.log("5. Clicando no Stage Card para fechar e entrar...");
-  const enterBtn = page.locator("button:has-text('ENTRAR NA FASE')");
-  if (await enterBtn.isVisible()) {
-    await enterBtn.click();
+  console.log("5. Verificando que o jogo permanece pausado (vida intacta) durante o Card...");
+  // Aguardar 3.5 segundos com o card aberto - zumbis não devem se mover nem ferir Aldric
+  await page.waitForTimeout(3500);
+
+  // Card ainda deve estar visível (sem auto-dismiss)
+  const cardVisible = await page.locator("h1:has-text('OS PORTÕES')").isVisible();
+  console.log("Card ainda visível após 3.5s:", cardVisible);
+  if (!cardVisible) {
+    throw new Error("O card fechou automaticamente sozinho! Deveria esperar o jogador clicar em Iniciar.");
   }
 
-  console.log("6. Verificando arena da Fase 1 ativa e sem texto borrado...");
+  console.log("6. Clicando em 'INICIAR FASE'...");
+  const enterBtn = page.locator("button:has-text('INICIAR FASE')");
+  await enterBtn.click();
+  await page.waitForTimeout(400);
+
+  console.log("7. Verificando arena da Fase 1 ativa e sem texto borrado...");
   await page.waitForSelector("canvas.pixel-canvas-fullscreen", { timeout: 5000 });
-  await page.waitForTimeout(600);
+  
+  // Aldric deve estar vivo e com HP cheio (não levou dano enquanto lia o card)
+  const hudHeartCount = await page.locator(".pixel-heart, [data-heart]").count();
+  console.log("Corações no HUD detectados:", hudHeartCount);
+
+  // Esperar o zumbi avançar até Aldric e verificar colisão física
+  await page.waitForTimeout(3000);
   await page.screenshot({ path: path.join(screenshotsDir, "qa-stage1-gameplay.png") });
 
-  console.log("7. Testando abertura da Fase 2 a partir do menu de fases...");
+  console.log("8. Testando abertura da Fase 2 a partir do menu de fases...");
   const exitBtn = page.locator("button:has-text('Sair')");
   await exitBtn.click();
   await page.waitForTimeout(400);

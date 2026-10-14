@@ -355,6 +355,9 @@ export function GameScreen() {
     const canvas = canvasRef.current;
     if (!canvas) return;
     const api = mountCampaign(canvas, levelId, setHud);
+    if (stageIntroId !== null) {
+      api.setPaused(true);
+    }
     apiRef.current = api;
     const arena = canvas.closest("[data-arena]");
     arena?.scrollIntoView({ block: "start" });
@@ -364,6 +367,12 @@ export function GameScreen() {
       apiRef.current = null;
     };
   }, [mode, levelId]);
+
+  useEffect(() => {
+    if (apiRef.current) {
+      apiRef.current.setPaused(stageIntroId !== null);
+    }
+  }, [stageIntroId]);
 
   useEffect(() => {
     if (mode !== "play" || !hud.won) return;
@@ -877,7 +886,10 @@ export function GameScreen() {
       {stageIntroId !== null ? (
         <StageIntroCard
           stageId={stageIntroId}
-          onDismiss={() => setStageIntroId(null)}
+          onDismiss={() => {
+            setStageIntroId(null);
+            apiRef.current?.setPaused(false);
+          }}
         />
       ) : null}
     </div>

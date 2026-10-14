@@ -400,6 +400,7 @@ export function mountCampaign(
   const injected = new Set<string>();
   const pointer = new Set<Action>();
   let alive = true;
+  let paused = false;
   let raf = 0;
   let acc = 0;
   let last = performance.now();
@@ -1304,6 +1305,64 @@ export function mountCampaign(
 
     for (const e of enemies) updateEnemy(e, dt);
 
+    // =========================================================================
+    // PHYSICAL SOLID BODY RESOLUTION:
+    // Enemies and player cannot occupy the same space or clip behind each other!
+    // =========================================================================
+    if (!player.dead && !player.won) {
+      for (let i = 0; i < enemies.length; i++) {
+        const e1 = enemies[i];
+        if (e1.dead || e1.kind === "bat") continue;
+
+        // Player vs Enemy horizontal solid body separation
+        const pTop = player.y;
+        const pBot = player.y + player.h;
+        const eTop = e1.y;
+        const eBot = e1.y + e1.h;
+        const vert = Math.min(pBot, eBot) - Math.max(pTop, eTop);
+
+        // Only block when at the same ground elevation (allows jumping/pogoing over)
+        if (vert > 12) {
+          const eMid = e1.x + e1.w / 2;
+          const pMid = player.x + player.w / 2;
+          const minD = (e1.w + player.w) / 2;
+          const dist = Math.abs(pMid - eMid);
+
+          if (dist < minD) {
+            if (eMid < pMid) {
+              // Enemy on the LEFT of player
+              e1.x = player.x - e1.w;
+              if (e1.vx > 0) e1.vx = 0;
+              if (player.vx < 0) player.vx = 0;
+            } else {
+              // Enemy on the RIGHT of player
+              e1.x = player.x + player.w;
+              if (e1.vx < 0) e1.vx = 0;
+              if (player.vx > 0) player.vx = 0;
+            }
+          }
+        }
+
+        // Soft spacing between enemy pairs so they don't merge into a single sprite
+        for (let j = i + 1; j < enemies.length; j++) {
+          const e2 = enemies[j];
+          if (e2.dead || e2.kind === "bat") continue;
+          if (Math.abs(e1.y - e2.y) < 18) {
+            const e1Mid = e1.x + e1.w / 2;
+            const e2Mid = e2.x + e2.w / 2;
+            const spacing = (e1.w + e2.w) / 2;
+            const delta = e2Mid - e1Mid;
+            if (Math.abs(delta) < spacing && Math.abs(delta) > 0) {
+              const push = (spacing - Math.abs(delta)) * 0.25;
+              const dir = delta > 0 ? 1 : -1;
+              e2.x += dir * push;
+              e1.x -= dir * push;
+            }
+          }
+        }
+      }
+    }
+
     // Collect items
     for (const it of items) {
       if (it.collected) continue;
@@ -2021,7 +2080,8 @@ export function mountCampaign(
         } else {
           // Armored pursuit with halberd guard
           e.state = "shield";
-          e.vx = e.facing * 48;
+          const minStop = (e.w + player.w) / 2 + 8;
+          e.vx = dist > minStop ? e.facing * 48 : 0;
         }
       }
       // -----------------------------------------------------------------------
@@ -2036,7 +2096,8 @@ export function mountCampaign(
 
         if (e.wind > 0) {
           e.wind -= dt;
-          e.vx = e.facing * 45; // Feral leap into player!
+          const minStop = (e.w + player.w) / 2 + 2;
+          e.vx = dist > minStop ? e.facing * 45 : 0;
           if (e.wind <= 0) {
             const box = {
               x: e.facing > 0 ? e.x + e.w - 4 : e.x - 38,
@@ -2049,7 +2110,8 @@ export function mountCampaign(
           }
         } else {
           e.state = "idle";
-          e.vx = e.facing * 62; // Shambling predatory sprint!
+          const minStop = (e.w + player.w) / 2 + 4;
+          e.vx = dist > minStop ? e.facing * 62 : 0;
         }
       }
       // -----------------------------------------------------------------------
@@ -2079,7 +2141,8 @@ export function mountCampaign(
 
         if (e.wind > 0) {
           e.wind -= dt;
-          e.vx = e.facing * 115; // Rapid shadow rush
+          const minStop = (e.w + player.w) / 2 + 3;
+          e.vx = dist > minStop ? e.facing * 115 : 0;
           if (e.wind <= 0) {
             const box = {
               x: e.facing > 0 ? e.x + e.w - 4 : e.x - 44,
@@ -2092,7 +2155,8 @@ export function mountCampaign(
           }
         } else {
           e.state = "idle";
-          e.vx = e.facing * 88; // High speed stalker
+          const minStop = (e.w + player.w) / 2 + 6;
+          e.vx = dist > minStop ? e.facing * 88 : 0;
         }
       }
       // -----------------------------------------------------------------------
@@ -2107,7 +2171,8 @@ export function mountCampaign(
 
         if (e.wind > 0) {
           e.wind -= dt;
-          e.vx = e.facing * 65; // Stone dive
+          const minStop = (e.w + player.w) / 2 + 3;
+          e.vx = dist > minStop ? e.facing * 65 : 0;
           if (e.wind <= 0) {
             const box = {
               x: e.facing > 0 ? e.x + e.w - 4 : e.x - 42,
@@ -2120,7 +2185,8 @@ export function mountCampaign(
           }
         } else {
           e.state = "idle";
-          e.vx = e.facing * 66; // Relentless stone chase
+          const minStop = (e.w + player.w) / 2 + 6;
+          e.vx = dist > minStop ? e.facing * 66 : 0;
         }
       }
 
@@ -2129,8 +2195,52 @@ export function mountCampaign(
       resolve(e, dt, false);
     }
 
-    // Touch contact damage (only when enemy is recovered from hitstun)
-    if (!e.dead && e.hurt <= 0 && overlap(e, player)) hurtPlayer(1, e.x + e.w / 2, "slash");
+    // =========================================================================
+    // PHYSICAL SOLID BODY RESOLUTION BETWEEN ENEMY AND ALDRIC:
+    // Enemies must NOT penetrate Aldric's body space or slip behind him!
+    // They deal contact damage, but stay in front of the player.
+    // =========================================================================
+    if (!e.dead && !player.dead && e.kind !== "bat") {
+      const pTop = player.y;
+      const pBot = player.y + player.h;
+      const eTop = e.y;
+      const eBot = e.y + e.h;
+      const vertOverlap = Math.min(pBot, eBot) - Math.max(pTop, eTop);
+
+      // Only block horizontally when at the same ground elevation (allows jumping/pogoing over)
+      if (vertOverlap > 12) {
+        const eCenterX = e.x + e.w / 2;
+        const pCenterX = player.x + player.w / 2;
+        const minDistance = (e.w + player.w) / 2;
+        const distToPlayer = Math.abs(pCenterX - eCenterX);
+
+        if (distToPlayer < minDistance) {
+          // Touch contact damage
+          if (e.hurt <= 0) {
+            hurtPlayer(1, eCenterX, "slash");
+          }
+
+          if (eCenterX < pCenterX) {
+            // Enemy is on the LEFT of player: clamp enemy to player's left edge
+            e.x = player.x - e.w;
+            if (e.vx > 0) e.vx = 0;
+            if (player.vx < 0) player.vx = 0;
+          } else {
+            // Enemy is on the RIGHT of player: clamp enemy to player's right edge
+            e.x = player.x + player.w;
+            if (e.vx < 0) e.vx = 0;
+            if (player.vx > 0) player.vx = 0;
+          }
+        }
+      }
+    } else if (!e.dead && e.kind === "bat") {
+      // Flying bats: deal damage and swoop up/away on hit so they don't stick to player
+      if (e.hurt <= 0 && overlap(e, player)) {
+        hurtPlayer(1, e.x + e.w / 2, "slash");
+        e.vy = -110;
+        e.vx = -e.facing * 80;
+      }
+    }
   }
 
   function blit(img: HTMLImageElement | undefined, frame: number, cx: number, feet: number, height: number, facing: number, cols = 2) {
@@ -2977,7 +3087,7 @@ export function mountCampaign(
 
   function frame(now: number) {
     if (!alive) return;
-    if (!readyToRender) {
+    if (!readyToRender || paused) {
       last = now;
       acc = 0;
       draw();
@@ -3108,6 +3218,16 @@ export function mountCampaign(
     reset() {
       spawn();
       publish();
+    },
+    setPaused(p: boolean) {
+      paused = p;
+      if (!p) {
+        last = performance.now();
+        acc = 0;
+      }
+    },
+    isPaused() {
+      return paused;
     },
   };
 }
