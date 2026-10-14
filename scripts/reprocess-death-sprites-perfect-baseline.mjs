@@ -178,13 +178,67 @@ async function main() {
             }
           }
 
+          // Remove disconnected small islands (e.g. halberd tips or feet bleeding across slice boundaries)
+          const compId = new Int32Array(frameW * frameH).fill(-1);
+          const compSizes = [];
+          let curId = 0;
+
+          for (let y = 0; y < frameH; y++) {
+            for (let x = 0; x < frameW; x++) {
+              const p = y * frameW + x;
+              if (isBg[p] || compId[p] !== -1) continue;
+
+              let sz = 0;
+              const q = [x, y];
+              compId[p] = curId;
+
+              let qHead = 0;
+              while (qHead < q.length) {
+                const cx = q[qHead++];
+                const cy = q[qHead++];
+                sz++;
+
+                const nbs = [
+                  [cx + 1, cy],
+                  [cx - 1, cy],
+                  [cx, cy + 1],
+                  [cx, cy - 1],
+                ];
+                for (let i = 0; i < 4; i++) {
+                  const nx = nbs[i][0];
+                  const ny = nbs[i][1];
+                  if (nx >= 0 && nx < frameW && ny >= 0 && ny < frameH) {
+                    const np = ny * frameW + nx;
+                    if (!isBg[np] && compId[np] === -1) {
+                      compId[np] = curId;
+                      q.push(nx, ny);
+                    }
+                  }
+                }
+              }
+              compSizes.push(sz);
+              curId++;
+            }
+          }
+
+          // Largest component is the character
+          let maxSz = 0, mainComp = -1;
+          for (let i = 0; i < compSizes.length; i++) {
+            if (compSizes[i] > maxSz) {
+              maxSz = compSizes[i];
+              mainComp = i;
+            }
+          }
+
           let minX = frameW, maxX = 0, minY = frameH, maxY = 0;
           let count = 0;
           for (let y = 0; y < frameH; y++) {
             for (let x = 0; x < frameW; x++) {
               const p = y * frameW + x;
               const idx = p * 4;
-              if (isBg[p]) {
+              // Keep pixel only if in a significant component (> 15% of mainComp)
+              const id = compId[p];
+              if (isBg[p] || id === -1 || (id !== mainComp && compSizes[id] < maxSz * 0.12)) {
                 d[idx + 3] = 0; // transparent
               } else {
                 if (x < minX) minX = x;
@@ -244,11 +298,16 @@ async function main() {
           const bottomDeltaFromGround = (b.maxY - groundBaselineY) * uniformScale;
           const destY = cellY + targetBaselineY - scaledH + bottomDeltaFromGround;
 
+          outCtx.save();
+          outCtx.beginPath();
+          outCtx.rect(cellX, cellY, cellSize, cellSize);
+          outCtx.clip();
           outCtx.drawImage(
             keyedCanvases[f],
             b.minX, b.minY, b.w, b.h,
             Math.round(destX), Math.round(destY), Math.round(scaledW), Math.round(scaledH)
           );
+          outCtx.restore();
         }
 
         return outCanvas.toDataURL("image/png");

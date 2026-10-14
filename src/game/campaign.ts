@@ -802,6 +802,19 @@ export function mountCampaign(
         body.vy = 0;
       }
     }
+    // Ground resting check: if resting directly on top of a solid surface, maintain grounded
+    if (!body.grounded && body.vy >= 0) {
+      for (const s of level.solids) {
+        if (body.x + body.w > s.x && body.x < s.x + s.w) {
+          if (Math.abs(body.y + body.h - s.y) <= 1.5) {
+            body.y = s.y - body.h;
+            body.vy = 0;
+            body.grounded = true;
+            break;
+          }
+        }
+      }
+    }
   }
 
   function hurtPlayer(dmg: number, fromX: number, hitSource: "slash" | "spell" = "slash") {
@@ -815,11 +828,10 @@ export function mountCampaign(
       sound.playSfx("slash");
       return;
     }
+    const isFatal = player.hp <= dmg;
     player.hp -= dmg;
     player.iframes = T.hurtIFrames;
     player.hurtT = 0.16;
-    player.vy = -140;
-    player.vx = player.x < fromX ? -120 : 120;
     player.charge = "idle";
     player.attackT = 0;
     if (player.castT > 0 && !player.castFired) player.mana = Math.min(T.maxMana, player.mana + T.spellCost);
@@ -834,20 +846,26 @@ export function mountCampaign(
     } else {
       sound.playSfx("slice");
     }
-    if (player.hp <= 0) {
+
+    if (isFatal) {
       player.hp = 0;
       player.dying = true;
       player.deathT = 0;
-      player.deathDuration = 1.05;
+      player.deathDuration = 1.15;
       player.controlLock = 999;
-      player.vx = player.facing * -25;
-      player.vy = 0; // Animation takes place on the floor, zero upward pop
+      player.h = STAND_H;
+      player.crouching = false;
+      player.vx = player.facing * -20;
+      player.vy = 0; // ZERO vertical pop on fatal hit!
       player.willRevive = player.lives > 1;
       shake = 6;
       if (!player.willRevive) {
         player.toast = "Aldric sucumbiu às sombras da noite...";
         player.toastT = 4.0;
       }
+    } else {
+      player.vy = -120;
+      player.vx = player.x < fromX ? -110 : 110;
     }
   }
 
@@ -904,51 +922,20 @@ export function mountCampaign(
       }
     }
 
+    const isFatal = e.hp <= dmg;
+    const knockDir = (e.x + e.w / 2) >= (player.x + player.w / 2) ? 1 : -1;
     e.lastSwing = player.swingId;
     e.hp -= dmg;
 
-    // Hitstun duration and recovery delay (slows down enemy and prevents immediate counter-advance)
-    const isHeavy = player.combo === 2 || hitSource === "spell" || pogo || dmg >= 2;
-    e.hurt = e.boss ? (isHeavy ? 0.26 : 0.18) : (isHeavy ? 0.42 : 0.32);
-    e.cd = Math.max(e.cd, e.boss ? 0.35 : 0.52);
-    e.wind = 0; // Interrupt active windup on enemies
-    if (!e.boss && e.state === "slash") e.state = "idle";
-
-    // Dynamic recoil impulse (knocks the enemy back away from player strike)
-    const knockDir = (e.x + e.w / 2) >= (player.x + player.w / 2) ? 1 : -1;
-    const baseKnock = e.boss ? 42 : (e.kind === "armoredSkeleton" || e.kind === "knight") ? 85 : 125;
-    const knockSpeed = isHeavy ? baseKnock * 1.35 : baseKnock;
-    e.vx = knockDir * knockSpeed;
-    if (!e.boss && e.grounded) {
-      e.vy = -65; // Subtle recoil pop up off the floor
-      e.grounded = false;
-    }
-
-    hitstop = dmg >= 3 ? T.hitstopHeavy : T.hitstopLight;
-    shake = Math.max(shake, 3);
-    sound.playSfx(e.boss ? "bossHurt" : "enemyHurt");
-    if (hitSource === "spell") {
-      sound.playSfx("spell");
-    } else {
-      sound.playSfx(player.combo === 2 ? "slashHeavy" : "slice");
-    }
-    if (pogo) {
-      player.vy = -T.pogoV;
-      player.jumps = 1;
-      player.grounded = false;
-      sound.playSfx("pogo");
-    }
-    if (e.hp <= 0) {
+    if (isFatal) {
       e.hp = 0;
       e.dying = true;
       e.deathT = 0;
       e.deathDuration = e.boss ? 1.25 : 0.65;
       e.state = "dying";
       e.wind = 0;
-      e.vx = knockDir * (e.boss ? 15 : 20);
-      if (e.grounded) {
-        e.vy = 0; // Animation takes place on the floor, zero upward pop
-      }
+      e.vx = knockDir * (e.boss ? 10 : 16);
+      e.vy = 0; // ZERO vertical pop on fatal hit!
       sound.playSfx(e.boss ? "bossHurt" : "enemyDie");
       shake = Math.max(shake, e.boss ? 8 : 4);
 
@@ -979,6 +966,38 @@ export function mountCampaign(
           pulse: Math.random() * Math.PI * 2,
         });
       }
+      return; // Do not apply non-fatal recoil or hitstun
+    }
+
+    // Hitstun duration and recovery delay (slows down enemy and prevents immediate counter-advance)
+    const isHeavy = player.combo === 2 || hitSource === "spell" || pogo || dmg >= 2;
+    e.hurt = e.boss ? (isHeavy ? 0.26 : 0.18) : (isHeavy ? 0.42 : 0.32);
+    e.cd = Math.max(e.cd, e.boss ? 0.35 : 0.52);
+    e.wind = 0; // Interrupt active windup on enemies
+    if (!e.boss && e.state === "slash") e.state = "idle";
+
+    // Dynamic recoil impulse (knocks the enemy back away from player strike)
+    const baseKnock = e.boss ? 42 : (e.kind === "armoredSkeleton" || e.kind === "knight") ? 85 : 125;
+    const knockSpeed = isHeavy ? baseKnock * 1.35 : baseKnock;
+    e.vx = knockDir * knockSpeed;
+    if (!e.boss && e.grounded) {
+      e.vy = -55; // Subtle recoil pop up off the floor only on living hits
+      e.grounded = false;
+    }
+
+    hitstop = dmg >= 3 ? T.hitstopHeavy : T.hitstopLight;
+    shake = Math.max(shake, 3);
+    sound.playSfx(e.boss ? "bossHurt" : "enemyHurt");
+    if (hitSource === "spell") {
+      sound.playSfx("spell");
+    } else {
+      sound.playSfx(player.combo === 2 ? "slashHeavy" : "slice");
+    }
+    if (pogo) {
+      player.vy = -T.pogoV;
+      player.jumps = 1;
+      player.grounded = false;
+      sound.playSfx("pogo");
     }
   }
 
@@ -1048,14 +1067,17 @@ export function mountCampaign(
     player.controlLock = Math.max(0, player.controlLock - dt);
 
     if (player.dying) {
-      player.deathT += dt;
       player.vx *= Math.max(0, 1 - 8 * dt);
       if (!player.grounded) {
-        player.vy = Math.min(player.vy + T.gravDown * dt, T.terminal);
+        // If killed while in midair (e.g. jumping): drop rapidly straight down to the floor, do NOT advance collapse animation in midair!
+        player.vy = Math.min(player.vy + T.gravDown * 1.6 * dt, T.terminal);
+        resolve(player, dt, false);
       } else {
+        // Firmly on the floor: zero vertical velocity and advance ground collapse animation
         player.vy = 0;
+        player.deathT += dt;
+        resolve(player, dt, false);
       }
-      resolve(player, dt, false);
 
       if (player.deathT >= player.deathDuration) {
         if (player.willRevive) {
@@ -1629,17 +1651,21 @@ export function mountCampaign(
     if (e.dead) return;
 
     if (e.dying) {
-      e.deathT = (e.deathT ?? 0) + dt;
       e.vx *= Math.max(0, 1 - 8 * dt);
       if (e.kind === "bat") {
         e.vy = 0; // Aerial bat hovers in place as it turns to smoke and embers
+        e.deathT = (e.deathT ?? 0) + dt;
       } else {
         if (!e.grounded) {
-          e.vy = Math.min(e.vy + T.gravDown * dt, T.terminal);
+          // If in midair: plummet quickly to the floor, do NOT collapse in midair!
+          e.vy = Math.min(e.vy + T.gravDown * 1.6 * dt, T.terminal);
+          resolve(e, dt, false);
         } else {
-          e.vy = 0; // Firmly grounded on the stone floor
+          // Firmly grounded on the stone floor: advance collapse animation!
+          e.vy = 0;
+          e.deathT = (e.deathT ?? 0) + dt;
+          resolve(e, dt, false);
         }
-        resolve(e, dt, false);
       }
 
       // Continuous subtle dissolution particles during death animation
@@ -1667,7 +1693,7 @@ export function mountCampaign(
         });
       }
 
-      if (e.deathT >= (e.deathDuration ?? 0.65)) {
+      if ((e.deathT ?? 0) >= (e.deathDuration ?? 0.65)) {
         e.dead = true;
         e.dying = false;
 
@@ -3157,8 +3183,12 @@ export function mountCampaign(
 
       if (e.dying) {
         spriteKey = getDeathSpriteKey(e.kind);
-        const progress = Math.min(0.999, (e.deathT ?? 0) / (e.deathDuration ?? 0.65));
-        frame = Math.min(3, Math.floor(progress * 4));
+        if (e.kind !== "bat" && !e.grounded) {
+          frame = 0; // Upright stagger pose while falling to the floor
+        } else {
+          const progress = Math.min(0.999, (e.deathT ?? 0) / (e.deathDuration ?? 0.65));
+          frame = Math.min(3, Math.floor(progress * 4));
+        }
       } else if (e.hurt > 0) {
         frame = 3;
       } else if (e.state === "slash" || e.wind > 0 || e.state === "smash") {
@@ -3194,8 +3224,12 @@ export function mountCampaign(
     if (player.dying) {
       sheet = "heroDie";
       heroCols = 2;
-      const progress = Math.min(0.999, player.deathT / player.deathDuration);
-      frame = Math.min(3, Math.floor(progress * 4));
+      if (!player.grounded) {
+        frame = 0; // Upright stagger pose while falling to the floor
+      } else {
+        const progress = Math.min(0.999, player.deathT / player.deathDuration);
+        frame = Math.min(3, Math.floor(progress * 4));
+      }
     } else if (player.dead) {
       sheet = "heroDie";
       heroCols = 2;
