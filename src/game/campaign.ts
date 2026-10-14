@@ -51,6 +51,9 @@ type Enemy = Body & {
   hurt: number;
   dead: boolean;
   lastSwing: number;
+  dying?: boolean;
+  deathT?: number;
+  deathDuration?: number;
 };
 
 type Shot = {
@@ -100,14 +103,23 @@ const SRC = {
   heroCast: "/sprites/hero-cast.png",
   heroDash: "/sprites/hero-dash.png",
   heroGuard: "/sprites/hero-guard.png",
+  heroDie: "/sprites/hero-die.png",
   vampire: "/sprites/vampire.png",
+  vampireDie: "/sprites/vampire-die.png",
   gargoyle: "/sprites/gargoyle.png",
+  gargoyleDie: "/sprites/gargoyle-die.png",
   bat: "/sprites/bat.png",
+  batDie: "/sprites/bat-die.png",
   skeleton: "/sprites/skeleton.png",
+  skeletonDie: "/sprites/skeleton-die.png",
   armoredSkeleton: "/sprites/armored-skeleton.png",
+  armoredSkeletonDie: "/sprites/armored-skeleton-die.png",
   redSkeleton: "/sprites/red-skeleton.png",
+  redSkeletonDie: "/sprites/red-skeleton-die.png",
   zombie: "/sprites/zombie.png",
+  zombieDie: "/sprites/zombie-die.png",
   knight: "/sprites/knight.png",
+  knightDie: "/sprites/knight-die.png",
   dracula: "/sprites/dracula.png",
   bossPetros: "/sprites/boss-petros.png",
   bossValerius: "/sprites/boss-valerius.png",
@@ -272,6 +284,44 @@ const FEET_OFF: Record<Kind, number> = {
   bossCalx: 12,
   bossDracula: 8,
 };
+
+function getDeathSpriteKey(kind: Kind): ArtKey {
+  switch (kind) {
+    case "bat":
+      return "batDie";
+    case "zombie":
+      return "zombieDie";
+    case "skeleton":
+      return "skeletonDie";
+    case "armoredSkeleton":
+      return "armoredSkeletonDie";
+    case "redSkeleton":
+      return "redSkeletonDie";
+    case "knight":
+      return "knightDie";
+    case "gargoyle":
+      return "gargoyleDie";
+    case "vampire":
+      return "vampireDie";
+    case "bossPetros":
+      return "gargoyleDie";
+    case "bossValerius":
+      return "knightDie";
+    case "bossSeraphine":
+      return "vampireDie";
+    case "bossNocturne":
+      return "skeletonDie";
+    case "bossVeyne":
+      return "vampireDie";
+    case "bossCalx":
+      return "gargoyleDie";
+    case "bossDracula":
+    case "dracula":
+      return "vampireDie";
+    default:
+      return "skeletonDie";
+  }
+}
 
 function overlap(a: { x: number; y: number; w: number; h: number }, b: { x: number; y: number; w: number; h: number }) {
   return a.x < b.x + b.w && a.x + a.w > b.x && a.y < b.y + b.h && a.y + a.h > b.y;
@@ -458,6 +508,10 @@ export function mountCampaign(
     controlLock: 0,
     crouching: false,
     dead: false,
+    dying: false,
+    deathT: 0,
+    deathDuration: 1.05,
+    willRevive: false,
     won: false,
     toast: `${level.title}. ${level.place}.`,
     toastT: 2.8,
@@ -633,6 +687,9 @@ export function mountCampaign(
       state: spawn.kind === "gargoyle" || spawn.kind === "bossPetros" ? "perch" : "idle",
       hurt: 0,
       dead: false,
+      dying: false,
+      deathT: 0,
+      deathDuration: 0.60,
       lastSwing: -1,
     };
   }
@@ -651,6 +708,10 @@ export function mountCampaign(
     player.mana = T.maxMana;
     player.lives = 3;
     player.dead = false;
+    player.dying = false;
+    player.deathT = 0;
+    player.deathDuration = 1.05;
+    player.willRevive = false;
     player.won = false;
     player.iframes = 0;
     player.hurtT = 0;
@@ -774,59 +835,24 @@ export function mountCampaign(
       sound.playSfx("slice");
     }
     if (player.hp <= 0) {
-      if (player.lives > 1) {
-        player.lives--;
-        player.hp = T.maxHp;
-        player.mana = Math.max(player.mana, 60);
-        player.iframes = 3.2; // 3.2s invulnerability (flicker)
-        player.hurtT = 0;
-        player.vx = 0;
-        player.vy = -70;
-        player.dead = false;
-        player.toast = `Ressuscitado no local! Vidas restantes: ${player.lives}`;
-        player.toastT = 3.5;
-        sound.playSfx("revive");
-        shake = 6;
-
-        // Push nearby enemies away to give breathing room
-        for (const e of enemies) {
-          if (!e.dead && Math.abs(e.x + e.w / 2 - (player.x + player.w / 2)) < 90) {
-            e.vx = e.x > player.x ? 150 : -150;
-            e.hurt = 0.45;
-          }
-        }
-
-        // Radiant resurrection burst particles
-        for (let i = 0; i < 36; i++) {
-          const angle = (i / 36) * Math.PI * 2;
-          const spd = 40 + Math.random() * 80;
-          particles.push({
-            x: player.x + player.w / 2,
-            y: player.y + player.h / 2,
-            vx: Math.cos(angle) * spd,
-            vy: Math.sin(angle) * spd - 20,
-            size: 2.5 + Math.random() * 2,
-            alpha: 1,
-            maxAlpha: 1,
-            color: i % 2 === 0 ? "#ffd700" : "#ff4d6d",
-            depth: "fg",
-            pulse: Math.random() * Math.PI * 2,
-          });
-        }
-      } else {
-        player.lives = 0;
-        player.hp = 0;
-        player.dead = true;
-        sound.stopBossVoice();
-        player.toast = "Fim de jogo! Todas as 3 vidas foram perdidas.";
+      player.hp = 0;
+      player.dying = true;
+      player.deathT = 0;
+      player.deathDuration = 1.05;
+      player.controlLock = 999;
+      player.vx = player.x < fromX ? -90 : 90;
+      player.vy = -100;
+      player.willRevive = player.lives > 1;
+      shake = 6;
+      if (!player.willRevive) {
+        player.toast = "Aldric sucumbiu às sombras da noite...";
         player.toastT = 4.0;
-        sound.playBgm("gameover");
       }
     }
   }
 
   function hurtEnemy(e: Enemy, dmg: number, pogo: boolean, hitSource: "slash" | "spell" = "slash") {
-    if (e.dead || e.lastSwing === player.swingId) return;
+    if (e.dead || e.dying || e.lastSwing === player.swingId) return;
 
     // Armored Skeleton buckler shield deflection (frontal horizontal attacks)
     if (e.kind === "armoredSkeleton" && !pogo) {
@@ -914,54 +940,44 @@ export function mountCampaign(
     }
     if (e.hp <= 0) {
       e.hp = 0;
-      e.dead = true;
-      sound.playSfx("enemyDie");
-      if (e.boss) {
-        sound.stopBossVoice();
-        player.toast = `${e.name} derrotado! O Portal Dimensional se abriu!`;
-        player.toastT = 4.0;
-        sound.playSfx("gateOpen");
-        shake = 8;
-        items.push({
-          id: nextId++,
-          kind: "life",
-          x: e.x + e.w / 2 - 12,
-          y: e.y + e.h - 32,
-          w: 24,
-          h: 24,
-          collected: false,
-          bounceT: 0,
-        });
+      e.dying = true;
+      e.deathT = 0;
+      e.deathDuration = e.boss ? 1.25 : 0.65;
+      e.state = "dying";
+      e.wind = 0;
+      e.vx = knockDir * (e.boss ? 30 : 65);
+      if (!e.boss && e.grounded) {
+        e.vy = -45;
+        e.grounded = false;
+      }
+      sound.playSfx(e.boss ? "bossHurt" : "enemyDie");
+      shake = Math.max(shake, e.boss ? 8 : 4);
 
-        // Dramatic boss demise particles burst
-        for (let i = 0; i < 48; i++) {
-          const angle = (i / 48) * Math.PI * 2;
-          const spd = 60 + Math.random() * 110;
-          particles.push({
-            x: e.x + e.w / 2,
-            y: e.y + e.h / 2,
-            vx: Math.cos(angle) * spd,
-            vy: Math.sin(angle) * spd - 30,
-            size: 3 + Math.random() * 2.5,
-            alpha: 1,
-            maxAlpha: 1,
-            color: i % 3 === 0 ? "#ff1744" : i % 3 === 1 ? "#ffd700" : "#d500f9",
-            depth: "fg",
-            pulse: Math.random() * Math.PI * 2,
-          });
-        }
-      } else if (Math.random() < 0.28) {
-        const roll = Math.random();
-        const kind: ItemKind = roll < 0.12 ? "life" : roll < 0.55 ? "heal" : "mana";
-        items.push({
-          id: nextId++,
-          kind,
-          x: e.x + e.w / 2 - 12,
-          y: e.y + e.h - 28,
-          w: 24,
-          h: 24,
-          collected: false,
-          bounceT: 0,
+      // Thematic death burst particles for all enemies
+      const burstCount = e.boss ? 36 : 16;
+      for (let i = 0; i < burstCount; i++) {
+        const angle = (i / burstCount) * Math.PI * 2;
+        const spd = 35 + Math.random() * (e.boss ? 85 : 50);
+        let pColor = "#ff1744";
+        if (e.kind === "skeleton" || e.kind === "armoredSkeleton") pColor = i % 2 === 0 ? "#e2e8f0" : "#94a3b8";
+        else if (e.kind === "redSkeleton") pColor = i % 2 === 0 ? "#ef4444" : "#7f1d1d";
+        else if (e.kind === "zombie") pColor = i % 2 === 0 ? "#4ade80" : "#15803d";
+        else if (e.kind === "knight") pColor = i % 2 === 0 ? "#64748b" : "#cbd5e1";
+        else if (e.kind === "bat") pColor = i % 2 === 0 ? "#b91c1c" : "#1e1b4b";
+        else if (e.kind === "gargoyle") pColor = i % 2 === 0 ? "#78716c" : "#44403c";
+        else if (e.kind === "vampire" || e.boss) pColor = i % 2 === 0 ? "#ffd700" : "#ff1744";
+
+        particles.push({
+          x: e.x + e.w / 2,
+          y: e.y + e.h / 2,
+          vx: Math.cos(angle) * spd,
+          vy: Math.sin(angle) * spd - 20,
+          size: 2 + Math.random() * 2,
+          alpha: 1,
+          maxAlpha: 1,
+          color: pColor,
+          depth: "fg",
+          pulse: Math.random() * Math.PI * 2,
         });
       }
     }
@@ -1031,6 +1047,69 @@ export function mountCampaign(
     player.comboWindow = Math.max(0, player.comboWindow - dt);
     player.dropT = Math.max(0, player.dropT - dt);
     player.controlLock = Math.max(0, player.controlLock - dt);
+
+    if (player.dying) {
+      player.deathT += dt;
+      player.vx *= Math.max(0, 1 - 6 * dt);
+      player.vy = Math.min(player.vy + T.gravDown * dt, T.terminal);
+      resolve(player, dt, false);
+
+      if (player.deathT >= player.deathDuration) {
+        if (player.willRevive) {
+          player.lives--;
+          player.hp = T.maxHp;
+          player.mana = Math.max(player.mana, 60);
+          player.iframes = 3.2; // 3.2s invulnerability (flicker)
+          player.hurtT = 0;
+          player.vx = 0;
+          player.vy = -70;
+          player.dying = false;
+          player.dead = false;
+          player.controlLock = 0;
+          player.toast = `Ressuscitado! Sangue ancestral desperta! Vidas restantes: ${player.lives}`;
+          player.toastT = 3.5;
+          sound.playSfx("revive");
+          shake = 6;
+
+          // Push nearby enemies away to give breathing room
+          for (const e of enemies) {
+            if (!e.dead && !e.dying && Math.abs(e.x + e.w / 2 - (player.x + player.w / 2)) < 90) {
+              e.vx = e.x > player.x ? 150 : -150;
+              e.hurt = 0.45;
+            }
+          }
+
+          // Radiant resurrection burst particles
+          for (let i = 0; i < 36; i++) {
+            const angle = (i / 36) * Math.PI * 2;
+            const spd = 40 + Math.random() * 80;
+            particles.push({
+              x: player.x + player.w / 2,
+              y: player.y + player.h / 2,
+              vx: Math.cos(angle) * spd,
+              vy: Math.sin(angle) * spd - 20,
+              size: 2.5 + Math.random() * 2,
+              alpha: 1,
+              maxAlpha: 1,
+              color: i % 2 === 0 ? "#ffd700" : "#ff4d6d",
+              depth: "fg",
+              pulse: Math.random() * Math.PI * 2,
+            });
+          }
+        } else {
+          player.lives = 0;
+          player.hp = 0;
+          player.dying = false;
+          player.dead = true;
+          sound.stopBossVoice();
+          player.toast = "Fim de jogo! Todas as 3 vidas foram perdidas.";
+          player.toastT = 4.0;
+          sound.playBgm("gameover");
+        }
+      }
+      return;
+    }
+
     if (!player.dead && !player.won) player.mana = Math.min(T.maxMana, player.mana + T.manaRegen * dt);
     if (player.dead || player.won) return;
 
@@ -1277,7 +1356,7 @@ export function mountCampaign(
                   w: 60,
                   h: 68,
                 };
-      for (const e of enemies) if (!e.dead && overlap(box, e)) hurtEnemy(e, player.combo === 2 ? T.finisherDamage : T.slashDamage, player.attackKind === "down", "slash");
+      for (const e of enemies) if (!e.dead && !e.dying && overlap(box, e)) hurtEnemy(e, player.combo === 2 ? T.finisherDamage : T.slashDamage, player.attackKind === "down", "slash");
 
       // Castlevania weapon strike parry: slash enemy projectiles out of the air!
       for (const s of shots) {
@@ -1312,7 +1391,7 @@ export function mountCampaign(
     if (!player.dead && !player.won) {
       for (let i = 0; i < enemies.length; i++) {
         const e1 = enemies[i];
-        if (e1.dead) continue;
+        if (e1.dead || e1.dying) continue;
 
         if (e1.kind !== "bat") {
           // Player vs Ground Enemy horizontal solid body separation
@@ -1377,7 +1456,7 @@ export function mountCampaign(
         // Soft spacing between enemy pairs so they don't merge into a single sprite
         for (let j = i + 1; j < enemies.length; j++) {
           const e2 = enemies[j];
-          if (e2.dead) continue;
+          if (e2.dead || e2.dying) continue;
 
           if (e1.kind === "bat" && e2.kind === "bat") {
             // Aerial flock spacing between bats
@@ -1487,7 +1566,7 @@ export function mountCampaign(
       s.drawCenterY += s.vy * dt;
       if (s.friendly) {
         for (const e of enemies) {
-          if (e.dead || s.hits.includes(e.id) || !overlap(s, e)) continue;
+          if (e.dead || e.dying || s.hits.includes(e.id) || !overlap(s, e)) continue;
           s.hits.push(e.id);
           player.swingId++;
           hurtEnemy(e, s.dmg, false, s.sprite === "spell" ? "spell" : "slash");
@@ -1545,6 +1624,99 @@ export function mountCampaign(
     e.hurt = Math.max(0, e.hurt - dt);
     e.cd = Math.max(0, e.cd - dt);
     if (e.dead) return;
+
+    if (e.dying) {
+      e.deathT = (e.deathT ?? 0) + dt;
+      e.vx *= Math.max(0, 1 - 7 * dt);
+      if (e.kind === "bat") {
+        e.vy += 65 * dt; // Bat glides and drops gently as smoke expands
+        e.y += e.vy * dt;
+      } else {
+        e.vy = Math.min(e.vy + T.gravDown * dt, T.terminal);
+        resolve(e, dt, false);
+      }
+
+      // Continuous subtle dissolution particles during death animation
+      if (Math.random() < 0.4) {
+        let pColor = "#ff1744";
+        if (e.kind === "skeleton" || e.kind === "armoredSkeleton") pColor = "#cbd5e1";
+        else if (e.kind === "redSkeleton") pColor = "#dc2626";
+        else if (e.kind === "zombie") pColor = "#22c55e";
+        else if (e.kind === "knight") pColor = "#94a3b8";
+        else if (e.kind === "bat") pColor = "#991b1b";
+        else if (e.kind === "gargoyle") pColor = "#78716c";
+        else if (e.kind === "vampire" || e.boss) pColor = Math.random() > 0.5 ? "#fbbf24" : "#e11d48";
+
+        particles.push({
+          x: e.x + Math.random() * e.w,
+          y: e.y + Math.random() * e.h,
+          vx: (Math.random() - 0.5) * 35,
+          vy: -20 - Math.random() * 30,
+          size: 1.5 + Math.random() * 1.5,
+          alpha: 0.9,
+          maxAlpha: 0.9,
+          color: pColor,
+          depth: "fg",
+          pulse: Math.random() * Math.PI * 2,
+        });
+      }
+
+      if (e.deathT >= (e.deathDuration ?? 0.65)) {
+        e.dead = true;
+        e.dying = false;
+
+        // When death animation finishes, drop boss rewards or normal item drops!
+        if (e.boss) {
+          sound.stopBossVoice();
+          player.toast = `${e.name} derrotado! O Portal Dimensional se abriu!`;
+          player.toastT = 4.0;
+          sound.playSfx("gateOpen");
+          shake = 8;
+          items.push({
+            id: nextId++,
+            kind: "life",
+            x: e.x + e.w / 2 - 12,
+            y: e.y + e.h - 32,
+            w: 24,
+            h: 24,
+            collected: false,
+            bounceT: 0,
+          });
+
+          // Dramatic final boss demise particles burst
+          for (let i = 0; i < 48; i++) {
+            const angle = (i / 48) * Math.PI * 2;
+            const spd = 60 + Math.random() * 110;
+            particles.push({
+              x: e.x + e.w / 2,
+              y: e.y + e.h / 2,
+              vx: Math.cos(angle) * spd,
+              vy: Math.sin(angle) * spd - 30,
+              size: 3 + Math.random() * 2.5,
+              alpha: 1,
+              maxAlpha: 1,
+              color: i % 3 === 0 ? "#ff1744" : i % 3 === 1 ? "#ffd700" : "#d500f9",
+              depth: "fg",
+              pulse: Math.random() * Math.PI * 2,
+            });
+          }
+        } else if (Math.random() < 0.28) {
+          const roll = Math.random();
+          const kind: ItemKind = roll < 0.12 ? "life" : roll < 0.55 ? "heal" : "mana";
+          items.push({
+            id: nextId++,
+            kind,
+            x: e.x + e.w / 2 - 12,
+            y: e.y + e.h - 28,
+            w: 24,
+            h: 24,
+            collected: false,
+            bounceT: 0,
+          });
+        }
+      }
+      return;
+    }
 
     const dx = player.x + player.w / 2 - (e.x + e.w / 2);
     const dist = Math.abs(dx);
@@ -2267,7 +2439,7 @@ export function mountCampaign(
     // Enemies must NOT penetrate Aldric's body space or slip behind him!
     // They deal contact damage, but stay in front of the player.
     // =========================================================================
-    if (!e.dead && !player.dead && e.kind !== "bat") {
+    if (!e.dead && !e.dying && !player.dead && !player.dying && e.kind !== "bat") {
       const pTop = player.y;
       const pBot = player.y + player.h;
       const eTop = e.y;
@@ -2300,7 +2472,7 @@ export function mountCampaign(
           }
         }
       }
-    } else if (!e.dead && e.kind === "bat" && !player.dead) {
+    } else if (!e.dead && !e.dying && e.kind === "bat" && !player.dead && !player.dying) {
       const pCenterX = player.x + player.w / 2;
       const eCenterX = e.x + e.w / 2;
       const horizDist = Math.abs(pCenterX - eCenterX);
@@ -2971,10 +3143,17 @@ export function mountCampaign(
     }
 
     for (const e of enemies) {
-      if (e.dead) continue;
+      if (e.dead && !e.dying) continue;
       if (e.hurt > 0 && Math.floor(time * 24) % 2 === 0) continue;
+
+      let spriteKey: ArtKey = e.kind;
       let frame = 0;
-      if (e.hurt > 0) {
+
+      if (e.dying) {
+        spriteKey = getDeathSpriteKey(e.kind);
+        const progress = Math.min(0.999, (e.deathT ?? 0) / (e.deathDuration ?? 0.65));
+        frame = Math.min(3, Math.floor(progress * 4));
+      } else if (e.hurt > 0) {
         frame = 3;
       } else if (e.state === "slash" || e.wind > 0 || e.state === "smash") {
         frame = 2;
@@ -2988,10 +3167,12 @@ export function mountCampaign(
       } else {
         frame = 0;
       }
-      let tall = e.kind === "bat" && e.boss ? 92 : DRAW_H[e.kind];
+
+      let tall = e.kind === "bat" ? (e.boss ? 92 : e.dying ? 56 : DRAW_H[e.kind]) : DRAW_H[e.kind];
       if ((e.kind === "dracula" || e.kind === "bossDracula") && e.hp / e.max <= 0.33) tall *= 1.25;
+      if (e.boss && e.dying) tall *= 1.15;
       const feet = e.y + e.h + (FEET_OFF[e.kind] ?? 0);
-      blit(art[e.kind], frame, e.x + e.w / 2, feet, tall, e.facing);
+      blit(art[spriteKey], frame, e.x + e.w / 2, feet, tall, e.facing);
     }
 
     const isInvulnerable = player.iframes > 0;
@@ -3002,7 +3183,18 @@ export function mountCampaign(
 
     let sheet: ArtKey = "heroIdle";
     let frame = Math.floor(time * 3) % 4;
-    if (player.dashT > 0) {
+    let heroCols = 3;
+
+    if (player.dying) {
+      sheet = "heroDie";
+      heroCols = 2;
+      const progress = Math.min(0.999, player.deathT / player.deathDuration);
+      frame = Math.min(3, Math.floor(progress * 4));
+    } else if (player.dead) {
+      sheet = "heroDie";
+      heroCols = 2;
+      frame = 3; // Slumped flat on ground in defeat
+    } else if (player.dashT > 0) {
       sheet = "heroDash";
       frame = Math.min(2, Math.floor(((T.dashTime - player.dashT) / T.dashTime) * 3));
     } else if (player.guard) {
@@ -3039,9 +3231,9 @@ export function mountCampaign(
       sheet = "heroRun";
       frame = Math.floor(time * 10) % 4;
     }
-    // the 320px cells keep the boots 56px above the cell bottom, so push the cell down to the hitbox feet
+    // the 320px cells keep the boots 56px above the cell bottom
     const heroFeet = player.y + player.h + (56 / 320) * DRAW_H.hero;
-    blit(art[sheet], frame, player.x + player.w / 2, heroFeet, DRAW_H.hero, player.facing, 3);
+    blit(art[sheet], frame, player.x + player.w / 2, heroFeet, DRAW_H.hero, player.facing, heroCols);
     if (isInvulnerable) {
       g.restore();
     }
