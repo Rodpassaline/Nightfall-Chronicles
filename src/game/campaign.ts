@@ -840,8 +840,8 @@ export function mountCampaign(
       player.deathT = 0;
       player.deathDuration = 1.05;
       player.controlLock = 999;
-      player.vx = player.x < fromX ? -90 : 90;
-      player.vy = -100;
+      player.vx = player.facing * -25;
+      player.vy = 0; // Animation takes place on the floor, zero upward pop
       player.willRevive = player.lives > 1;
       shake = 6;
       if (!player.willRevive) {
@@ -945,10 +945,9 @@ export function mountCampaign(
       e.deathDuration = e.boss ? 1.25 : 0.65;
       e.state = "dying";
       e.wind = 0;
-      e.vx = knockDir * (e.boss ? 30 : 65);
-      if (!e.boss && e.grounded) {
-        e.vy = -45;
-        e.grounded = false;
+      e.vx = knockDir * (e.boss ? 15 : 20);
+      if (e.grounded) {
+        e.vy = 0; // Animation takes place on the floor, zero upward pop
       }
       sound.playSfx(e.boss ? "bossHurt" : "enemyDie");
       shake = Math.max(shake, e.boss ? 8 : 4);
@@ -1050,8 +1049,12 @@ export function mountCampaign(
 
     if (player.dying) {
       player.deathT += dt;
-      player.vx *= Math.max(0, 1 - 6 * dt);
-      player.vy = Math.min(player.vy + T.gravDown * dt, T.terminal);
+      player.vx *= Math.max(0, 1 - 8 * dt);
+      if (!player.grounded) {
+        player.vy = Math.min(player.vy + T.gravDown * dt, T.terminal);
+      } else {
+        player.vy = 0;
+      }
       resolve(player, dt, false);
 
       if (player.deathT >= player.deathDuration) {
@@ -1627,12 +1630,15 @@ export function mountCampaign(
 
     if (e.dying) {
       e.deathT = (e.deathT ?? 0) + dt;
-      e.vx *= Math.max(0, 1 - 7 * dt);
+      e.vx *= Math.max(0, 1 - 8 * dt);
       if (e.kind === "bat") {
-        e.vy += 65 * dt; // Bat glides and drops gently as smoke expands
-        e.y += e.vy * dt;
+        e.vy = 0; // Aerial bat hovers in place as it turns to smoke and embers
       } else {
-        e.vy = Math.min(e.vy + T.gravDown * dt, T.terminal);
+        if (!e.grounded) {
+          e.vy = Math.min(e.vy + T.gravDown * dt, T.terminal);
+        } else {
+          e.vy = 0; // Firmly grounded on the stone floor
+        }
         resolve(e, dt, false);
       }
 
@@ -3168,7 +3174,7 @@ export function mountCampaign(
         frame = 0;
       }
 
-      let tall = e.kind === "bat" ? (e.boss ? 92 : e.dying ? 56 : DRAW_H[e.kind]) : DRAW_H[e.kind];
+      let tall = e.kind === "bat" ? (e.boss ? 92 : DRAW_H[e.kind]) : DRAW_H[e.kind];
       if ((e.kind === "dracula" || e.kind === "bossDracula") && e.hp / e.max <= 0.33) tall *= 1.25;
       if (e.boss && e.dying) tall *= 1.15;
       const feet = e.y + e.h + (FEET_OFF[e.kind] ?? 0);
