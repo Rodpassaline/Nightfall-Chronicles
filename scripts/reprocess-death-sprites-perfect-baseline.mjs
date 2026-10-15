@@ -66,8 +66,8 @@ const CONFIGS = [
     file: "gargoyle_death_sequence_1791978734312.jpg",
     cellSize: 256,
     thresh: 14,
-    targetStandingH: 248, // Massive stone demon matching gargoyle.png
-    targetBaselineY: 252,
+    targetStandingH: 224, // Matches 112px in 128x128 living gargoyle.png (224px in 256x256)
+    targetBaselineY: 238, // Ground baseline matching 119 in 128x128 (238 in 256x256)
     standingFrame: 0,
   },
   {

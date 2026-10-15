@@ -166,7 +166,7 @@ const PROP_SRC: Record<PropKind, string> = {
   hangingColumn: "/sprites/marble-column-hanging.png",
   gladiatorStatue: "/sprites/statue-gladiator.png",
   sconceBlue: "/sprites/sconce-blue.png",
-  gargoyle: "/sprites/gargoyle.png",
+  gargoyle: "/sprites/prop-gargoyle.png",
   gate: "/sprites/prop-gate.png",
   fence: "/sprites/prop-fence.png",
   blockGrass: "/sprites/prop-block-grass.png",
