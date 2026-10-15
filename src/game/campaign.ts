@@ -2766,6 +2766,7 @@ export function mountCampaign(
           e.wind = 0.12;
           e.cd = 0.45;
           e.state = "slash";
+          sound.playEnemyAlert("vampire");
         } else if (dist > 70 && dist <= 390 && e.cd <= 0) {
           e.cd = 0.90;
           fire({

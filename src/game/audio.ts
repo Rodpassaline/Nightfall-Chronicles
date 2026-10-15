@@ -579,6 +579,7 @@ class SoundEngine {
       { key: "redSkeleton", url: "/audio/personagens/redSkeleton.mp3" },
       { key: "knight", url: "/audio/personagens/knight.mp3" },
       { key: "gargoyle", url: "/audio/personagens/gargoyle.mp3" },
+      { key: "vampire", url: "/audio/personagens/vampire.mp3" },
     ];
     for (const { key, url } of candidates) {
       if (this.enemyAudioBuffers.has(key)) continue;
@@ -853,7 +854,7 @@ class SoundEngine {
     const lastTime = this.lastEnemySoundTimes.get(kind) ?? 0;
     // Throttle per enemy kind to keep soundscape crisp and avoid distortion
     const throttleMs =
-      kind === "zombie"
+      kind === "zombie" || kind === "vampire"
         ? 2200
         : kind === "knight"
           ? 2000
@@ -880,11 +881,13 @@ class SoundEngine {
         const baseVol =
           kind === "knight"
             ? 0.80
-            : kind === "gargoyle" || kind === "zombie"
-              ? 0.75
-              : kind === "bat"
-                ? 0.70
-                : 0.72;
+            : kind === "vampire"
+              ? 0.78
+              : kind === "gargoyle" || kind === "zombie"
+                ? 0.75
+                : kind === "bat"
+                  ? 0.70
+                  : 0.72;
         gain.gain.setValueAtTime(baseVol, actx.currentTime);
         source.connect(gain);
         gain.connect(this.sfxGain);
