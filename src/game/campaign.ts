@@ -472,6 +472,7 @@ export function mountCampaign(
   let items: ActiveItem[] = [];
   let clearedOnce = false;
   let bossIntroPlayed = false;
+  let bossEnragedAnnounced = false;
   let ambushTimer = 4.0;
 
   const STAND_H = 50;
@@ -742,6 +743,7 @@ export function mountCampaign(
     player.toastT = 2.6;
     clearedOnce = false;
     bossIntroPlayed = false;
+    bossEnragedAnnounced = false;
     ambushTimer = 3.5;
     sound.stopBossVoice();
     shots.length = 0;
@@ -1971,32 +1973,34 @@ export function mountCampaign(
     // =========================================================================
     else if (e.kind === "bossPetros") {
       const isEnraged = e.hp / e.max < 0.5;
-      if (e.cd <= 0 && dist > 70 && e.state !== "dive") {
-        // High leap and crushing dive smash
+      if (e.cd <= 0 && dist > 65 && e.state !== "dive") {
+        // High demon leap and crushing dive smash
         e.state = "dive";
-        e.vy = isEnraged ? -240 : -200;
-        e.cd = isEnraged ? 1.4 : 1.9;
+        e.vy = isEnraged ? -270 : -220;
+        e.cd = isEnraged ? 1.05 : 1.6;
         sound.playBossAttack(1, 2); // Salto e impacto sísmico
       }
       if (e.state === "dive") {
-        e.vx = Math.sign(dx) * (isEnraged ? 140 : 115);
+        e.vx = Math.sign(dx) * (isEnraged ? 160 : 125);
         if (e.grounded || e.y >= e.homeY - 8) {
           e.state = "idle";
           e.vx = 0;
-          shake = isEnraged ? 7 : 5;
+          shake = isEnraged ? 8 : 6;
           sound.playBossAttack(1, 2); // Impacto estrondoso de pedra no solo
-          fire({ x: e.x - 20, y: e.y + e.h - 18, w: 16, h: 18, vx: -170, vy: 0, life: 1.2, dmg: 1, friendly: false, sprite: "spell" });
-          fire({ x: e.x + e.w + 4, y: e.y + e.h - 18, w: 16, h: 18, vx: 170, vy: 0, life: 1.2, dmg: 1, friendly: false, sprite: "spell" });
+          const shockSpeed = isEnraged ? 210 : 175;
+          fire({ x: e.x - 20, y: e.y + e.h - 18, w: 16, h: 18, vx: -shockSpeed, vy: 0, life: 1.3, dmg: 1, friendly: false, sprite: "spell" });
+          fire({ x: e.x + e.w + 4, y: e.y + e.h - 18, w: 16, h: 18, vx: shockSpeed, vy: 0, life: 1.3, dmg: 1, friendly: false, sprite: "spell" });
           if (isEnraged) {
-            for (let r = 0; r < 2; r++) {
+            // Triple falling rock avalanche from the castle gate arch
+            for (let r = 0; r < 3; r++) {
               fire({
-                x: e.x + (r === 0 ? -45 : 45) + (Math.random() - 0.5) * 30,
+                x: player.x + (r - 1) * 45 + (Math.random() - 0.5) * 20,
                 y: -10,
                 w: 16,
                 h: 18,
-                vx: (Math.random() - 0.5) * 20,
-                vy: 200,
-                life: 1.6,
+                vx: (Math.random() - 0.5) * 30,
+                vy: 240,
+                life: 1.8,
                 dmg: 1,
                 friendly: false,
                 sprite: "spell",
@@ -2005,24 +2009,38 @@ export function mountCampaign(
           }
         }
       } else {
-        if (dist <= 56 && e.cd <= 0) {
-          e.wind = 0.18;
-          e.cd = 0.6;
+        if (dist <= 60 && e.cd <= 0) {
+          e.wind = isEnraged ? 0.10 : 0.14;
+          e.cd = isEnraged ? 0.42 : 0.55;
           e.state = "slash";
-          sound.playBossAttack(1, 1); // Ataque 1: Soco / Garra de pedra colossal
+          sound.playBossAttack(1, 1); // Ataque 1: Garra de pedra colossal
         }
         if (e.wind > 0) {
           e.wind -= dt;
-          e.vx = e.facing * (isEnraged ? 60 : 45);
+          e.vx = e.facing * (isEnraged ? 85 : 55);
           if (e.wind <= 0) {
-            const box = { x: e.facing > 0 ? e.x + e.w : e.x - 38, y: e.y + 12, w: 42, h: 48 };
+            const box = { x: e.facing > 0 ? e.x + e.w : e.x - 44, y: e.y + 12, w: 48, h: 50 };
             if (overlap(box, player)) hurtPlayer(2, e.x, "slash");
+            if (isEnraged) {
+              fire({
+                x: e.x + (e.facing > 0 ? e.w + 6 : -24),
+                y: e.y + 18,
+                w: 18,
+                h: 22,
+                vx: e.facing * 180,
+                vy: 0,
+                life: 0.9,
+                dmg: 1,
+                friendly: false,
+                sprite: "slash",
+              });
+            }
             e.state = "idle";
           }
         } else {
           // Relentless forward march into Aldric
           e.state = "idle";
-          e.vx = Math.sign(dx) * (isEnraged ? 65 : 48);
+          e.vx = Math.sign(dx) * (isEnraged ? 80 : 54);
         }
       }
       e.vy = Math.min(e.vy + T.gravDown * dt, T.terminal);
@@ -2033,38 +2051,57 @@ export function mountCampaign(
     // =========================================================================
     else if (e.kind === "bossValerius") {
       const isEnraged = e.hp / e.max < 0.5;
-      if (dist <= 54 && e.cd <= 0) {
+      if (isEnraged && dist > 70 && dist < 220 && e.cd <= 0 && e.state !== "slash") {
         e.state = "slash";
-        e.wind = 0.15;
-        e.cd = 0.5;
+        e.wind = 0.22;
+        e.cd = 0.85;
+        e.vx = e.facing * 240; // Unstoppable vampiric rush
+        sound.playBossAttack(2, 1);
+      } else if (dist <= 58 && e.cd <= 0) {
+        e.state = "slash";
+        e.wind = isEnraged ? 0.10 : 0.14;
+        e.cd = isEnraged ? 0.38 : 0.48;
         sound.playBossAttack(2, 1); // Ataque 1: Investida com lâmina pesada
       }
       if (e.wind > 0) {
         e.wind -= dt;
-        e.vx = e.facing * (isEnraged ? 180 : 145);
+        e.vx = e.facing * (isEnraged ? 210 : 160);
         if (e.wind <= 0) {
-          const box = { x: e.facing > 0 ? e.x + e.w : e.x - 42, y: e.y + 14, w: 48, h: 46 };
+          const box = { x: e.facing > 0 ? e.x + e.w : e.x - 44, y: e.y + 12, w: 50, h: 48 };
           if (overlap(box, player)) hurtPlayer(2, e.x, "slash");
           sound.playBossAttack(2, 2); // Ataque 2: Onda de corte crescente sombrio
-          // Dark crescent ground wave
           fire({
             x: e.x + (e.facing > 0 ? e.w : -24),
             y: e.y + e.h - 32,
             w: 24,
             h: 32,
-            vx: e.facing * 190,
+            vx: e.facing * (isEnraged ? 220 : 190),
             vy: 0,
             life: 1.2,
             dmg: 1,
             friendly: false,
             sprite: "slash",
           });
+          if (isEnraged) {
+            fire({
+              x: e.x + (e.facing > 0 ? e.w : -24),
+              y: e.y + e.h - 44,
+              w: 22,
+              h: 28,
+              vx: e.facing * 185,
+              vy: -65,
+              life: 1.3,
+              dmg: 1,
+              friendly: false,
+              sprite: "slash",
+            });
+          }
           e.state = "shield";
         }
       } else {
         // Relentless disciplined shield advance
         e.state = "shield";
-        e.vx = e.facing * (isEnraged ? 60 : 44);
+        e.vx = e.facing * (isEnraged ? 75 : 50);
       }
       e.vy = Math.min(e.vy + T.gravDown * dt, T.terminal);
       resolve(e, dt, false);
@@ -2074,34 +2111,63 @@ export function mountCampaign(
     // =========================================================================
     else if (e.kind === "bossSeraphine") {
       const isEnraged = e.hp / e.max < 0.5;
-      e.y = e.homeY + Math.sin(e.t * 3.2) * 14;
-      if (dist < 60) {
-        // Immediate escape teleport and counter-barrage if player gets too close!
-        if (e.cd <= 0.4) {
-          e.x = clamp(player.x + (e.facing > 0 ? -120 : 120), e.homeX - 150, e.homeX + 150);
+      const hoverFreq = isEnraged ? 4.5 : 3.2;
+      e.y = e.homeY + Math.sin(e.t * hoverFreq) * (isEnraged ? 18 : 14);
+      if (dist < 65) {
+        if (e.cd <= 0.45) {
+          const oldX = e.x;
+          const oldY = e.y;
+          e.x = clamp(player.x + (e.facing > 0 ? -130 : 130), e.homeX - 160, e.homeX + 160);
           sound.playBossAttack(3, 2); // Ataque 2: Teletransporte e explosão de sangue
-          e.cd = isEnraged ? 0.9 : 1.2;
+          fire({
+            x: oldX + 10,
+            y: oldY + 16,
+            w: 22,
+            h: 22,
+            vx: 0,
+            vy: 0,
+            life: 0.9,
+            dmg: 1,
+            friendly: false,
+            sprite: "blood",
+          });
+          e.cd = isEnraged ? 0.75 : 1.1;
         }
       }
       if (e.cd <= 0) {
-        e.cd = isEnraged ? 1.1 : 1.5;
-        sound.playBossAttack(3, 1); // Ataque 1: Feitiço de magia de sangue (leque de orbes)
-        // Fan of blood orbs fired towards player
-        const orbCount = isEnraged ? 4 : 3;
+        e.cd = isEnraged ? 0.85 : 1.35;
+        sound.playBossAttack(3, 1); // Ataque 1: Feitiço de magia de sangue
+        const orbCount = isEnraged ? 5 : 3;
         for (let i = 0; i < orbCount; i++) {
-          const spreadY = (i - Math.floor(orbCount / 2)) * 32;
+          const spreadY = (i - Math.floor(orbCount / 2)) * (isEnraged ? 36 : 28);
           fire({
             x: e.x + (e.facing > 0 ? e.w : -12),
             y: e.y + 20,
             w: 14,
             h: 14,
-            vx: e.facing * (isEnraged ? 155 : 130),
+            vx: e.facing * (isEnraged ? 175 : 135),
             vy: spreadY,
             life: 1.8,
             dmg: 1,
             friendly: false,
             sprite: "blood",
           });
+        }
+        if (isEnraged) {
+          for (let l = 0; l < 2; l++) {
+            fire({
+              x: player.x + (l === 0 ? -35 : 35) + (Math.random() - 0.5) * 20,
+              y: -10,
+              w: 12,
+              h: 24,
+              vx: 0,
+              vy: 230,
+              life: 1.6,
+              dmg: 1,
+              friendly: false,
+              sprite: "blood",
+            });
+          }
         }
       }
     }
@@ -2110,29 +2176,39 @@ export function mountCampaign(
     // =========================================================================
     else if (e.kind === "bossNocturne") {
       const isEnraged = e.hp / e.max < 0.5;
-      const tx = player.x + Math.sin(e.t * 3.2) * 45;
-      const ty = clamp(player.y - 32 + Math.cos(e.t * 3.8) * 30, 20, GROUND_Y - 40);
-      e.x += (tx - e.x) * Math.min(1, dt * (isEnraged ? 3.6 : 2.8));
-      e.y += (ty - e.y) * Math.min(1, dt * (isEnraged ? 3.6 : 2.8));
-      if (dist <= 52 && e.cd <= 0.4) {
+      const flyFreq = isEnraged ? 4.2 : 3.2;
+      const tx = player.x + Math.sin(e.t * flyFreq) * (isEnraged ? 55 : 45);
+      const ty = clamp(player.y - 32 + Math.cos(e.t * (flyFreq + 0.6)) * 32, 20, GROUND_Y - 40);
+      e.x += (tx - e.x) * Math.min(1, dt * (isEnraged ? 4.4 : 3.0));
+      e.y += (ty - e.y) * Math.min(1, dt * (isEnraged ? 4.4 : 3.0));
+
+      if (dist <= 56 && e.cd <= 0.4) {
         sound.playBossAttack(4, 2); // Ataque 2: Rasante predatório de garras
+        const clawBox = { x: e.x - 12, y: e.y + 6, w: e.w + 24, h: e.h + 12 };
+        if (overlap(clawBox, player) && e.hurt <= 0) {
+          hurtPlayer(2, e.x, "slash");
+        }
       }
       if (e.cd <= 0) {
-        e.cd = isEnraged ? 1.1 : 1.5;
+        e.cd = isEnraged ? 0.9 : 1.3;
         sound.playBossAttack(4, 1); // Ataque 1: Onda sônica / guincho estridente de morcegos
-        // Sonic screech shockwave
-        fire({
-          x: e.x + (e.facing > 0 ? e.w : -16),
-          y: e.y + e.h / 2 - 8,
-          w: 22,
-          h: 22,
-          vx: e.facing * (isEnraged ? 190 : 160),
-          vy: 0,
-          life: 1.5,
-          dmg: 1,
-          friendly: false,
-          sprite: "spell",
-        });
+        // Triple sonic screech ring spread in enrage
+        const sonicCount = isEnraged ? 3 : 1;
+        for (let s = 0; s < sonicCount; s++) {
+          const vy = (s - Math.floor(sonicCount / 2)) * 40;
+          fire({
+            x: e.x + (e.facing > 0 ? e.w : -16),
+            y: e.y + e.h / 2 - 8,
+            w: 22,
+            h: 22,
+            vx: e.facing * (isEnraged ? 210 : 165),
+            vy,
+            life: 1.5,
+            dmg: 1,
+            friendly: false,
+            sprite: "spell",
+          });
+        }
       }
     }
     // =========================================================================
@@ -2140,40 +2216,120 @@ export function mountCampaign(
     // =========================================================================
     else if (e.kind === "bossVeyne") {
       const isEnraged = e.hp / e.max < 0.5;
-      if (dist <= 52 && e.cd <= 0) {
-        // Close range arcane burst
-        e.cd = 0.55;
+      if (dist <= 54 && e.cd <= 0) {
+        // Close range arcane burst and panic blink
+        e.cd = isEnraged ? 0.45 : 0.55;
         e.state = "slash";
-        e.wind = 0.16;
+        e.wind = isEnraged ? 0.10 : 0.15;
         sound.playBossAttack(5, 2); // Ataque 2: Explosão de magia sombria corpo a corpo
-      } else if (dist > 52 && e.cd <= 0) {
-        e.cd = isEnraged ? 1.0 : 1.4;
+      } else if (dist > 54 && e.cd <= 0) {
+        e.cd = isEnraged ? 0.8 : 1.25;
         e.state = "slash";
-        e.wind = 0.25;
+        e.wind = isEnraged ? 0.16 : 0.24;
         sound.playBossAttack(5, 1); // Ataque 1: Projéteis de crânios arcanos flamejantes
-        // Flaming arcane skulls
-        fire({
-          x: e.x + (e.facing > 0 ? e.w : -16),
-          y: e.y + 14,
-          w: 16,
-          h: 16,
-          vx: e.facing * (isEnraged ? 145 : 125),
-          vy: -130,
-          gravity: 320,
-          life: 2.1,
-          dmg: 1,
-          friendly: false,
-          sprite: "spell",
-        });
-        if (isEnraged) {
+        const skullCount = isEnraged ? 3 : 1;
+        for (let k = 0; k < skullCount; k++) {
+          const vx = e.facing * (isEnraged ? (105 + k * 35) : 130);
+          const vy = -120 - k * 30;
           fire({
             x: e.x + (e.facing > 0 ? e.w : -16),
             y: e.y + 14,
             w: 16,
             h: 16,
-            vx: e.facing * 95,
-            vy: -160,
-            gravity: 320,
+            vx,
+            vy,
+            gravity: 330,
+            life: 2.2,
+            dmg: 1,
+            friendly: false,
+            sprite: "spell",
+          });
+        }
+        if (isEnraged) {
+          fire({
+            x: e.x + (e.facing > 0 ? e.w : -20),
+            y: e.y + e.h - 18,
+            w: 20,
+            h: 18,
+            vx: e.facing * 195,
+            vy: 0,
+            life: 1.3,
+            dmg: 1,
+            friendly: false,
+            sprite: "blood",
+          });
+        }
+      }
+
+      if (e.wind > 0) {
+        e.wind -= dt;
+        e.vx = e.facing * (isEnraged ? 60 : 35);
+        if (e.wind <= 0) {
+          if (dist <= 58) {
+            const box = { x: e.facing > 0 ? e.x + e.w : e.x - 42, y: e.y + 10, w: 46, h: 46 };
+            if (overlap(box, player)) hurtPlayer(2, e.x, "spell");
+          }
+          if (isEnraged && dist < 50) {
+            e.x = clamp(player.x + (player.x < e.homeX ? 110 : -110), e.homeX - 140, e.homeX + 140);
+          }
+          e.state = "idle";
+        }
+      } else {
+        e.state = "idle";
+        e.vx = Math.sign(dx) * (isEnraged ? 70 : 45);
+      }
+      e.vy = Math.min(e.vy + T.gravDown * dt, T.terminal);
+      resolve(e, dt, false);
+    }
+    // =========================================================================
+    // 7. BOSS 6: Calx, Abominação Alquímica (O Laboratório de Alquimia)
+    // =========================================================================
+    else if (e.kind === "bossCalx") {
+      const isEnraged = e.hp / e.max < 0.5;
+      if (dist <= 60 && e.cd <= 0) {
+        // Seismic Stomp & Acid Shockwave
+        e.state = "smash";
+        e.wind = isEnraged ? 0.10 : 0.15;
+        e.cd = isEnraged ? 0.75 : 1.15;
+        shake = isEnraged ? 8 : 6;
+        sound.playBossAttack(6, 1); // Ataque 1: Pisotão sísmico e rugido da abominação
+        if (player.grounded && dist < 110) {
+          hurtPlayer(1, e.x, "slash");
+        }
+        const waveSpeed = isEnraged ? 195 : 160;
+        fire({ x: e.x - 18, y: e.y + e.h - 16, w: 16, h: 16, vx: -waveSpeed, vy: 0, life: 1.3, dmg: 1, friendly: false, sprite: "spell" });
+        fire({ x: e.x + e.w + 4, y: e.y + e.h - 16, w: 16, h: 16, vx: waveSpeed, vy: 0, life: 1.3, dmg: 1, friendly: false, sprite: "spell" });
+        if (isEnraged) {
+          for (let a = 0; a < 3; a++) {
+            fire({
+              x: player.x + (a - 1) * 40 + (Math.random() - 0.5) * 20,
+              y: -10,
+              w: 12,
+              h: 18,
+              vx: 0,
+              vy: 230,
+              life: 1.7,
+              dmg: 1,
+              friendly: false,
+              sprite: "spell",
+            });
+          }
+        }
+      } else if (dist > 60 && e.cd <= 0) {
+        e.cd = isEnraged ? 0.95 : 1.45;
+        sound.playBossAttack(6, 2); // Ataque 2: Lançamento de frascos químicos ácidos
+        const flaskCount = isEnraged ? 3 : 1;
+        for (let f = 0; f < flaskCount; f++) {
+          const vx = e.facing * (isEnraged ? (100 + f * 35) : 125);
+          const vy = -115 - f * 25;
+          fire({
+            x: e.x + (e.facing > 0 ? e.w : -14),
+            y: e.y + 12,
+            w: 16,
+            h: 16,
+            vx,
+            vy,
+            gravity: 360,
             life: 2.1,
             dmg: 1,
             friendly: false,
@@ -2184,64 +2340,11 @@ export function mountCampaign(
 
       if (e.wind > 0) {
         e.wind -= dt;
-        e.vx = e.facing * (isEnraged ? 45 : 30);
-        if (e.wind <= 0) {
-          if (dist <= 56) {
-            const box = { x: e.facing > 0 ? e.x + e.w : e.x - 38, y: e.y + 12, w: 42, h: 44 };
-            if (overlap(box, player)) hurtPlayer(2, e.x, "spell");
-          }
-          e.state = "idle";
-        }
-      } else {
-        e.state = "idle";
-        e.vx = Math.sign(dx) * (isEnraged ? 55 : 42);
-      }
-      e.vy = Math.min(e.vy + T.gravDown * dt, T.terminal);
-      resolve(e, dt, false);
-    }
-    // =========================================================================
-    // 7. BOSS 6: Calx, Abominação Alquímica (O Laboratório de Alquimia)
-    // =========================================================================
-    else if (e.kind === "bossCalx") {
-      const isEnraged = e.hp / e.max < 0.5;
-      if (dist <= 56 && e.cd <= 0) {
-        // Seismic Stomp & Cleave
-        e.state = "smash";
-        e.wind = 0.16;
-        e.cd = isEnraged ? 0.9 : 1.3;
-        shake = 6;
-        sound.playBossAttack(6, 1); // Ataque 1: Pisotão sísmico e rugido da abominação
-        if (player.grounded && dist < 90) {
-          hurtPlayer(1, e.x, "slash");
-        }
-        fire({ x: e.x - 18, y: e.y + e.h - 16, w: 16, h: 16, vx: -160, vy: 0, life: 1.2, dmg: 1, friendly: false, sprite: "spell" });
-        fire({ x: e.x + e.w + 4, y: e.y + e.h - 16, w: 16, h: 16, vx: 160, vy: 0, life: 1.2, dmg: 1, friendly: false, sprite: "spell" });
-      } else if (dist > 56 && e.cd <= 0) {
-        e.cd = isEnraged ? 1.2 : 1.6;
-        sound.playBossAttack(6, 2); // Ataque 2: Lançamento de frascos químicos ácidos
-        // Toxic alchemy flask
-        fire({
-          x: e.x + (e.facing > 0 ? e.w : -14),
-          y: e.y + 12,
-          w: 16,
-          h: 16,
-          vx: e.facing * (isEnraged ? 145 : 120),
-          vy: -135,
-          gravity: 350,
-          life: 2.0,
-          dmg: 1,
-          friendly: false,
-          sprite: "spell",
-        });
-      }
-
-      if (e.wind > 0) {
-        e.wind -= dt;
-        e.vx = e.facing * 40;
+        e.vx = e.facing * (isEnraged ? 65 : 40);
         if (e.wind <= 0) e.state = "idle";
       } else {
         e.state = "idle";
-        e.vx = Math.sign(dx) * (isEnraged ? 56 : 42);
+        e.vx = Math.sign(dx) * (isEnraged ? 72 : 46);
       }
       e.vy = Math.min(e.vy + T.gravDown * dt, T.terminal);
       resolve(e, dt, false);
@@ -2251,59 +2354,74 @@ export function mountCampaign(
     // =========================================================================
     else if (e.kind === "bossDracula" || e.kind === "dracula") {
       const draculaPhase = e.hp / e.max > 0.66 ? 1 : e.hp / e.max > 0.33 ? 2 : 3;
-      const hover = draculaPhase === 3 ? 10 : 0;
+      const hover = draculaPhase === 3 ? 12 : 0;
       e.y = e.homeY - hover;
-      const minX = e.homeX - 110;
-      const maxX = e.homeX + 90;
+      const minX = e.homeX - 120;
+      const maxX = e.homeX + 100;
 
-      if (dist <= 52 && e.cd <= 0) {
+      if (dist <= 56 && e.cd <= 0) {
         // Immediate Demonic Vampire Claw Strike when player is near!
         e.state = "slash";
-        e.wind = 0.12;
-        e.cd = draculaPhase === 3 ? 0.35 : 0.5;
+        e.wind = draculaPhase === 3 ? 0.08 : 0.11;
+        e.cd = draculaPhase === 3 ? 0.28 : 0.45;
         sound.playBossAttack(7, 1); // Ataque 1: Garras demoníacas de sangue
       }
 
       if (e.wind > 0) {
         e.wind -= dt;
-        e.vx = e.facing * 75;
+        e.vx = e.facing * (draculaPhase === 3 ? 110 : 80);
         if (e.wind <= 0) {
           if (e.state === "slash") {
-            const box = { x: e.facing > 0 ? e.x + e.w : e.x - 42, y: e.y + e.h - 70, w: 46, h: 48 };
+            const box = { x: e.facing > 0 ? e.x + e.w : e.x - 46, y: e.y + e.h - 72, w: 52, h: 50 };
             if (overlap(box, player)) hurtPlayer(2, e.x, "slash");
             e.state = "idle";
           } else {
             // Hellfire Volley fired forward
             sound.playBossAttack(7, 1); // Ataque 1: Fogo do Inferno
-            const count = draculaPhase === 1 ? 3 : draculaPhase === 2 ? 4 : 5;
+            const count = draculaPhase === 1 ? 3 : draculaPhase === 2 ? 5 : 6;
             for (let i = 0; i < count; i++) {
               const chest = e.y + e.h - 78;
-              const spreadY = -25 + i * 20;
+              const spreadY = -35 + i * (draculaPhase === 3 ? 16 : 18);
               fire({
                 x: e.x + (e.facing > 0 ? e.w : -12),
                 y: chest - 6,
                 w: 16,
                 h: 28,
-                vx: e.facing * (130 + draculaPhase * 25),
+                vx: e.facing * (145 + draculaPhase * 28),
                 vy: spreadY,
-                life: 2.1,
+                life: 2.2,
                 dmg: 1,
                 friendly: false,
                 sprite: "blood",
                 drawCenterY: chest,
               });
             }
+            if (draculaPhase === 2) {
+              // Phase 2: additional dark sphere fired toward Aldric
+              fire({
+                x: e.x + (e.facing > 0 ? e.w : -16),
+                y: player.y + 10,
+                w: 18,
+                h: 22,
+                vx: e.facing * 185,
+                vy: 0,
+                life: 1.8,
+                dmg: 1,
+                friendly: false,
+                sprite: "spell",
+              });
+            }
             if (draculaPhase === 3) {
-              shake = 5;
+              shake = 6;
               sound.playBossAttack(7, 2); // Ataque 2: Chuva de meteoros carmesim
-              for (let m = 0; m < 2; m++) {
+              for (let m = 0; m < 4; m++) {
                 fire({
-                  x: e.x + (m === 0 ? -50 : 50) + (Math.random() - 0.5) * 30,
+                  x: player.x + (m - 1.5) * 45 + (Math.random() - 0.5) * 25,
                   y: -15,
                   w: 16,
                   h: 26,
                   vx: (Math.random() - 0.5) * 20,
-                  vy: 200,
+                  vy: 240,
                   life: 1.7,
                   dmg: 1,
                   friendly: false,
@@ -2315,14 +2433,14 @@ export function mountCampaign(
           }
         }
       } else if (e.cd <= 0 && dist > 55) {
-        // Teleport within throne arena
-        e.x = clamp(player.x + (player.x < e.homeX ? 75 : -75), minX, maxX);
+        // Teleport within throne arena with dark rift sound
+        e.x = clamp(player.x + (player.x < e.homeX ? 80 : -80), minX, maxX);
         sound.playBossAttack(7, 2); // Ataque 2: Teletransporte de fenda sombria
-        e.wind = draculaPhase === 3 ? 0.22 : 0.32;
-        e.cd = draculaPhase === 3 ? 0.8 : draculaPhase === 2 ? 1.05 : 1.35;
+        e.wind = draculaPhase === 3 ? 0.16 : draculaPhase === 2 ? 0.24 : 0.30;
+        e.cd = draculaPhase === 3 ? 0.60 : draculaPhase === 2 ? 0.85 : 1.15;
       } else {
         // Advances relentlessly
-        e.vx = Math.sign(dx) * (draculaPhase === 3 ? 85 : draculaPhase === 2 ? 70 : 55);
+        e.vx = Math.sign(dx) * (draculaPhase === 3 ? 95 : draculaPhase === 2 ? 75 : 58);
         e.x = clamp(e.x + e.vx * dt, minX, maxX);
       }
     }
@@ -3520,6 +3638,15 @@ export function mountCampaign(
       if ((e.kind === "dracula" || e.kind === "bossDracula") && e.hp / e.max <= 0.33) tall *= 1.25;
       if (e.boss && e.dying) tall *= 1.15;
       const feet = e.y + e.h + (FEET_OFF[e.kind] ?? 0);
+      if (e.boss && e.hp / e.max < 0.5 && !e.dead && !e.dying) {
+        g.save();
+        g.globalAlpha = 0.35 + Math.sin(time * 8) * 0.18;
+        g.fillStyle = "#ef4444";
+        g.beginPath();
+        g.ellipse(Math.round(e.x + e.w / 2 - camX), Math.round(feet - camY - 2), e.w * 0.85, 9, 0, 0, Math.PI * 2);
+        g.fill();
+        g.restore();
+      }
       if (e.state === "emerge") {
         const floorY = (e.emergeY ?? (e.y - e.h)) + e.h;
         const groundScreenY = Math.round(floorY - camY);
@@ -3725,6 +3852,13 @@ export function mountCampaign(
         };
         player.toast = quotes[level.id] || `${boss.name} ergue-se nas trevas!`;
         player.toastT = 4.2;
+      }
+      if (bossIntroPlayed && !bossEnragedAnnounced && boss.hp / boss.max < 0.5) {
+        bossEnragedAnnounced = true;
+        sound.playSfx("bossHurt");
+        shake = Math.max(shake, 8);
+        player.toast = `⚠️ ${boss.name.split(',')[0]} ENTROU EM FÚRIA! Padrões letais acelerados!`;
+        player.toastT = 3.0;
       }
       if (level.id === 7) {
         if (sound.getCurrentTrack() !== "stage7") {
