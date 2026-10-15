@@ -1590,8 +1590,8 @@ export function mountCampaign(
             });
           }
         } else if (it.kind === "heal") {
-          player.hp = Math.min(T.maxHp, player.hp + 3);
-          player.toast = "Elixir Carmesim! +3 HP restaurado.";
+          player.hp = Math.min(T.maxHp, player.hp + 1);
+          player.toast = "Elixir Carmesim! +1 HP restaurado.";
           player.toastT = 2.2;
           sound.playSfx("itemHeal");
           for (let i = 0; i < 16; i++) {
@@ -1609,8 +1609,8 @@ export function mountCampaign(
             });
           }
         } else if (it.kind === "mana") {
-          player.mana = Math.min(T.maxMana, player.mana + 45);
-          player.toast = "Éter Astral! +45 Mana restaurada.";
+          player.mana = Math.min(T.maxMana, player.mana + 35);
+          player.toast = "Éter Astral! +35 Mana restaurada.";
           player.toastT = 2.2;
           sound.playSfx("itemMana");
           for (let i = 0; i < 16; i++) {
@@ -1871,9 +1871,9 @@ export function mountCampaign(
               pulse: Math.random() * Math.PI * 2,
             });
           }
-        } else if (Math.random() < 0.28) {
+        } else if (Math.random() < 0.10) {
           const roll = Math.random();
-          const kind: ItemKind = roll < 0.12 ? "life" : roll < 0.55 ? "heal" : "mana";
+          const kind: ItemKind = roll < 0.04 ? "life" : roll < 0.50 ? "heal" : "mana";
           items.push({
             id: nextId++,
             kind,
@@ -2797,7 +2797,8 @@ export function mountCampaign(
         if (distToPlayer < minDistance) {
           // Touch contact damage
           if (e.hurt <= 0) {
-            hurtPlayer(1, eCenterX, "slash");
+            const heavyContact = e.boss || e.kind === "knight" || e.kind === "gargoyle";
+            hurtPlayer(heavyContact ? 2 : 1, eCenterX, "slash");
           }
 
           if (eCenterX < pCenterX) {

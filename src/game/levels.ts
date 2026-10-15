@@ -244,12 +244,10 @@ const level1_spawns: Spawn[] = [
 ];
 
 const level1_items: ItemSpawn[] = [
-  { id: 101, kind: "heal", x: 220, y: G - 28 },
-  { id: 102, kind: "mana", x: 580, y: 82 },
-  { id: 103, kind: "life", x: 1960, y: 47 },
-  { id: 104, kind: "heal", x: 3100, y: 42 },
-  { id: 105, kind: "mana", x: 4260, y: 52 },
-  { id: 106, kind: "life", x: 5180, y: 107 },
+  { id: 101, kind: "mana", x: 580, y: 82 },
+  { id: 102, kind: "life", x: 1960, y: 47 }, // Secret life on high watchtower
+  { id: 103, kind: "heal", x: 3100, y: 42 }, // Single +1 HP elixir mid-stage
+  { id: 104, kind: "mana", x: 4260, y: 52 },
 ];
 
 // =========================================================================
@@ -410,14 +408,10 @@ const level2_spawns: Spawn[] = [
 ];
 
 const level2_items: ItemSpawn[] = [
-  { id: 201, kind: "heal", x: 760, y: 65 },
-  { id: 202, kind: "life", x: 1640, y: 220 }, // Extra life hidden in sunken crypt!
-  { id: 203, kind: "heal", x: 1820, y: 135 },
-  { id: 204, kind: "mana", x: 2920, y: 35 },
-  { id: 205, kind: "heal", x: 2760, y: 85 },
-  { id: 206, kind: "life", x: 4340, y: 55 }, // Extra life on high promenade
-  { id: 207, kind: "heal", x: 4900, y: G - 28 },
-  { id: 208, kind: "mana", x: 5060, y: 95 },
+  { id: 201, kind: "mana", x: 920, y: 95 },
+  { id: 202, kind: "life", x: 1640, y: 220 }, // Extra life hidden down in sunken gladiator crypt!
+  { id: 203, kind: "heal", x: 2760, y: 85 }, // Single +1 HP elixir on high column
+  { id: 204, kind: "mana", x: 4340, y: 55 },
 ];
 
 // =========================================================================
@@ -546,12 +540,10 @@ const level3_spawns: Spawn[] = [
 ];
 
 const level3_items: ItemSpawn[] = [
-  { id: 301, kind: "heal", x: 260, y: G - 28 },
-  { id: 302, kind: "mana", x: 860, y: 47 },
-  { id: 303, kind: "life", x: 2040, y: 42 },
-  { id: 304, kind: "heal", x: 3260, y: 47 },
-  { id: 305, kind: "mana", x: 4480, y: 42 },
-  { id: 306, kind: "life", x: 5380, y: 107 },
+  { id: 301, kind: "mana", x: 860, y: 47 },
+  { id: 302, kind: "life", x: 2040, y: 42 }, // Secret life on high stained glass arch
+  { id: 303, kind: "heal", x: 3260, y: 47 }, // Single +1 HP elixir mid-cathedral
+  { id: 304, kind: "mana", x: 4480, y: 42 },
 ];
 
 // =========================================================================
@@ -677,12 +669,10 @@ const level4_spawns: Spawn[] = [
 ];
 
 const level4_items: ItemSpawn[] = [
-  { id: 401, kind: "heal", x: 240, y: G - 28 },
-  { id: 402, kind: "mana", x: 880, y: 47 },
-  { id: 403, kind: "life", x: 2080, y: 42 },
-  { id: 404, kind: "heal", x: 3320, y: 47 },
-  { id: 405, kind: "mana", x: 4580, y: 42 },
-  { id: 406, kind: "life", x: 5560, y: 107 },
+  { id: 401, kind: "mana", x: 880, y: 47 },
+  { id: 402, kind: "life", x: 1580, y: 55 }, // High sarcophagus walkway over pit
+  { id: 403, kind: "heal", x: 3320, y: 47 }, // Single +1 HP elixir mid-catacomb
+  { id: 404, kind: "mana", x: 4580, y: 42 },
 ];
 
 // =========================================================================
@@ -807,12 +797,10 @@ const level5_spawns: Spawn[] = [
 ];
 
 const level5_items: ItemSpawn[] = [
-  { id: 501, kind: "mana", x: 260, y: G - 28 },
-  { id: 502, kind: "heal", x: 880, y: 47 },
-  { id: 503, kind: "life", x: 2060, y: 42 },
-  { id: 504, kind: "mana", x: 3280, y: 47 },
-  { id: 505, kind: "heal", x: 4500, y: 42 },
-  { id: 506, kind: "life", x: 5420, y: 107 },
+  { id: 501, kind: "mana", x: 880, y: 47 },
+  { id: 502, kind: "life", x: 2060, y: 42 }, // Secret life on high book archive
+  { id: 503, kind: "heal", x: 3280, y: 47 }, // Single +1 HP elixir mid-library
+  { id: 504, kind: "mana", x: 4500, y: 42 },
 ];
 
 // =========================================================================
@@ -935,12 +923,10 @@ const level6_spawns: Spawn[] = [
 ];
 
 const level6_items: ItemSpawn[] = [
-  { id: 601, kind: "heal", x: 260, y: G - 28 },
-  { id: 602, kind: "mana", x: 880, y: 47 },
-  { id: 603, kind: "life", x: 1650, y: 215 }, // Extra life inside sunken chemical pit!
-  { id: 604, kind: "heal", x: 3280, y: 47 },
-  { id: 605, kind: "mana", x: 4500, y: 42 },
-  { id: 606, kind: "life", x: 5480, y: 107 },
+  { id: 601, kind: "mana", x: 880, y: 47 },
+  { id: 602, kind: "life", x: 1650, y: 215 }, // Extra life inside sunken chemical pit!
+  { id: 603, kind: "heal", x: 3280, y: 47 }, // Single +1 HP elixir mid-alchemy
+  { id: 604, kind: "mana", x: 4500, y: 42 },
 ];
 
 // =========================================================================
@@ -1067,12 +1053,10 @@ const level7_spawns: Spawn[] = [
 ];
 
 const level7_items: ItemSpawn[] = [
-  { id: 701, kind: "heal", x: 260, y: G - 28 },
-  { id: 702, kind: "mana", x: 880, y: 47 },
-  { id: 703, kind: "life", x: 2060, y: 42 },
-  { id: 704, kind: "heal", x: 3280, y: 47 },
-  { id: 705, kind: "mana", x: 4500, y: 42 },
-  { id: 706, kind: "life", x: 4940, y: 97 },
+  { id: 701, kind: "mana", x: 880, y: 47 },
+  { id: 702, kind: "life", x: 2060, y: 42 }, // Final secret life on grand chandelier arch
+  { id: 703, kind: "heal", x: 3280, y: 47 }, // Single +1 HP elixir before throne approach
+  { id: 704, kind: "mana", x: 4500, y: 42 },
 ];
 
 function stage(
