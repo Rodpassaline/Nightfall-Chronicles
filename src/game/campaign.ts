@@ -337,6 +337,9 @@ function clamp(v: number, a: number, b: number) {
   return Math.max(a, Math.min(b, v));
 }
 
+// Cache-busting version token generated per page session to prevent Chrome from serving stale cached sprites
+const ASSET_VERSION = Date.now().toString(36);
+
 const IMAGE_CACHE = new Map<string, HTMLImageElement>();
 
 export function preloadImage(src: string): Promise<HTMLImageElement> {
@@ -353,7 +356,8 @@ export function preloadImage(src: string): Promise<HTMLImageElement> {
     if (!img) {
       img = new Image();
       IMAGE_CACHE.set(src, img);
-      img.src = src;
+      const versionedSrc = src.includes("?") ? src : `${src}?v=${ASSET_VERSION}`;
+      img.src = versionedSrc;
     }
     if (img.complete && img.naturalWidth > 0) {
       resolve(img);
