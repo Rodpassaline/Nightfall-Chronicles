@@ -60,6 +60,7 @@ type Enemy = Body & {
   emergeT?: number;
   emergeDuration?: number;
   emergeY?: number;
+  alertSoundPlayed?: boolean;
 };
 
 type Shot = {
@@ -714,6 +715,7 @@ export function mountCampaign(
       emergeT: 0,
       emergeDuration: 0.58,
       emergeY: finalY,
+      alertSoundPlayed: false,
     };
   }
 
@@ -1709,8 +1711,9 @@ export function mountCampaign(
             }
 
             const newEnemy = makeEnemy({ kind: spawnKind, x: sx, y: floor, hp }, true);
+            newEnemy.alertSoundPlayed = true;
             enemies.push(newEnemy);
-            sound.playSfx("wallJump");
+            sound.playEnemyAlert(spawnKind);
           } else {
             // Aerial ambush: predatory bat wave swoops across the screen!
             const fromRight = Math.random() > 0.5;
@@ -1719,7 +1722,9 @@ export function mountCampaign(
             const batEnemy = makeEnemy({ kind: "bat", x: bx, y: by, hp: 2 }, false);
             batEnemy.facing = fromRight ? -1 : 1;
             batEnemy.vx = (fromRight ? -1 : 1) * 120;
+            batEnemy.alertSoundPlayed = true;
             enemies.push(batEnemy);
+            sound.playEnemyAlert("bat");
           }
         }
       }
@@ -1911,6 +1916,17 @@ export function mountCampaign(
         resolve(e, dt, false);
       }
       return;
+    }
+
+    // =========================================================================
+    // ENEMY PRESENCE AUDIO: Trigger voice/groan/shriek when entering camera view!
+    // =========================================================================
+    const inScreen = e.x >= camX - 40 && e.x <= camX + T.viewW + 40;
+    if (inScreen && !e.alertSoundPlayed && !e.dead && !e.dying) {
+      e.alertSoundPlayed = true;
+      if (!e.boss) {
+        sound.playEnemyAlert(e.kind);
+      }
     }
 
     // =========================================================================

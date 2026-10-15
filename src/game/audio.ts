@@ -407,6 +407,9 @@ class SoundEngine {
   private audioElementsCache: Map<string, HTMLAudioElement> = new Map();
   private slashBuffer: AudioBuffer | null = null;
   private spellBuffer: AudioBuffer | null = null;
+  // Enemy / Character Alert and Voice Buffers (e.g. Zombie groan, etc.)
+  private enemyAudioBuffers: Map<string, AudioBuffer> = new Map();
+  private lastEnemySoundTimes: Map<string, number> = new Map();
 
   // Settings
   private muted = false;
@@ -519,6 +522,7 @@ class SoundEngine {
       this.createNoiseBuffer();
       this.loadSfxBuffers();
       this.loadBossVoiceBuffers();
+      this.loadEnemyAudioBuffers();
     } catch {
       this.ctx = null;
     }
@@ -561,6 +565,33 @@ class SoundEngine {
         })
         .catch(() => {
           // If decoding fails, HTMLAudioElement fallback will play it
+        });
+    }
+  }
+
+  private loadEnemyAudioBuffers() {
+    if (!this.ctx || typeof window === "undefined") return;
+    const candidates = [
+      { key: "zombie", url: "/audio/personagens/zombie.wav" },
+      { key: "bat", url: "/audio/personagens/bat.wav" },
+      { key: "skeleton", url: "/audio/personagens/skeleton.wav" },
+      { key: "knight", url: "/audio/personagens/knight.wav" },
+      { key: "gargoyle", url: "/audio/personagens/gargoyle.wav" },
+      { key: "vampire", url: "/audio/personagens/vampire.wav" },
+    ];
+    for (const { key, url } of candidates) {
+      if (this.enemyAudioBuffers.has(key)) continue;
+      fetch(url)
+        .then((res) => {
+          if (!res.ok) throw new Error(`HTTP ${res.status}`);
+          return res.arrayBuffer();
+        })
+        .then((buf) => this.ctx!.decodeAudioData(buf))
+        .then((audioBuf) => {
+          this.enemyAudioBuffers.set(key, audioBuf);
+        })
+        .catch(() => {
+          // Normal if user hasn't added this specific audio file yet
         });
     }
   }
@@ -808,6 +839,119 @@ class SoundEngine {
     const pool = this.bossAtkPools[`${stageNum}-${attackIndex}`];
     if (pool) {
       pool.play(this.sfxVol, 0.96 + Math.random() * 0.08);
+    }
+  }
+
+  // -------------------------------------------------------------
+  // ENEMY / MONSTER SFX (ZOMBIES, BATS, SKELETONS, ETC.)
+  // -------------------------------------------------------------
+
+  public playEnemyAlert(kind: string) {
+    if (this.muted || typeof window === "undefined") return;
+    const now = performance.now();
+    const lastTime = this.lastEnemySoundTimes.get(kind) ?? 0;
+    // Throttle per enemy kind to prevent acoustic clobbering (2.4s for zombies, 1.8s for others)
+    const throttleMs = kind === "zombie" ? 2400 : 1800;
+    if (now - lastTime < throttleMs) return;
+    this.lastEnemySoundTimes.set(kind, now);
+
+    const actx = this.init();
+    const buf = this.enemyAudioBuffers.get(kind);
+    if (actx && buf && this.sfxGain) {
+      try {
+        const source = actx.createBufferSource();
+        source.buffer = buf;
+        // Subtle organic pitch variation (0.93x - 1.07x) for realistic undead variety
+        source.playbackRate.value = 0.93 + Math.random() * 0.14;
+        const gain = actx.createGain();
+        gain.gain.setValueAtTime(kind === "zombie" ? 0.75 : 0.65, actx.currentTime);
+        source.connect(gain);
+        gain.connect(this.sfxGain);
+        source.start();
+        return;
+      } catch (err) {
+        console.warn("[audio] Buffer enemy sound playback failed:", err);
+      }
+    }
+
+    // HTMLAudioElement fallback
+    try {
+      const a = new Audio(`/audio/personagens/${kind}.wav`);
+      a.volume = this.muted ? 0 : this.sfxVol * 0.75;
+      a.playbackRate = 0.95 + Math.random() * 0.1;
+      const p = a.play();
+      if (p) p.catch(() => {});
+      return;
+    } catch {
+      // Fallback
+    }
+
+    // Procedural Synth Fallback for enemies without custom audio files yet
+    if (kind !== "zombie") {
+      this.playProceduralEnemyAlert(kind);
+    }
+  }
+
+  private playProceduralEnemyAlert(kind: string) {
+    const actx = this.init();
+    if (!actx || !this.sfxGain) return;
+    const now = actx.currentTime;
+
+    if (kind === "bat") {
+      // High-pitched predatory screech & fluttering chirp
+      const osc = actx.createOscillator();
+      const gain = actx.createGain();
+      osc.type = "sawtooth";
+      osc.frequency.setValueAtTime(1400, now);
+      osc.frequency.linearRampToValueAtTime(2200, now + 0.06);
+      osc.frequency.exponentialRampToValueAtTime(700, now + 0.18);
+      gain.gain.setValueAtTime(0.14, now);
+      gain.gain.exponentialRampToValueAtTime(0.001, now + 0.18);
+      osc.connect(gain);
+      gain.connect(this.sfxGain);
+      osc.start(now);
+      osc.stop(now + 0.18);
+    } else if (kind === "skeleton" || kind === "armoredSkeleton" || kind === "redSkeleton") {
+      // Dry bone clatter rattling clicks
+      [360, 480, 290].forEach((freq, idx) => {
+        const osc = actx.createOscillator();
+        const gain = actx.createGain();
+        osc.type = "triangle";
+        osc.frequency.setValueAtTime(freq, now + idx * 0.04);
+        gain.gain.setValueAtTime(0.18, now + idx * 0.04);
+        gain.gain.exponentialRampToValueAtTime(0.001, now + idx * 0.04 + 0.08);
+        osc.connect(gain);
+        gain.connect(this.sfxGain!);
+        osc.start(now + idx * 0.04);
+        osc.stop(now + idx * 0.04 + 0.08);
+      });
+    } else if (kind === "knight") {
+      // Heavy plate iron clang
+      const osc = actx.createOscillator();
+      const gain = actx.createGain();
+      osc.type = "square";
+      osc.frequency.setValueAtTime(180, now);
+      osc.frequency.exponentialRampToValueAtTime(60, now + 0.15);
+      gain.gain.setValueAtTime(0.22, now);
+      gain.gain.exponentialRampToValueAtTime(0.001, now + 0.18);
+      osc.connect(gain);
+      gain.connect(this.sfxGain);
+      osc.start(now);
+      osc.stop(now + 0.18);
+    } else if (kind === "gargoyle") {
+      // Harsh demonic stone roar / screech
+      const osc = actx.createOscillator();
+      const gain = actx.createGain();
+      osc.type = "sawtooth";
+      osc.frequency.setValueAtTime(320, now);
+      osc.frequency.linearRampToValueAtTime(540, now + 0.09);
+      osc.frequency.exponentialRampToValueAtTime(120, now + 0.32);
+      gain.gain.setValueAtTime(0.24, now);
+      gain.gain.exponentialRampToValueAtTime(0.001, now + 0.32);
+      osc.connect(gain);
+      gain.connect(this.sfxGain);
+      osc.start(now);
+      osc.stop(now + 0.32);
     }
   }
 
