@@ -4042,6 +4042,7 @@ export function mountCampaign(
       else pointer.delete(action);
     },
     reset() {
+      sound.playStageBgm(level.id);
       spawn();
       publish();
     },

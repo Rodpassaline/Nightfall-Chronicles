@@ -873,7 +873,10 @@ export function GameScreen() {
               <button
                 type="button"
                 className="h-11 border border-line px-5 font-display text-xs tracking-widest text-fg hover:border-gold rounded transition"
-                onClick={() => setMode("stages")}
+                onClick={() => {
+                  sound.playBgm("title");
+                  setMode("stages");
+                }}
               >
                 Mapa
               </button>

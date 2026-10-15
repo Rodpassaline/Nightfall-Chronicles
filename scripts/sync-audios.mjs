@@ -2,12 +2,37 @@ import fs from "node:fs";
 import path from "node:path";
 
 const root = process.cwd();
-const publicAudioDir = path.join(root, "public", "audio", "personagens");
+const publicRootAudioDir = path.join(root, "public", "audio");
+const publicAudioDir = path.join(publicRootAudioDir, "personagens");
 
 if (!fs.existsSync(publicAudioDir)) {
   fs.mkdirSync(publicAudioDir, { recursive: true });
 }
 
+// 1. Sync game-wide themes (victory / gameover) from Audios/
+const rootAudiosDirs = [path.join(root, "Audios"), path.join(root, "audios")];
+for (const dir of rootAudiosDirs) {
+  if (fs.existsSync(dir)) {
+    const files = fs.readdirSync(dir);
+    for (const file of files) {
+      const src = path.join(dir, file);
+      if (fs.existsSync(src) && fs.statSync(src).isFile()) {
+        const lower = file.toLowerCase();
+        if ((lower.includes("hero") || lower.includes("epic hero")) && (lower.endsWith(".mp3") || lower.endsWith(".wav"))) {
+          const dest = path.join(publicRootAudioDir, "victory.mp3");
+          fs.copyFileSync(src, dest);
+          console.log(`[sync-audios] Sincronizado tema de vitória: ${file} -> victory.mp3`);
+        } else if ((lower.includes("cinematic") || lower.includes("epic_cinematic") || lower.includes("gameover")) && (lower.endsWith(".mp3") || lower.endsWith(".wav"))) {
+          const dest = path.join(publicRootAudioDir, "gameover.mp3");
+          fs.copyFileSync(src, dest);
+          console.log(`[sync-audios] Sincronizado tema de gameover: ${file} -> gameover.mp3`);
+        }
+      }
+    }
+  }
+}
+
+// 2. Sync character alert audios from Audios/Personagens/
 const possibleSourceDirs = [
   path.join(root, "Audios", "Personagens"),
   path.join(root, "Audios", "personagens"),

@@ -1341,6 +1341,12 @@ class SoundEngine {
     } else if (name === "title") {
       // Studio Emblematic main theme for title and menu
       mp3Url = "/audio/title.mp3";
+    } else if (name === "victory") {
+      // Epic heroes theme when stage clear / next stage modal appears
+      mp3Url = "/audio/victory.mp3";
+    } else if (name === "gameover") {
+      // Epic cinematic theme when game over modal appears
+      mp3Url = "/audio/gameover.mp3";
     }
 
     if (mp3Url && typeof window !== "undefined") {
