@@ -571,19 +571,20 @@ class SoundEngine {
 
   private loadEnemyAudioBuffers() {
     if (!this.ctx || typeof window === "undefined") return;
-    const candidates = [
+    const candidates: Array<{ key: string; url: string }> = [
       { key: "zombie", url: "/audio/personagens/zombie.wav" },
-      { key: "bat", url: "/audio/personagens/bat.wav" },
-      { key: "skeleton", url: "/audio/personagens/skeleton.wav" },
-      { key: "knight", url: "/audio/personagens/knight.wav" },
-      { key: "gargoyle", url: "/audio/personagens/gargoyle.wav" },
-      { key: "vampire", url: "/audio/personagens/vampire.wav" },
+      { key: "bat", url: "/audio/personagens/bat.mp3" },
+      { key: "skeleton", url: "/audio/personagens/skeleton.mp3" },
+      { key: "armoredSkeleton", url: "/audio/personagens/armoredSkeleton.mp3" },
+      { key: "redSkeleton", url: "/audio/personagens/redSkeleton.mp3" },
+      { key: "knight", url: "/audio/personagens/knight.mp3" },
+      { key: "gargoyle", url: "/audio/personagens/gargoyle.mp3" },
     ];
     for (const { key, url } of candidates) {
       if (this.enemyAudioBuffers.has(key)) continue;
       fetch(url)
         .then((res) => {
-          if (!res.ok) throw new Error(`HTTP ${res.status}`);
+          if (!res.ok) throw new Error("not ok");
           return res.arrayBuffer();
         })
         .then((buf) => this.ctx!.decodeAudioData(buf))
@@ -591,7 +592,7 @@ class SoundEngine {
           this.enemyAudioBuffers.set(key, audioBuf);
         })
         .catch(() => {
-          // Normal if user hasn't added this specific audio file yet
+          // Ignore
         });
     }
   }
@@ -850,21 +851,41 @@ class SoundEngine {
     if (this.muted || typeof window === "undefined") return;
     const now = performance.now();
     const lastTime = this.lastEnemySoundTimes.get(kind) ?? 0;
-    // Throttle per enemy kind to prevent acoustic clobbering (2.4s for zombies, 1.8s for others)
-    const throttleMs = kind === "zombie" ? 2400 : 1800;
+    // Throttle per enemy kind to keep soundscape crisp and avoid distortion
+    const throttleMs =
+      kind === "zombie"
+        ? 2200
+        : kind === "knight"
+          ? 2000
+          : kind === "gargoyle"
+            ? 1800
+            : kind === "bat"
+              ? 1200
+              : 1600;
     if (now - lastTime < throttleMs) return;
     this.lastEnemySoundTimes.set(kind, now);
 
     const actx = this.init();
-    const buf = this.enemyAudioBuffers.get(kind);
+    const buf =
+      this.enemyAudioBuffers.get(kind) ??
+      (kind === "armoredSkeleton" || kind === "redSkeleton" ? this.enemyAudioBuffers.get("skeleton") : undefined);
+
     if (actx && buf && this.sfxGain) {
       try {
         const source = actx.createBufferSource();
         source.buffer = buf;
-        // Subtle organic pitch variation (0.93x - 1.07x) for realistic undead variety
-        source.playbackRate.value = 0.93 + Math.random() * 0.14;
+        // Subtle organic pitch variation (0.94x - 1.06x) for authentic natural variety
+        source.playbackRate.value = 0.94 + Math.random() * 0.12;
         const gain = actx.createGain();
-        gain.gain.setValueAtTime(kind === "zombie" ? 0.75 : 0.65, actx.currentTime);
+        const baseVol =
+          kind === "knight"
+            ? 0.80
+            : kind === "gargoyle" || kind === "zombie"
+              ? 0.75
+              : kind === "bat"
+                ? 0.70
+                : 0.72;
+        gain.gain.setValueAtTime(baseVol, actx.currentTime);
         source.connect(gain);
         gain.connect(this.sfxGain);
         source.start();
@@ -875,8 +896,9 @@ class SoundEngine {
     }
 
     // HTMLAudioElement fallback
+    const ext = kind === "zombie" ? "wav" : "mp3";
     try {
-      const a = new Audio(`/audio/personagens/${kind}.wav`);
+      const a = new Audio(`/audio/personagens/${kind}.${ext}`);
       a.volume = this.muted ? 0 : this.sfxVol * 0.75;
       a.playbackRate = 0.95 + Math.random() * 0.1;
       const p = a.play();
@@ -887,9 +909,7 @@ class SoundEngine {
     }
 
     // Procedural Synth Fallback for enemies without custom audio files yet
-    if (kind !== "zombie") {
-      this.playProceduralEnemyAlert(kind);
-    }
+    this.playProceduralEnemyAlert(kind);
   }
 
   private playProceduralEnemyAlert(kind: string) {

@@ -15,7 +15,14 @@ const possibleSourceDirs = [
   path.join(root, "audio", "personagens"),
 ];
 
-const enemyKeywords = ["zombie", "bat", "skeleton", "armored-skeleton", "red-skeleton", "knight", "gargoyle", "vampire"];
+const mappingRules = [
+  { match: ["zombie", "mortos-vivos"], canonical: ["zombie"] },
+  { match: ["morcego", "bat"], canonical: ["bat"] },
+  { match: ["bones", "skeleton", "esqueleto"], canonical: ["skeleton", "armoredSkeleton", "redSkeleton"] },
+  { match: ["knight", "cavaleiro"], canonical: ["knight"] },
+  { match: ["gargoyle", "gargula"], canonical: ["gargoyle"] },
+  { match: ["vampire", "vampiro"], canonical: ["vampire"] },
+];
 
 for (const dirPath of possibleSourceDirs) {
   if (fs.existsSync(dirPath)) {
@@ -29,13 +36,15 @@ for (const dirPath of possibleSourceDirs) {
           try {
             fs.copyFileSync(src, destExact);
 
-            // Detect enemy keyword in filename and create clean canonical alias
             const lower = file.toLowerCase();
-            for (const key of enemyKeywords) {
-              if (lower.includes(key)) {
-                const canonicalName = `${key}${ext}`;
-                const destCanonical = path.join(publicAudioDir, canonicalName);
-                fs.copyFileSync(src, destCanonical);
+            for (const rule of mappingRules) {
+              const matched = rule.match.some((m) => lower.includes(m));
+              if (matched) {
+                for (const can of rule.canonical) {
+                  const destCanonical = path.join(publicAudioDir, `${can}${ext}`);
+                  fs.copyFileSync(src, destCanonical);
+                  console.log(`[sync-audios] Sincronizado: ${file} -> ${can}${ext}`);
+                }
                 break;
               }
             }

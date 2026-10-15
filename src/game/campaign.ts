@@ -1975,6 +1975,9 @@ export function mountCampaign(
           e.y += (headTargetY - e.y) * Math.min(1, dt * 7.0);
           e.vx = Math.sign(dx) * swoopSpeed;
           e.x += e.vx * dt;
+          if (dist < 110 && e.cd <= 0) {
+            sound.playEnemyAlert("bat");
+          }
           if (dist < 36 && e.cd <= 0) {
             e.cd = 0.65; // Faster recovery cooldown
           }
@@ -2656,7 +2659,7 @@ export function mountCampaign(
           e.state = "charge";
           e.wind = 0.75; // Charge duration
           e.cd = 1.75;
-          sound.playBossAttack(1, 1); // Armored stomp sound
+          sound.playEnemyAlert("knight"); // Authentic heavy plate armor clank!
         } else if (dist <= 62 && e.cd <= 0 && e.state !== "charge") {
           // Close-quarters heavy halberd cleave
           e.wind = 0.20;
@@ -2711,7 +2714,7 @@ export function mountCampaign(
           e.vy = -140;
           e.vx = e.facing * 135;
           e.cd = 1.15;
-          sound.playSfx("jump");
+          sound.playEnemyAlert("zombie");
         } else if (dist <= 48 && e.cd <= 0 && e.state !== "leap") {
           e.wind = 0.12;
           e.cd = 0.44;
@@ -2858,7 +2861,7 @@ export function mountCampaign(
             e.state = "dive";
             e.vx = Math.sign(dx) * 175;
             e.vy = 260;
-            sound.playBossAttack(1, 2);
+            sound.playEnemyAlert("gargoyle");
           }
         } else if (e.state === "dive") {
           // Swooping dive-bomb claw attack
