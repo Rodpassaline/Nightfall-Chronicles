@@ -54,6 +54,9 @@ type Enemy = Body & {
   dying?: boolean;
   deathT?: number;
   deathDuration?: number;
+  hoverT?: number;
+  fired?: boolean;
+  attackVariant?: number;
 };
 
 type Shot = {
@@ -691,6 +694,9 @@ export function mountCampaign(
       deathT: 0,
       deathDuration: 0.60,
       lastSwing: -1,
+      hoverT: 0,
+      fired: false,
+      attackVariant: 0,
     };
   }
 
@@ -915,11 +921,31 @@ export function mountCampaign(
       }
     }
 
-    // Knight shield deflection (reduces frontal dmg)
-    if (e.kind === "knight" && e.state === "shield" && !pogo) {
+    // Knight tower shield complete deflection (frontal horizontal attacks)
+    if (e.kind === "knight" && (e.state === "shield" || e.state === "charge") && !pogo) {
       const isFrontal = (player.x - (e.x + e.w / 2)) * e.facing < 0;
       if (isFrontal) {
-        dmg = Math.max(1, Math.floor(dmg / 2));
+        e.lastSwing = player.swingId;
+        sound.playSfx("slash");
+        player.vx = -player.facing * 120;
+        player.toast = "Escudo de Aço! Pule e use Golpe Descendente ou ataque por trás!";
+        player.toastT = 1.6;
+        shake = 3;
+        for (let i = 0; i < 8; i++) {
+          particles.push({
+            x: e.x + (e.facing > 0 ? e.w : 0),
+            y: e.y + e.h / 2,
+            vx: (Math.random() - 0.5) * 80,
+            vy: (Math.random() - 0.5) * 60,
+            size: 2,
+            alpha: 1,
+            maxAlpha: 1,
+            color: "#94a3b8",
+            depth: "fg",
+            pulse: Math.random() * Math.PI * 2,
+          });
+        }
+        return;
       }
     }
 
@@ -982,9 +1008,14 @@ export function mountCampaign(
     const baseKnock = e.boss ? 42 : (e.kind === "armoredSkeleton" || e.kind === "knight") ? 85 : 125;
     const knockSpeed = isHeavy ? baseKnock * 1.35 : baseKnock;
     e.vx = knockDir * knockSpeed;
-    if (e.kind !== "bat") {
+    if (e.kind !== "bat" && !(e.kind === "gargoyle" && (e.state === "hover" || e.state === "dive"))) {
       e.vy = 0; // Pure horizontal recoil on the stone floor, never pop up into the air!
       e.grounded = true;
+    }
+    if (e.kind === "gargoyle" && (e.state === "hover" || e.state === "dive")) {
+      e.state = "hover";
+      e.hoverT = 0;
+      e.cd = 0.45;
     }
 
     hitstop = dmg >= 3 ? T.hitstopHeavy : T.hitstopLight;
@@ -1790,39 +1821,42 @@ export function mountCampaign(
     }
 
     // =========================================================================
-    // 1. BAT (Common flying predator - swoops at Aldric's head, never inside)
+    // 1. BAT (Hunting formation: undulating sine-wave flight & rapid head dives)
     // =========================================================================
     if (e.kind === "bat") {
       const headTop = player.y;
 
       if (e.cd > 0) {
-        // Recovery / Ascending state after attack or recoil: climbs back to flight height
-        const cruiseY = headTop - 54 + Math.sin(e.t * 3.2) * 6;
-        e.y += (cruiseY - e.y) * Math.min(1, dt * 5.0);
-        e.vx = -e.facing * 55;
+        // Recovery / Ascending state after attack or recoil: climbs back rapidly to flight height
+        const cruiseY = headTop - 56 + Math.sin(e.t * 3.8) * 8;
+        e.y += (cruiseY - e.y) * Math.min(1, dt * 6.0);
+        e.vx = -e.facing * 75;
         e.x += e.vx * dt;
-      } else if (dist < 380) {
-        if (dist > 180) {
-          // Approach at cruising altitude above player
-          const cruiseY = headTop - 46 + Math.sin(e.t * 3.5) * 8;
-          e.y += (cruiseY - e.y) * Math.min(1, dt * 3.8);
-          e.vx = Math.sign(dx) * 85;
+      } else if (dist < 400) {
+        if (dist > 160) {
+          // Approach at cruising altitude with undulating sinusoidal wave trajectory
+          const wave = Math.sin(e.t * 5.2) * 22;
+          const cruiseY = headTop - 48 + wave;
+          e.y += (cruiseY - e.y) * Math.min(1, dt * 5.0);
+          e.vx = Math.sign(dx) * 110;
           e.x += e.vx * dt;
         } else {
-          // Predatory dive targeting Aldric's head!
-          // Aims directly at the head perimeter (just above the skull: player.y - e.h)
-          const swoopSpeed = e.boss ? 135 : 110;
+          // Predatory dive targeting Aldric's head perimeter!
+          const swoopSpeed = e.boss ? 165 : 150;
           const headTargetY = headTop - e.h - 1;
-          e.y += (headTargetY - e.y) * Math.min(1, dt * 5.8);
+          e.y += (headTargetY - e.y) * Math.min(1, dt * 7.0);
           e.vx = Math.sign(dx) * swoopSpeed;
           e.x += e.vx * dt;
+          if (dist < 36 && e.cd <= 0) {
+            e.cd = 0.65; // Faster recovery cooldown
+          }
         }
       } else {
-        // Idling around perch/home coordinates
-        const tx = e.homeX + Math.sin(e.t * 2.2) * 32;
-        const ty = e.homeY + Math.sin(e.t * 3.4) * 10;
-        e.x += (tx - e.x) * Math.min(1, dt * 2.0);
-        e.y += (ty - e.y) * Math.min(1, dt * 2.0);
+        // Idling around perch/home coordinates with sinusoidal patrol
+        const tx = e.homeX + Math.sin(e.t * 2.8) * 45;
+        const ty = e.homeY + Math.sin(e.t * 4.0) * 16;
+        e.x += (tx - e.x) * Math.min(1, dt * 2.5);
+        e.y += (ty - e.y) * Math.min(1, dt * 2.5);
       }
       e.y = clamp(e.y, 16, GROUND_Y - 22);
     }
@@ -2194,7 +2228,7 @@ export function mountCampaign(
       // A. ARMORED SKELETON: Frontal Brass Shield Guard & Lethal Gladius Thrust
       // -----------------------------------------------------------------------
       if (e.kind === "armoredSkeleton") {
-        if (dist <= 52 && e.cd <= 0) {
+        if (dist <= 54 && e.cd <= 0) {
           e.wind = 0.15;
           e.cd = 0.52;
           e.state = "slash";
@@ -2202,13 +2236,13 @@ export function mountCampaign(
 
         if (e.wind > 0) {
           e.wind -= dt;
-          e.vx = e.facing * 55; // Gladius lunge forward!
+          e.vx = e.facing * 60; // Gladius lunge forward!
           if (e.wind <= 0) {
-            // Forward gladius lunge (reach 44px, 2 damage)
+            // Forward gladius lunge (reach 46px, 2 damage)
             const box = {
-              x: e.facing > 0 ? e.x + e.w - 4 : e.x - 44,
+              x: e.facing > 0 ? e.x + e.w - 4 : e.x - 46,
               y: e.y + 10,
-              w: 46,
+              w: 48,
               h: 34,
             };
             if (overlap(box, player)) hurtPlayer(2, e.x, "slash");
@@ -2217,88 +2251,50 @@ export function mountCampaign(
         } else {
           // Relentless disciplined shield march - NEVER stands still!
           e.state = "shield";
-          e.vx = e.facing * 50;
+          e.vx = e.facing * 52;
         }
       }
       // -----------------------------------------------------------------------
-      // B. RED SKELETON: Cursed Blood Bone Hurler & Vicious Close-Quarters Cleave
+      // B. RED SKELETON: Cursed Double Bone Volley & Vicious Blood Cleave
       // -----------------------------------------------------------------------
       else if (e.kind === "redSkeleton") {
-        if (dist <= 52) {
-          // Close quarters: Cursed bone cleave!
+        if (dist <= 56) {
+          // Close quarters: Cursed blood cleave lunge!
           if (e.cd <= 0) {
             e.state = "slash";
-            e.wind = 0.12;
-            e.cd = 0.42;
+            e.wind = 0.14;
+            e.cd = 0.45;
           }
         } else if (dist <= 400) {
-          // Blood bone throw
+          // Cursed double bone volley: fires two cursed bones (high artillery arc + direct shot)
           if (e.cd <= 0) {
-            e.cd = 0.8;
+            e.cd = 0.92;
             e.state = "slash";
-            e.wind = 0.12;
+            e.wind = 0.14;
+            // Bone 1: High artillery lob
             fire({
               x: e.x + (e.facing > 0 ? e.w : -12),
-              y: e.y + 12,
+              y: e.y + 10,
               w: 14,
               h: 14,
-              vx: e.facing * (125 + Math.random() * 30),
-              vy: -155,
+              vx: e.facing * (120 + Math.random() * 20),
+              vy: -175,
               gravity: 370,
               life: 2.2,
               dmg: 1,
               friendly: false,
               sprite: "spell",
             });
-          }
-        }
-
-        if (e.wind > 0) {
-          e.wind -= dt;
-          e.vx = e.facing * 40;
-          if (e.wind <= 0) {
-            if (dist <= 56) {
-              const box = {
-                x: e.facing > 0 ? e.x + e.w - 4 : e.x - 42,
-                y: e.y + 8,
-                w: 44,
-                h: 36,
-              };
-              if (overlap(box, player)) hurtPlayer(1, e.x, "slash");
-            }
-            e.state = "idle";
-          }
-        } else {
-          e.state = "idle";
-          e.vx = e.facing * 56; // Relentless undead sprint
-        }
-      }
-      // -----------------------------------------------------------------------
-      // C. SKELETON: Parabolic Bone Volley & Close-Quarters Bone Dagger Thrust
-      // -----------------------------------------------------------------------
-      else if (e.kind === "skeleton") {
-        if (dist <= 48) {
-          // Close quarters: Lethal bone dagger thrust!
-          if (e.cd <= 0) {
-            e.state = "slash";
-            e.wind = 0.14;
-            e.cd = 0.5;
-          }
-        } else if (dist <= 380) {
-          // Parabolic bone toss
-          if (e.cd <= 0) {
-            e.cd = 0.85;
-            e.state = "slash";
-            e.wind = 0.12;
+            // Bone 2: Direct blood bone dart
             fire({
               x: e.x + (e.facing > 0 ? e.w : -12),
-              y: e.y + 10,
+              y: e.y + 16,
               w: 14,
               h: 14,
-              vx: e.facing * (115 + Math.random() * 30),
-              vy: -145,
-              gravity: 360,
-              life: 2.1,
+              vx: e.facing * (155 + Math.random() * 25),
+              vy: -75,
+              gravity: 200,
+              life: 2.0,
               dmg: 1,
               friendly: false,
               sprite: "spell",
@@ -2308,13 +2304,94 @@ export function mountCampaign(
 
         if (e.wind > 0) {
           e.wind -= dt;
-          e.vx = e.facing * 35; // Steps forward aggressively during attack
+          e.vx = e.facing * 75; // Blood cleave lunge
+          if (e.wind <= 0) {
+            if (dist <= 58) {
+              const box = {
+                x: e.facing > 0 ? e.x + e.w - 4 : e.x - 46,
+                y: e.y + 8,
+                w: 48,
+                h: 36,
+              };
+              if (overlap(box, player)) hurtPlayer(2, e.x, "slash"); // Cleave deals 2 DMG!
+            }
+            e.state = "idle";
+          }
+        } else {
+          e.state = "idle";
+          e.vx = e.facing * 68; // Relentless cursed sprint
+        }
+      }
+      // -----------------------------------------------------------------------
+      // C. SKELETON: Tactical Sniper Recoil & Alternating Artillery/Skimming Bone Volley
+      // -----------------------------------------------------------------------
+      else if (e.kind === "skeleton") {
+        // Tactical Evasive Hop: Hops backward if Aldric approaches within melee reach!
+        if (dist < 88 && e.grounded && e.cd <= 0.25 && e.state !== "slash") {
+          e.state = "retreat";
+          e.vy = -130;
+          e.vx = -e.facing * 95;
+          e.cd = 0.55;
+        } else if (dist <= 48 && e.cd <= 0) {
+          // Close quarters emergency bone dagger stab
+          e.state = "slash";
+          e.wind = 0.12;
+          e.cd = 0.48;
+        } else if (dist <= 390 && e.cd <= 0) {
+          // Alternating tactical bone volleys
+          e.attackVariant = ((e.attackVariant ?? 0) + 1) % 2;
+          e.state = "slash";
+          e.wind = 0.12;
+
+          if (e.attackVariant === 0) {
+            // Variant 0: High parabolic lobbed artillery bone
+            e.cd = 0.85;
+            fire({
+              x: e.x + (e.facing > 0 ? e.w : -12),
+              y: e.y + 10,
+              w: 14,
+              h: 14,
+              vx: e.facing * (100 + Math.random() * 25),
+              vy: -175,
+              gravity: 360,
+              life: 2.1,
+              dmg: 1,
+              friendly: false,
+              sprite: "spell",
+            });
+          } else {
+            // Variant 1: Fast skimming horizontal bone spear
+            e.cd = 0.75;
+            fire({
+              x: e.x + (e.facing > 0 ? e.w : -12),
+              y: e.y + 14,
+              w: 14,
+              h: 14,
+              vx: e.facing * 175,
+              vy: -35,
+              gravity: 110,
+              life: 1.8,
+              dmg: 1,
+              friendly: false,
+              sprite: "spell",
+            });
+          }
+        }
+
+        if (e.state === "retreat") {
+          e.vx = -e.facing * 90;
+          if (e.grounded && e.vy >= 0) {
+            e.state = "idle";
+          }
+        } else if (e.wind > 0) {
+          e.wind -= dt;
+          e.vx = e.facing * 40;
           if (e.wind <= 0) {
             if (dist <= 52) {
               const box = {
-                x: e.facing > 0 ? e.x + e.w - 4 : e.x - 38,
+                x: e.facing > 0 ? e.x + e.w - 4 : e.x - 40,
                 y: e.y + 10,
-                w: 40,
+                w: 42,
                 h: 34,
               };
               if (overlap(box, player)) hurtPlayer(1, e.x, "slash");
@@ -2323,54 +2400,99 @@ export function mountCampaign(
           }
         } else {
           e.state = "idle";
-          e.vx = e.facing * 52; // Always pursues Aldric!
+          e.vx = e.facing * 52; // Pursues Aldric
         }
       }
       // -----------------------------------------------------------------------
-      // D. KNIGHT: Tower Armor Guard & Heavy Halberd Cleave
+      // D. KNIGHT: Tower Shield Deflection, Heavy Halberd Cleave & Armored Halberd Charge
       // -----------------------------------------------------------------------
       else if (e.kind === "knight") {
-        if (dist <= 58 && e.cd <= 0) {
-          e.wind = 0.18;
-          e.cd = 0.55;
+        // Armored Charge: Initiates a thunderous forward rush when at medium range!
+        if (dist > 80 && dist < 260 && e.cd <= 0 && e.grounded && e.state !== "charge") {
+          e.state = "charge";
+          e.wind = 0.75; // Charge duration
+          e.cd = 1.75;
+          sound.playBossAttack(1, 1); // Armored stomp sound
+        } else if (dist <= 62 && e.cd <= 0 && e.state !== "charge") {
+          // Close-quarters heavy halberd cleave
+          e.wind = 0.20;
+          e.cd = 0.60;
           e.state = "slash";
         }
 
-        if (e.wind > 0) {
+        if (e.state === "charge") {
           e.wind -= dt;
-          e.vx = e.facing * 60; // Halberd thrust rush!
+          e.vx = e.facing * 155; // Thunderous charge forward!
+          // Check collision with player during charge
+          const chargeBox = {
+            x: e.facing > 0 ? e.x + e.w - 6 : e.x - 36,
+            y: e.y + 6,
+            w: 44,
+            h: 40,
+          };
+          if (overlap(chargeBox, player)) {
+            hurtPlayer(2, e.x, "slash");
+          }
           if (e.wind <= 0) {
-            // Extended halberd thrust (reach 52px, 2 damage)
+            e.state = "shield";
+          }
+        } else if (e.wind > 0) {
+          e.wind -= dt;
+          e.vx = e.facing * 65; // Halberd thrust rush
+          if (e.wind <= 0) {
+            // Extended halberd thrust (reach 54px, 2 damage)
             const box = {
-              x: e.facing > 0 ? e.x + e.w - 4 : e.x - 52,
+              x: e.facing > 0 ? e.x + e.w - 4 : e.x - 54,
               y: e.y + 8,
-              w: 54,
+              w: 56,
               h: 36,
             };
             if (overlap(box, player)) hurtPlayer(2, e.x, "slash");
             e.state = "shield";
           }
         } else {
-          // Armored pursuit with halberd guard
+          // Armored march with tower shield raised
           e.state = "shield";
           const minStop = (e.w + player.w) / 2 + 8;
-          e.vx = dist > minStop ? e.facing * 48 : 0;
+          e.vx = dist > minStop ? e.facing * 50 : 0;
         }
       }
       // -----------------------------------------------------------------------
-      // E. ZOMBIE: Shambling Predatory Sprint & Feral Claw Strike
+      // E. ZOMBIE: GnG Hungry Ghoul Sprint & Sudden Leaping Claw Strike
       // -----------------------------------------------------------------------
       else if (e.kind === "zombie") {
-        if (dist <= 46 && e.cd <= 0) {
+        // Sudden feral leap when approaching Aldric
+        if (dist >= 65 && dist <= 140 && e.cd <= 0 && e.grounded && e.state !== "leap") {
+          e.state = "leap";
+          e.vy = -140;
+          e.vx = e.facing * 135;
+          e.cd = 1.15;
+          sound.playSfx("jump");
+        } else if (dist <= 48 && e.cd <= 0 && e.state !== "leap") {
           e.wind = 0.12;
-          e.cd = 0.42;
+          e.cd = 0.44;
           e.state = "slash";
         }
 
-        if (e.wind > 0) {
+        if (e.state === "leap") {
+          e.vx = e.facing * 130;
+          // Claw attack while airborne
+          const clawBox = {
+            x: e.facing > 0 ? e.x + e.w - 4 : e.x - 34,
+            y: e.y + 8,
+            w: 36,
+            h: 36,
+          };
+          if (overlap(clawBox, player)) {
+            hurtPlayer(1, e.x, "slash");
+          }
+          if (e.grounded && e.vy >= 0) {
+            e.state = "idle";
+          }
+        } else if (e.wind > 0) {
           e.wind -= dt;
           const minStop = (e.w + player.w) / 2 + 2;
-          e.vx = dist > minStop ? e.facing * 45 : 0;
+          e.vx = dist > minStop ? e.facing * 55 : 0;
           if (e.wind <= 0) {
             const box = {
               x: e.facing > 0 ? e.x + e.w - 4 : e.x - 38,
@@ -2384,25 +2506,27 @@ export function mountCampaign(
         } else {
           e.state = "idle";
           const minStop = (e.w + player.w) / 2 + 4;
-          e.vx = dist > minStop ? e.facing * 62 : 0;
+          // GnG fast sprint when Aldric is near, slow shamble when far
+          const sprintSpeed = dist < 220 ? 95 : 48;
+          e.vx = dist > minStop ? e.facing * sprintSpeed : 0;
         }
       }
       // -----------------------------------------------------------------------
       // F. VAMPIRE: High-Speed Stalker, Shadow Claw Rush & Blood Orbs
       // -----------------------------------------------------------------------
       else if (e.kind === "vampire") {
-        if (dist <= 54 && e.cd <= 0) {
+        if (dist <= 56 && e.cd <= 0) {
           e.wind = 0.12;
           e.cd = 0.45;
           e.state = "slash";
-        } else if (dist > 70 && dist <= 380 && e.cd <= 0) {
-          e.cd = 0.95;
+        } else if (dist > 70 && dist <= 390 && e.cd <= 0) {
+          e.cd = 0.90;
           fire({
             x: e.x,
             y: e.y + e.h - 60,
             w: 16,
             h: 28,
-            vx: e.facing * 145,
+            vx: e.facing * 155,
             vy: 4,
             life: 1.6,
             dmg: 1,
@@ -2415,12 +2539,12 @@ export function mountCampaign(
         if (e.wind > 0) {
           e.wind -= dt;
           const minStop = (e.w + player.w) / 2 + 3;
-          e.vx = dist > minStop ? e.facing * 115 : 0;
+          e.vx = dist > minStop ? e.facing * 120 : 0;
           if (e.wind <= 0) {
             const box = {
-              x: e.facing > 0 ? e.x + e.w - 4 : e.x - 44,
+              x: e.facing > 0 ? e.x + e.w - 4 : e.x - 46,
               y: e.y + 8,
-              w: 46,
+              w: 48,
               h: 36,
             };
             if (overlap(box, player)) hurtPlayer(2, e.x, "slash");
@@ -2429,43 +2553,120 @@ export function mountCampaign(
         } else {
           e.state = "idle";
           const minStop = (e.w + player.w) / 2 + 6;
-          e.vx = dist > minStop ? e.facing * 88 : 0;
+          e.vx = dist > minStop ? e.facing * 92 : 0;
         }
       }
       // -----------------------------------------------------------------------
-      // G. GARGOYLE: Relentless Stone Chase & Heavy Stone Claw Swipe
+      // G. GARGOYLE: Red Arremer Demon Leap, Mid-Air Hover & Predatory Dive-Bomb
       // -----------------------------------------------------------------------
       else {
-        if (dist <= 50 && e.cd <= 0) {
-          e.wind = 0.14;
-          e.cd = 0.48;
+        // Red Arremer Evasion: If player attacks nearby OR gets too close on ground, demon leap into air!
+        const playerThreat = (player.attackT > 0 && dist < 120) || (dist < 92);
+        if (playerThreat && e.grounded && e.cd <= 0 && e.state !== "leap" && e.state !== "hover" && e.state !== "dive") {
+          e.state = "leap";
+          e.vy = -230;
+          e.vx = -e.facing * 80;
+          e.cd = 0.3;
+          sound.playSfx("jump");
+        } else if (dist <= 52 && e.cd <= 0 && e.state === "idle") {
+          e.wind = 0.16;
+          e.cd = 0.52;
           e.state = "slash";
         }
 
-        if (e.wind > 0) {
+        if (e.state === "leap") {
+          // Ascending from demon leap - transition to mid-air hover near apex
+          if (e.vy >= -40 || e.y <= player.y - 65) {
+            e.state = "hover";
+            e.hoverT = 0;
+            e.fired = false;
+            e.vy = 0;
+            e.vx = 0;
+          }
+        } else if (e.state === "hover") {
+          // Mid-air hover: flaps wings defying gravity
+          e.hoverT = (e.hoverT ?? 0) + dt;
+          e.vy = Math.sin(e.t * 6.5) * 16; // Flapping bob
+          e.vx = Math.sign(dx) * 35; // Drifts towards player
+          e.facing = dx >= 0 ? 1 : -1;
+
+          // Spit hellfire orb
+          if ((e.hoverT ?? 0) >= 0.35 && !e.fired) {
+            e.fired = true;
+            fire({
+              x: e.x + (e.facing > 0 ? e.w : -14),
+              y: e.y + 16,
+              w: 16,
+              h: 16,
+              vx: e.facing * 165,
+              vy: Math.max(-50, Math.min(100, (player.y - e.y) * 1.2)),
+              gravity: 80,
+              life: 2.0,
+              dmg: 1,
+              friendly: false,
+              sprite: "blood",
+            });
+            sound.playSfx("spell");
+          }
+
+          // Predatory dive-bomb attack!
+          if ((e.hoverT ?? 0) >= 0.82) {
+            e.state = "dive";
+            e.vx = Math.sign(dx) * 175;
+            e.vy = 260;
+            sound.playBossAttack(1, 2);
+          }
+        } else if (e.state === "dive") {
+          // Swooping dive-bomb claw attack
+          e.vx = Math.sign(dx) * 175;
+          e.vy = 260;
+          // Claw attack hitbox during dive
+          const diveBox = {
+            x: e.x - 4,
+            y: e.y,
+            w: e.w + 8,
+            h: e.h + 6,
+          };
+          if (overlap(diveBox, player)) {
+            hurtPlayer(2, e.x, "slash");
+          }
+          if (e.grounded) {
+            // Slam into stone floor with screenshake!
+            e.state = "idle";
+            e.cd = 0.65;
+            e.vx = 0;
+            shake = Math.max(shake, 3.5);
+            sound.playSfx("slashHeavy");
+          }
+        } else if (e.wind > 0) {
           e.wind -= dt;
           const minStop = (e.w + player.w) / 2 + 3;
-          e.vx = dist > minStop ? e.facing * 65 : 0;
+          e.vx = dist > minStop ? e.facing * 70 : 0;
           if (e.wind <= 0) {
             const box = {
-              x: e.facing > 0 ? e.x + e.w - 4 : e.x - 42,
+              x: e.facing > 0 ? e.x + e.w - 4 : e.x - 44,
               y: e.y + 8,
-              w: 44,
+              w: 46,
               h: 36,
             };
-            if (overlap(box, player)) hurtPlayer(1, e.x, "slash");
+            if (overlap(box, player)) hurtPlayer(2, e.x, "slash"); // Stone claw swipe deals 2 DMG
             e.state = "idle";
           }
         } else {
           e.state = "idle";
           const minStop = (e.w + player.w) / 2 + 6;
-          e.vx = dist > minStop ? e.facing * 66 : 0;
+          e.vx = dist > minStop ? e.facing * 68 : 0;
         }
       }
 
       // Apply gravity and resolve solid collision firmly to the floor
-      e.vy = Math.min(e.vy + T.gravDown * dt, T.terminal);
-      resolve(e, dt, false);
+      if (e.kind === "gargoyle" && e.state === "hover") {
+        // Gargoyle mid-air hover flaps wings defying ground gravity!
+        resolve(e, dt, false);
+      } else {
+        e.vy = Math.min(e.vy + T.gravDown * dt, T.terminal);
+        resolve(e, dt, false);
+      }
     }
 
     // =========================================================================
@@ -3193,10 +3394,12 @@ export function mountCampaign(
         }
       } else if (e.hurt > 0) {
         frame = 3;
-      } else if (e.state === "slash" || e.wind > 0 || e.state === "smash") {
+      } else if (e.state === "slash" || e.wind > 0 || e.state === "smash" || e.state === "charge") {
         frame = 2;
-      } else if (e.state === "dive") {
+      } else if (e.state === "dive" || e.state === "leap") {
         frame = 2;
+      } else if (e.state === "hover") {
+        frame = Math.floor(e.t * 8) % 2 === 0 ? 0 : 2; // Wings flapping during hover
       } else if (e.kind === "bat") {
         frame = Math.floor(e.t * 8) % 4;
       } else if (Math.abs(e.vx) > 3) {
