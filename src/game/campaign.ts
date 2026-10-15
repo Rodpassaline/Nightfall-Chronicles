@@ -57,6 +57,9 @@ type Enemy = Body & {
   hoverT?: number;
   fired?: boolean;
   attackVariant?: number;
+  emergeT?: number;
+  emergeDuration?: number;
+  emergeY?: number;
 };
 
 type Shot = {
@@ -469,6 +472,7 @@ export function mountCampaign(
   let items: ActiveItem[] = [];
   let clearedOnce = false;
   let bossIntroPlayed = false;
+  let ambushTimer = 4.0;
 
   const STAND_H = 50;
   const CROUCH_H = 30;
@@ -611,7 +615,7 @@ export function mountCampaign(
     return best;
   }
 
-  function makeEnemy(spawn: LevelDef["spawns"][number]): Enemy {
+  function makeEnemy(spawn: LevelDef["spawns"][number], isEmerging = false): Enemy {
     const isBoss = !!spawn.boss;
     const h =
       spawn.kind === "bat"
@@ -665,7 +669,8 @@ export function mountCampaign(
 
     const approxFloor = spawn.y > 0 ? spawn.y : GROUND_Y;
     const floor = spawn.kind === "bat" ? approxFloor : findFloorFor(spawn.x + w / 2, approxFloor);
-    const y = spawn.kind === "bat" ? floor - (spawn.boss ? 56 : 74) : floor - h;
+    const finalY = spawn.kind === "bat" ? floor - (spawn.boss ? 56 : 74) : floor - h;
+    const y = isEmerging ? floor : finalY;
     return {
       id: nextId++,
       kind: spawn.kind,
@@ -683,20 +688,27 @@ export function mountCampaign(
       facing: -1,
       boss: isBoss,
       homeX: spawn.x,
-      homeY: y,
+      homeY: finalY,
       t: Math.random() * 3,
-      cd: 0.8,
+      cd: isEmerging ? 0.4 : 0.8,
       wind: 0,
-      state: spawn.kind === "gargoyle" || spawn.kind === "bossPetros" ? "perch" : "idle",
+      state: isEmerging
+        ? "emerge"
+        : spawn.kind === "gargoyle" || spawn.kind === "bossPetros"
+          ? "perch"
+          : "idle",
       hurt: 0,
       dead: false,
       dying: false,
       deathT: 0,
-      deathDuration: 0.60,
+      deathDuration: 0.6,
       lastSwing: -1,
       hoverT: 0,
       fired: false,
       attackVariant: 0,
+      emergeT: 0,
+      emergeDuration: 0.58,
+      emergeY: finalY,
     };
   }
 
@@ -730,9 +742,10 @@ export function mountCampaign(
     player.toastT = 2.6;
     clearedOnce = false;
     bossIntroPlayed = false;
+    ambushTimer = 3.5;
     sound.stopBossVoice();
     shots.length = 0;
-    enemies = level.spawns.map(makeEnemy);
+    enemies = level.spawns.map((s) => makeEnemy(s));
     items = level.items.map((it) => ({
       id: it.id,
       kind: it.kind,
@@ -878,6 +891,7 @@ export function mountCampaign(
 
   function hurtEnemy(e: Enemy, dmg: number, pogo: boolean, hitSource: "slash" | "spell" = "slash") {
     if (e.dead || e.dying || e.lastSwing === player.swingId) return;
+    if (e.state === "emerge" && (e.emergeT ?? 0) < 0.22) return;
 
     // Armored Skeleton buckler shield deflection (frontal horizontal attacks)
     if (e.kind === "armoredSkeleton" && !pogo) {
@@ -1652,6 +1666,64 @@ export function mountCampaign(
       sound.playBgm("victory");
     }
 
+    // Dynamic Ambush & Ground Eruption System (GnG / Castlevania relentless pressure)
+    const bossChamberX = level.width - 650;
+    const inBossArena = player.x > bossChamberX;
+    if (!player.dead && !player.won && !inBossArena) {
+      ambushTimer -= dt;
+      if (ambushTimer <= 0) {
+        ambushTimer = 4.8 + Math.random() * 3.2;
+        const nearbyEnemies = enemies.filter((e) => !e.dead && !e.dying && Math.abs(e.x - player.x) < 460).length;
+        if (nearbyEnemies < 6) {
+          const roll = Math.random();
+          if (roll < 0.65) {
+            // Ground ambush: undead claws out of the earth!
+            const dir = Math.random() > 0.4 ? 1 : -1;
+            const spawnDist = dir > 0 ? (150 + Math.random() * 120) : -(140 + Math.random() * 80);
+            const sx = clamp(player.x + spawnDist, 80, bossChamberX - 40);
+            const floor = findFloorFor(sx, GROUND_Y);
+
+            let spawnKind: Kind = "zombie";
+            let hp = 4;
+            if (level.theme === "catacombs") {
+              spawnKind = Math.random() > 0.5 ? "redSkeleton" : "zombie";
+              hp = spawnKind === "redSkeleton" ? 6 : 5;
+            } else if (level.theme === "gallery") {
+              spawnKind = Math.random() > 0.5 ? "armoredSkeleton" : "skeleton";
+              hp = spawnKind === "armoredSkeleton" ? 8 : 5;
+            } else if (level.theme === "chapel") {
+              spawnKind = Math.random() > 0.6 ? "vampire" : "skeleton";
+              hp = spawnKind === "vampire" ? 7 : 5;
+            } else if (level.theme === "alchemy") {
+              spawnKind = Math.random() > 0.5 ? "gargoyle" : "knight";
+              hp = 8;
+            } else if (level.theme === "throne") {
+              spawnKind = Math.random() > 0.5 ? "knight" : "vampire";
+              hp = 8;
+            }
+
+            const newEnemy = makeEnemy({ kind: spawnKind, x: sx, y: floor, hp }, true);
+            enemies.push(newEnemy);
+            sound.playSfx("wallJump");
+          } else {
+            // Aerial ambush: predatory bat wave swoops across the screen!
+            const fromRight = Math.random() > 0.5;
+            const bx = fromRight ? camX + T.viewW + 25 : camX - 25;
+            const by = player.y - 60 - Math.random() * 30;
+            const batEnemy = makeEnemy({ kind: "bat", x: bx, y: by, hp: 2 }, false);
+            batEnemy.facing = fromRight ? -1 : 1;
+            batEnemy.vx = (fromRight ? -1 : 1) * 120;
+            enemies.push(batEnemy);
+          }
+        }
+      }
+    }
+
+    // Prune dead enemies if list grows to maintain high performance
+    if (enemies.length > 70) {
+      enemies = enemies.filter((e) => !e.dead || e.boss);
+    }
+
     for (const p of particles) {
       p.x += p.vx * dt;
       p.y += p.vy * dt;
@@ -1682,6 +1754,40 @@ export function mountCampaign(
     e.hurt = Math.max(0, e.hurt - dt);
     e.cd = Math.max(0, e.cd - dt);
     if (e.dead) return;
+
+    if (e.state === "emerge") {
+      e.emergeT = (e.emergeT ?? 0) + dt;
+      const dur = e.emergeDuration ?? 0.58;
+      const progress = Math.min(1, e.emergeT / dur);
+      const floorY = e.emergeY ?? (e.y - e.h);
+      e.y = floorY + e.h * (1 - progress);
+      e.vx = 0;
+      e.vy = 0;
+      e.grounded = true;
+
+      // Debris and dust particles around emergence spot
+      if (Math.random() < 0.45) {
+        particles.push({
+          x: e.x + Math.random() * e.w,
+          y: floorY + e.h,
+          vx: (Math.random() - 0.5) * 45,
+          vy: -25 - Math.random() * 40,
+          size: 2 + Math.random() * 2,
+          alpha: 1,
+          maxAlpha: 1,
+          color: level.theme === "catacombs" ? "#22c55e" : level.theme === "chapel" ? "#e2a23a" : "#78716c",
+          depth: "fg",
+          pulse: Math.random() * Math.PI * 2,
+        });
+      }
+
+      if (progress >= 1) {
+        e.y = floorY;
+        e.state = "idle";
+        e.cd = 0.35;
+      }
+      return; // Suspends AI until fully emerged!
+    }
 
     if (e.dying) {
       e.vx *= Math.max(0, 1 - 8 * dt);
@@ -3413,7 +3519,26 @@ export function mountCampaign(
       if ((e.kind === "dracula" || e.kind === "bossDracula") && e.hp / e.max <= 0.33) tall *= 1.25;
       if (e.boss && e.dying) tall *= 1.15;
       const feet = e.y + e.h + (FEET_OFF[e.kind] ?? 0);
-      blit(art[spriteKey], frame, e.x + e.w / 2, feet, tall, e.facing);
+      if (e.state === "emerge") {
+        const floorY = (e.emergeY ?? (e.y - e.h)) + e.h;
+        const groundScreenY = Math.round(floorY - camY);
+        g.save();
+        g.beginPath();
+        g.rect(Math.round(e.x - camX - 40), 0, e.w + 80, groundScreenY);
+        g.clip();
+        blit(art[spriteKey], frame, e.x + e.w / 2, feet, tall, e.facing);
+        g.restore();
+
+        // Draw cracked stone mound / dust puff at emergence point
+        const sx = Math.round(e.x + e.w / 2 - camX);
+        const sy = groundScreenY;
+        g.fillStyle = "#3f3f46";
+        g.fillRect(sx - 16, sy - 2, 32, 3);
+        g.fillStyle = "#71717a";
+        g.fillRect(sx - 10, sy - 3, 20, 2);
+      } else {
+        blit(art[spriteKey], frame, e.x + e.w / 2, feet, tall, e.facing);
+      }
     }
 
     const isInvulnerable = player.iframes > 0;

@@ -200,21 +200,46 @@ const level1_props: Prop[] = [
 ];
 
 const level1_spawns: Spawn[] = [
-  { kind: "zombie", x: 420, y: G, hp: 4 },
+  // Section 1: Cemetery & Crypts (0 - 1200)
+  { kind: "zombie", x: 380, y: G, hp: 4 },
   { kind: "bat", x: 460, y: 75, hp: 2 },
-  { kind: "skeleton", x: 580, y: 110, hp: 5 },
+  { kind: "skeleton", x: 580, y: 145, hp: 5 },
+  { kind: "zombie", x: 720, y: G, hp: 4 },
   { kind: "zombie", x: 860, y: G, hp: 4 },
+  { kind: "gargoyle", x: 950, y: G, hp: 7 },
   { kind: "bat", x: 1020, y: 65, hp: 2 },
-  { kind: "knight", x: 1360, y: G, hp: 7 },
+  { kind: "skeleton", x: 1120, y: 120, hp: 5 },
+
+  // Section 2: Outer Ramparts & Watchtower (1200 - 2400)
+  { kind: "knight", x: 1360, y: G, hp: 8 },
+  { kind: "bat", x: 1460, y: 60, hp: 2 },
+  { kind: "armoredSkeleton", x: 1540, y: G, hp: 8 },
   { kind: "skeleton", x: 1740, y: 110, hp: 5 },
-  { kind: "armoredSkeleton", x: 2020, y: G, hp: 8 },
-  { kind: "bat", x: 2250, y: 55, hp: 2 },
-  { kind: "knight", x: 2420, y: G, hp: 7 },
-  { kind: "skeleton", x: 2880, y: 105, hp: 5 },
-  { kind: "bat", x: 3120, y: 55, hp: 2 },
+  { kind: "redSkeleton", x: 1900, y: 75, hp: 6 },
+  { kind: "armoredSkeleton", x: 2040, y: G, hp: 8 },
+  { kind: "bat", x: 2200, y: 55, hp: 2 },
+  { kind: "knight", x: 2380, y: G, hp: 8 },
+
+  // Section 3: Sunken Moat & Broken Ramparts (2400 - 3400)
+  { kind: "skeleton", x: 2540, y: 115, hp: 5 },
+  { kind: "zombie", x: 2660, y: 245, hp: 4 },
+  { kind: "bat", x: 2750, y: 70, hp: 2 },
+  { kind: "zombie", x: 2880, y: 245, hp: 4 },
+  { kind: "skeleton", x: 3040, y: 115, hp: 5 },
+  { kind: "zombie", x: 3120, y: 245, hp: 4 },
+  { kind: "knight", x: 3300, y: G, hp: 8 },
+
+  // Section 4: Monumental Gatehouse Approach (3400 - 4700)
   { kind: "zombie", x: 3560, y: G, hp: 5 },
-  { kind: "skeleton", x: 4050, y: 115, hp: 5 },
-  { kind: "knight", x: 4500, y: G, hp: 8 },
+  { kind: "bat", x: 3680, y: 65, hp: 2 },
+  { kind: "armoredSkeleton", x: 3820, y: G, hp: 8 },
+  { kind: "skeleton", x: 4020, y: 75, hp: 5 },
+  { kind: "gargoyle", x: 4180, y: G, hp: 7 },
+  { kind: "redSkeleton", x: 4320, y: 110, hp: 6 },
+  { kind: "knight", x: 4500, y: G, hp: 9 },
+  { kind: "armoredSkeleton", x: 4650, y: G, hp: 8 },
+
+  // Section 5: Petros Boss Chamber
   { kind: "bossPetros", x: 5080, y: G, hp: 26, boss: true, name: "Petros, Guardião de Pedra" },
 ];
 
@@ -345,34 +370,42 @@ const level2_props: Prop[] = [
 ];
 
 const level2_spawns: Spawn[] = [
-  // Section 1
-  { kind: "armoredSkeleton", x: 480, y: G, hp: 8 },
-  { kind: "bat", x: 620, y: 55, hp: 2 },
+  // Section 1: Grand Gallery Entrance (0 - 1200)
+  { kind: "armoredSkeleton", x: 460, y: G, hp: 8 },
+  { kind: "bat", x: 580, y: 55, hp: 2 },
   { kind: "redSkeleton", x: 740, y: 95, hp: 6 },
+  { kind: "skeleton", x: 920, y: G, hp: 5 },
   { kind: "armoredSkeleton", x: 1080, y: G, hp: 8 },
 
-  // Section 2: Sunken Crypts & High Catwalks
-  { kind: "armoredSkeleton", x: 1400, y: 255, hp: 9 },
+  // Section 2: Sunken Crypts & High Catwalks (1200 - 2400)
+  { kind: "armoredSkeleton", x: 1380, y: 255, hp: 9 },
+  { kind: "bat", x: 1480, y: 65, hp: 2 },
   { kind: "redSkeleton", x: 1620, y: 75, hp: 6 },
   { kind: "armoredSkeleton", x: 1720, y: 255, hp: 9 },
   { kind: "bat", x: 1880, y: 55, hp: 2 },
+  { kind: "skeleton", x: 2020, y: 115, hp: 6 },
+  { kind: "knight", x: 2260, y: G, hp: 8 },
 
-  // Section 3: Hall of the Colossus
+  // Section 3: Hall of the Colossus (2400 - 3650)
   { kind: "knight", x: 2480, y: G, hp: 8 },
+  { kind: "bat", x: 2580, y: 50, hp: 2 },
   { kind: "redSkeleton", x: 2660, y: 100, hp: 6 },
-  { kind: "armoredSkeleton", x: 2950, y: G, hp: 10 },
+  { kind: "armoredSkeleton", x: 2880, y: G, hp: 9 },
   { kind: "bat", x: 3020, y: 45, hp: 2 },
-  { kind: "redSkeleton", x: 3220, y: 100, hp: 6 },
-  { kind: "knight", x: 3500, y: G, hp: 8 },
+  { kind: "gargoyle", x: 3140, y: G, hp: 7 },
+  { kind: "redSkeleton", x: 3260, y: 100, hp: 6 },
+  { kind: "knight", x: 3500, y: G, hp: 9 },
 
-  // Section 4: Stepped Gallery
-  { kind: "vampire", x: 3950, y: 140, hp: 8 },
+  // Section 4: Stepped Gallery (3650 - 4800)
+  { kind: "vampire", x: 3920, y: 140, hp: 8 },
+  { kind: "bat", x: 4020, y: 55, hp: 2 },
   { kind: "armoredSkeleton", x: 4120, y: G, hp: 9 },
-  { kind: "bat", x: 4320, y: 55, hp: 2 },
-  { kind: "redSkeleton", x: 4340, y: 85, hp: 6 },
-  { kind: "armoredSkeleton", x: 4580, y: G, hp: 9 },
+  { kind: "redSkeleton", x: 4280, y: 85, hp: 6 },
+  { kind: "bat", x: 4360, y: 55, hp: 2 },
+  { kind: "knight", x: 4480, y: G, hp: 9 },
+  { kind: "armoredSkeleton", x: 4650, y: G, hp: 9 },
 
-  // Section 5: Valerius Duel
+  // Section 5: Valerius Boss Arena
   { kind: "bossValerius", x: 5240, y: G, hp: 32, boss: true, name: "Valerius, Cavaleiro de Sangue" },
 ];
 
@@ -476,19 +509,39 @@ const level3_props: Prop[] = [
 ];
 
 const level3_spawns: Spawn[] = [
-  { kind: "zombie", x: 420, y: G, hp: 5 },
-  { kind: "bat", x: 520, y: 75, hp: 2 },
-  { kind: "skeleton", x: 620, y: 110, hp: 5 },
+  // Section 1: Narthex & Cloister (0 - 1200)
+  { kind: "zombie", x: 380, y: G, hp: 5 },
+  { kind: "bat", x: 480, y: 75, hp: 2 },
+  { kind: "skeleton", x: 620, y: 105, hp: 5 },
+  { kind: "zombie", x: 800, y: G, hp: 5 },
   { kind: "vampire", x: 960, y: G, hp: 7 },
-  { kind: "bat", x: 1720, y: 65, hp: 2 },
-  { kind: "skeleton", x: 1800, y: 105, hp: 6 },
-  { kind: "knight", x: 2160, y: G, hp: 8 },
-  { kind: "vampire", x: 2900, y: G, hp: 7 },
-  { kind: "bat", x: 3220, y: 65, hp: 2 },
-  { kind: "skeleton", x: 3260, y: 75, hp: 6 },
-  { kind: "knight", x: 3600, y: G, hp: 8 },
-  { kind: "vampire", x: 4320, y: G, hp: 8 },
-  { kind: "skeleton", x: 4700, y: 110, hp: 6 },
+
+  // Section 2: Confessional Sunken Crypt (1200 - 2200)
+  { kind: "bat", x: 1300, y: 65, hp: 2 },
+  { kind: "zombie", x: 1420, y: 250, hp: 5 },
+  { kind: "skeleton", x: 1560, y: 75, hp: 6 },
+  { kind: "zombie", x: 1720, y: 250, hp: 5 },
+  { kind: "bat", x: 1840, y: 65, hp: 2 },
+  { kind: "knight", x: 2050, y: G, hp: 8 },
+
+  // Section 3: Grand Nave & Stained Glass (2200 - 3600)
+  { kind: "armoredSkeleton", x: 2360, y: G, hp: 8 },
+  { kind: "bat", x: 2520, y: 60, hp: 2 },
+  { kind: "skeleton", x: 2640, y: 105, hp: 6 },
+  { kind: "vampire", x: 2880, y: G, hp: 8 },
+  { kind: "gargoyle", x: 3040, y: 70, hp: 7 },
+  { kind: "skeleton", x: 3260, y: 105, hp: 6 },
+  { kind: "knight", x: 3460, y: G, hp: 8 },
+
+  // Section 4: Bell Tower & Angelic Galleries (3600 - 4650)
+  { kind: "armoredSkeleton", x: 3740, y: G, hp: 9 },
+  { kind: "bat", x: 3900, y: 60, hp: 2 },
+  { kind: "skeleton", x: 4050, y: 110, hp: 6 },
+  { kind: "vampire", x: 4220, y: 75, hp: 8 },
+  { kind: "bat", x: 4360, y: 65, hp: 2 },
+  { kind: "knight", x: 4520, y: G, hp: 9 },
+
+  // Section 5: Seraphine High Altar
   { kind: "bossSeraphine", x: 5220, y: G - 20, hp: 30, boss: true, name: "Seraphine, Sacerdotisa de Sangue" },
 ];
 
@@ -585,18 +638,41 @@ const level4_props: Prop[] = [
 ];
 
 const level4_spawns: Spawn[] = [
-  { kind: "zombie", x: 420, y: G, hp: 5 },
-  { kind: "bat", x: 540, y: 75, hp: 2 },
-  { kind: "skeleton", x: 640, y: 110, hp: 6 },
+  // Section 1: Dungeon Cell Block (0 - 1200)
+  { kind: "zombie", x: 360, y: G, hp: 5 },
+  { kind: "bat", x: 480, y: 75, hp: 2 },
+  { kind: "skeleton", x: 640, y: 105, hp: 6 },
+  { kind: "zombie", x: 820, y: G, hp: 5 },
   { kind: "knight", x: 1040, y: G, hp: 8 },
-  { kind: "bat", x: 1740, y: 65, hp: 2 },
-  { kind: "skeleton", x: 1840, y: 105, hp: 6 },
-  { kind: "zombie", x: 2240, y: G, hp: 5 },
+
+  // Section 2: Sunken Sarcophagus Chasm (1200 - 2250)
+  { kind: "zombie", x: 1350, y: 255, hp: 5 },
+  { kind: "bat", x: 1480, y: 65, hp: 2 },
+  { kind: "redSkeleton", x: 1580, y: 75, hp: 6 },
+  { kind: "zombie", x: 1720, y: 255, hp: 5 },
+  { kind: "bat", x: 1840, y: 65, hp: 2 },
+  { kind: "skeleton", x: 1980, y: 115, hp: 6 },
+  { kind: "armoredSkeleton", x: 2160, y: G, hp: 8 },
+
+  // Section 3: The Abyssal Ossuário (2250 - 3650)
+  { kind: "zombie", x: 2360, y: G, hp: 5 },
+  { kind: "bat", x: 2500, y: 60, hp: 2 },
+  { kind: "redSkeleton", x: 2640, y: 105, hp: 6 },
+  { kind: "gargoyle", x: 2820, y: G, hp: 7 },
   { kind: "bat", x: 2980, y: 65, hp: 2 },
-  { kind: "skeleton", x: 3320, y: 75, hp: 6 },
-  { kind: "knight", x: 3660, y: G, hp: 8 },
-  { kind: "vampire", x: 4420, y: G, hp: 8 },
-  { kind: "skeleton", x: 4820, y: 110, hp: 6 },
+  { kind: "zombie", x: 3120, y: G, hp: 5 },
+  { kind: "skeleton", x: 3320, y: 105, hp: 6 },
+  { kind: "knight", x: 3520, y: G, hp: 9 },
+
+  // Section 4: The Chains Labyrinth (3650 - 4750)
+  { kind: "armoredSkeleton", x: 3780, y: G, hp: 9 },
+  { kind: "bat", x: 3920, y: 65, hp: 2 },
+  { kind: "skeleton", x: 4080, y: 110, hp: 6 },
+  { kind: "vampire", x: 4280, y: G, hp: 8 },
+  { kind: "bat", x: 4420, y: 65, hp: 2 },
+  { kind: "knight", x: 4600, y: G, hp: 9 },
+
+  // Section 5: Nocturne Cavern
   { kind: "bossNocturne", x: 5400, y: 80, hp: 32, boss: true, name: "Nocturne, Lorde Morcego Feral" },
 ];
 
@@ -695,19 +771,38 @@ const level5_props: Prop[] = [
 ];
 
 const level5_spawns: Spawn[] = [
+  // Section 1: Scriptorium Entrance (0 - 1200)
   { kind: "knight", x: 420, y: G, hp: 8 },
   { kind: "bat", x: 520, y: 75, hp: 2 },
-  { kind: "skeleton", x: 640, y: 110, hp: 6 },
+  { kind: "skeleton", x: 640, y: 105, hp: 6 },
+  { kind: "armoredSkeleton", x: 820, y: G, hp: 8 },
   { kind: "vampire", x: 980, y: G, hp: 8 },
-  { kind: "skeleton", x: 1820, y: 105, hp: 6 },
-  { kind: "knight", x: 2120, y: G, hp: 8 },
-  { kind: "bat", x: 2400, y: 65, hp: 2 },
+
+  // Section 2: Sunken Reading Hall (1200 - 2200)
+  { kind: "armoredSkeleton", x: 1350, y: 250, hp: 9 },
+  { kind: "bat", x: 1480, y: 65, hp: 2 },
+  { kind: "skeleton", x: 1600, y: 75, hp: 6 },
+  { kind: "armoredSkeleton", x: 1780, y: 250, hp: 9 },
+  { kind: "bat", x: 1920, y: 65, hp: 2 },
+  { kind: "knight", x: 2120, y: G, hp: 9 },
+
+  // Section 3: Tower of the Forbidden Grimoires (2200 - 3650)
+  { kind: "bat", x: 2360, y: 65, hp: 2 },
+  { kind: "gargoyle", x: 2520, y: G, hp: 8 },
+  { kind: "redSkeleton", x: 2680, y: 105, hp: 6 },
   { kind: "vampire", x: 2900, y: G, hp: 8 },
+  { kind: "bat", x: 3080, y: 60, hp: 2 },
   { kind: "skeleton", x: 3280, y: 75, hp: 6 },
-  { kind: "knight", x: 3600, y: G, hp: 9 },
-  { kind: "bat", x: 4240, y: 65, hp: 2 },
-  { kind: "vampire", x: 4560, y: G, hp: 8 },
-  { kind: "skeleton", x: 4720, y: 110, hp: 6 },
+  { kind: "knight", x: 3500, y: G, hp: 9 },
+
+  // Section 4: Astronomical Rotunda (3650 - 4700)
+  { kind: "armoredSkeleton", x: 3820, y: G, hp: 9 },
+  { kind: "bat", x: 4020, y: 65, hp: 2 },
+  { kind: "vampire", x: 4240, y: 75, hp: 8 },
+  { kind: "skeleton", x: 4420, y: 120, hp: 6 },
+  { kind: "knight", x: 4600, y: G, hp: 9 },
+
+  // Section 5: Lorde Veyne's Sanctum
   { kind: "bossVeyne", x: 5240, y: G - 20, hp: 32, boss: true, name: "Lorde Veyne, Arquivista das Sombras" },
 ];
 
@@ -804,20 +899,38 @@ const level6_props: Prop[] = [
 ];
 
 const level6_spawns: Spawn[] = [
-  { kind: "zombie", x: 420, y: G, hp: 5 },
+  // Section 1: Reagent Entrance (0 - 1200)
+  { kind: "zombie", x: 400, y: G, hp: 5 },
   { kind: "bat", x: 520, y: 75, hp: 2 },
-  { kind: "skeleton", x: 640, y: 110, hp: 6 },
-  { kind: "knight", x: 1020, y: G, hp: 8 },
-  { kind: "armoredSkeleton", x: 1500, y: 250, hp: 9 }, // Guarding extra life in sunken chemical pit!
+  { kind: "skeleton", x: 640, y: 105, hp: 6 },
+  { kind: "armoredSkeleton", x: 840, y: G, hp: 8 },
+  { kind: "knight", x: 1040, y: G, hp: 9 },
+
+  // Section 2: Sunken Chemical Vats (1200 - 2200)
+  { kind: "armoredSkeleton", x: 1380, y: 250, hp: 9 },
+  { kind: "bat", x: 1480, y: 65, hp: 2 },
   { kind: "redSkeleton", x: 1560, y: 75, hp: 6 },
+  { kind: "armoredSkeleton", x: 1740, y: 250, hp: 9 },
+  { kind: "bat", x: 1920, y: 65, hp: 2 },
   { kind: "knight", x: 2120, y: G, hp: 9 },
-  { kind: "bat", x: 2400, y: 65, hp: 2 },
-  { kind: "vampire", x: 2900, y: G, hp: 8 },
+
+  // Section 3: Great Transmutation Retort (2200 - 3650)
+  { kind: "bat", x: 2360, y: 65, hp: 2 },
+  { kind: "gargoyle", x: 2520, y: G, hp: 8 },
+  { kind: "redSkeleton", x: 2700, y: 105, hp: 6 },
+  { kind: "vampire", x: 2900, y: G, hp: 9 },
+  { kind: "bat", x: 3080, y: 60, hp: 2 },
   { kind: "skeleton", x: 3280, y: 75, hp: 6 },
-  { kind: "knight", x: 3600, y: G, hp: 9 },
-  { kind: "bat", x: 4240, y: 65, hp: 2 },
-  { kind: "vampire", x: 4560, y: G, hp: 9 },
-  { kind: "skeleton", x: 4720, y: 110, hp: 6 },
+  { kind: "knight", x: 3500, y: G, hp: 10 },
+
+  // Section 4: Energised Crystal Gallery (3650 - 4700)
+  { kind: "armoredSkeleton", x: 3820, y: G, hp: 9 },
+  { kind: "bat", x: 4020, y: 65, hp: 2 },
+  { kind: "vampire", x: 4240, y: 75, hp: 9 },
+  { kind: "gargoyle", x: 4420, y: G, hp: 8 },
+  { kind: "knight", x: 4620, y: G, hp: 10 },
+
+  // Section 5: Calx Mutation Chamber
   { kind: "bossCalx", x: 5320, y: G, hp: 34, boss: true, name: "Calx, Abominação Alquímica" },
 ];
 
@@ -918,18 +1031,38 @@ const level7_props: Prop[] = [
 ];
 
 const level7_spawns: Spawn[] = [
-  { kind: "knight", x: 440, y: G, hp: 8 },
+  // Section 1: Keep Ramparts & Guard of Honor (0 - 1200)
+  { kind: "knight", x: 420, y: G, hp: 9 },
   { kind: "bat", x: 540, y: 75, hp: 2 },
   { kind: "vampire", x: 680, y: G, hp: 8 },
   { kind: "skeleton", x: 880, y: 75, hp: 6 },
+  { kind: "armoredSkeleton", x: 1020, y: G, hp: 9 },
   { kind: "knight", x: 1180, y: G, hp: 9 },
-  { kind: "vampire", x: 1820, y: G, hp: 8 },
-  { kind: "knight", x: 2180, y: G, hp: 9 },
+
+  // Section 2: Imperial Sunken Mezzanine (1200 - 2200)
+  { kind: "vampire", x: 1400, y: 250, hp: 8 },
+  { kind: "bat", x: 1520, y: 65, hp: 2 },
+  { kind: "redSkeleton", x: 1640, y: 75, hp: 6 },
+  { kind: "armoredSkeleton", x: 1820, y: 250, hp: 9 },
+  { kind: "bat", x: 1980, y: 65, hp: 2 },
+  { kind: "knight", x: 2180, y: G, hp: 10 },
+
+  // Section 3: Red Carpet Grand Approach (2200 - 3500)
   { kind: "bat", x: 2420, y: 65, hp: 2 },
-  { kind: "vampire", x: 3000, y: G, hp: 9 },
-  { kind: "skeleton", x: 3280, y: 75, hp: 6 },
-  { kind: "knight", x: 3660, y: G, hp: 10 },
-  { kind: "vampire", x: 4260, y: G, hp: 9 },
+  { kind: "gargoyle", x: 2600, y: G, hp: 8 },
+  { kind: "vampire", x: 2820, y: G, hp: 9 },
+  { kind: "skeleton", x: 3040, y: 75, hp: 6 },
+  { kind: "bat", x: 3180, y: 60, hp: 2 },
+  { kind: "knight", x: 3380, y: G, hp: 10 },
+
+  // Section 4: Ceremonial Staircase (3500 - 4600)
+  { kind: "armoredSkeleton", x: 3660, y: G, hp: 10 },
+  { kind: "bat", x: 3820, y: 65, hp: 2 },
+  { kind: "vampire", x: 4020, y: G, hp: 9 },
+  { kind: "redSkeleton", x: 4220, y: 110, hp: 6 },
+  { kind: "knight", x: 4460, y: G, hp: 10 },
+
+  // Section 5: The Throne Dais
   { kind: "bossDracula", x: 4780, y: G, hp: 55, boss: true, name: "Conde Drácula, Senhor das Trevas" },
 ];
 
