@@ -5,6 +5,9 @@ node_modules/
 
 # Production and Framework Builds
 dist/
+dist-mobile/
+android/app/src/main/assets/public/
+android/local.properties
 .output/
 .vercel/
 .netlify/

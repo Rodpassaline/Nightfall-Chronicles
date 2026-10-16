@@ -1,0 +1,15 @@
+{
+  "appId": "com.nightfall.chronicles",
+  "appName": "Nightfall Chronicles",
+  "webDir": "dist-mobile",
+  "bundledWebRuntime": false,
+  "backgroundColor": "#09080c",
+  "server": {
+    "androidScheme": "https"
+  },
+  "android": {
+    "allowMixedContent": true,
+    "captureInput": true,
+    "webContentsDebuggingEnabled": true
+  }
+}
