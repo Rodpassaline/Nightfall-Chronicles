@@ -10,6 +10,7 @@ import {
   Wind,
   Sparkles,
   Shield,
+  Flame,
 } from "lucide-react";
 import { loadProgress, mountCampaign, preloadAllGameAssets, saveClear, type CampaignApi, type GameHud } from "@/game/campaign";
 import { levels } from "@/game/levels";
@@ -22,6 +23,8 @@ const empty: GameHud = {
   maxHp: 6,
   mana: 100,
   maxMana: 100,
+  special: 0,
+  specialReady: false,
   lives: 3,
   bossName: "",
   bossHp: 0,
@@ -244,8 +247,8 @@ export function GameScreen() {
     }
   };
 
-  // Right Side Action Button Handlers (Attack, Jump, Dash, Spell, Guard)
-  const handleActionDown = (e: React.PointerEvent<HTMLButtonElement>, action: "attack" | "jump" | "dash" | "spell" | "guard") => {
+  // Right Side Action Button Handlers (Attack, Jump, Dash, Spell, Guard, Special)
+  const handleActionDown = (e: React.PointerEvent<HTMLButtonElement>, action: "attack" | "jump" | "dash" | "spell" | "guard" | "special") => {
     e.preventDefault();
     e.stopPropagation();
     try {
@@ -261,7 +264,7 @@ export function GameScreen() {
     apiRef.current?.setHeld(action, true);
   };
 
-  const handleActionUp = (e: React.PointerEvent<HTMLButtonElement>, action: "attack" | "jump" | "dash" | "spell" | "guard") => {
+  const handleActionUp = (e: React.PointerEvent<HTMLButtonElement>, action: "attack" | "jump" | "dash" | "spell" | "guard" | "special") => {
     e.preventDefault();
     e.stopPropagation();
     setHeldActions((prev) => {
@@ -458,7 +461,7 @@ export function GameScreen() {
               <span>{muted ? "Mudo" : "Música & SFX"}</span>
             </button>
           </div>
-          <p className="mt-6 max-w-xl text-sm text-muted">A e D andam. J ataca — segure para carregar. K esquiva para trás. L é a magia. W pula só para desviar.</p>
+          <p className="mt-6 max-w-xl text-sm text-muted">A e D andam. J (ou Z) ataca — segure para carregar. K esquiva. L (ou F) magia. E (ou Ataque+Magia) golpe especial quando a barra encher ao matar inimigos. W pula.</p>
         </div>
       </div>
     );
@@ -667,6 +670,27 @@ export function GameScreen() {
               <Sparkles className="h-5 w-5" />
               <span className="text-[8px] font-display font-bold tracking-tighter leading-none mt-0.5">MAGIA</span>
             </button>
+
+            {/* Special Button ("Golpe Crescente") */}
+            <button
+              type="button"
+              className={`pointer-events-auto h-14 w-14 rounded-full border-2 flex flex-col items-center justify-center transition-all duration-75 active:scale-90 shadow-xl ${
+                heldActions.has("special")
+                  ? "border-red-400 bg-red-600 scale-90 shadow-[0_0_20px_rgba(255,23,68,1)] text-white"
+                  : hud.specialReady
+                    ? "border-red-500 bg-red-950/90 backdrop-blur-sm text-red-300 hover:border-red-400 animate-pulse shadow-[0_0_16px_rgba(255,23,68,0.8)]"
+                    : "border-red-950/40 bg-black/65 backdrop-blur-sm text-red-500/50 hover:border-red-900/60"
+              }`}
+              onPointerDown={(e) => handleActionDown(e, "special")}
+              onPointerUp={(e) => handleActionUp(e, "special")}
+              onPointerCancel={(e) => handleActionUp(e, "special")}
+              title="Golpe Especial (Ataque + Magia ou Botão Especial)"
+            >
+              <Flame className={`h-5 w-5 ${hud.specialReady ? "text-red-400 fill-red-500" : ""}`} />
+              <span className="text-[7.5px] font-display font-bold tracking-tighter leading-none mt-0.5">
+                {hud.specialReady ? "ESPECIAL!" : "ESPECIAL"}
+              </span>
+            </button>
           </div>
 
           {/* Bottom Row: Dash, Jump & Primary Attack */}
@@ -759,6 +783,28 @@ export function GameScreen() {
                 className="h-full bg-gold transition-all duration-150"
                 style={{ width: `${(hud.mana / hud.maxMana) * 100}%` }}
               />
+            </div>
+            {/* Special Meter (Golpe Crescente) */}
+            <div className="mt-1 flex flex-col gap-0.5">
+              <div className="flex items-center justify-between text-[8px] font-display">
+                <span className={`font-bold tracking-wider flex items-center gap-0.5 ${hud.specialReady ? "text-red-400 animate-pulse font-extrabold" : "text-muted"}`}>
+                  <Flame className={`h-2.5 w-2.5 ${hud.specialReady ? "text-red-500 fill-red-500 animate-bounce" : "text-muted"}`} />
+                  {hud.specialReady ? "ESPECIAL PRONTO!" : "ESPECIAL"}
+                </span>
+                <span className={`font-bold ${hud.specialReady ? "text-red-400 font-extrabold" : "text-muted"}`}>
+                  {hud.special}%
+                </span>
+              </div>
+              <div className={`h-1.5 rounded-full overflow-hidden border ${hud.specialReady ? "border-red-500/80 bg-red-950/60 shadow-[0_0_8px_rgba(255,23,68,0.8)]" : "border-line/40 bg-surface-2"}`}>
+                <div
+                  className={`h-full transition-all duration-200 ${
+                    hud.specialReady
+                      ? "bg-gradient-to-r from-red-600 via-rose-500 to-amber-300 animate-pulse shadow-[0_0_10px_rgba(255,23,68,1)]"
+                      : "bg-gradient-to-r from-red-900 to-rose-600"
+                  }`}
+                  style={{ width: `${Math.min(100, hud.special)}%` }}
+                />
+              </div>
             </div>
           </div>
         </div>

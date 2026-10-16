@@ -80,7 +80,8 @@ type SfxKind =
   | "itemMana"
   | "revive"
   | "thunder"
-  | "bell";
+  | "bell"
+  | "special";
 
 interface SequencePattern {
   bpm: number;
@@ -1000,6 +1001,31 @@ class SoundEngine {
     }
     if (kind === "spell") {
       this.spellPool.play(this.sfxVol, 1.0);
+      return;
+    }
+    if (kind === "special") {
+      this.slashPool.play(Math.min(1, this.sfxVol * 1.5), 0.72);
+      this.spellPool.play(Math.min(1, this.sfxVol * 1.25), 0.88);
+      const actx = this.init();
+      if (actx && this.sfxGain) {
+        const now = actx.currentTime;
+        const subOsc = actx.createOscillator();
+        const subGain = actx.createGain();
+        subOsc.type = "sawtooth";
+        subOsc.frequency.setValueAtTime(160, now);
+        subOsc.frequency.exponentialRampToValueAtTime(36, now + 0.42);
+        const filter = actx.createBiquadFilter();
+        filter.type = "lowpass";
+        filter.frequency.setValueAtTime(500, now);
+        filter.frequency.exponentialRampToValueAtTime(80, now + 0.42);
+        subGain.gain.setValueAtTime(Math.min(0.5, this.sfxVol * 0.6), now);
+        subGain.gain.exponentialRampToValueAtTime(0.001, now + 0.45);
+        subOsc.connect(filter);
+        filter.connect(subGain);
+        subGain.connect(this.sfxGain);
+        subOsc.start(now);
+        subOsc.stop(now + 0.45);
+      }
       return;
     }
 

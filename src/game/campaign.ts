@@ -8,6 +8,8 @@ export type GameHud = {
   maxHp: number;
   mana: number;
   maxMana: number;
+  special: number;
+  specialReady: boolean;
   lives: number;
   bossName: string;
   bossHp: number;
@@ -21,7 +23,7 @@ export type GameHud = {
   charge: number;
 };
 
-type Action = "left" | "right" | "jump" | "aimUp" | "aimDown" | "attack" | "dash" | "spell" | "guard";
+type Action = "left" | "right" | "jump" | "aimUp" | "aimDown" | "attack" | "dash" | "spell" | "guard" | "special";
 
 type Body = {
   x: number;
@@ -99,6 +101,10 @@ const CODE: Record<string, Action[]> = {
   KeyF: ["spell"],
   KeyI: ["guard"],
   KeyC: ["guard"],
+  KeyE: ["special"],
+  KeyX: ["special"],
+  KeyV: ["special"],
+  KeyU: ["special"],
 };
 
 const SRC = {
@@ -111,6 +117,8 @@ const SRC = {
   heroDash: "/sprites/hero-dash.png",
   heroGuard: "/sprites/hero-guard.png",
   heroDie: "/sprites/hero-die.png",
+  heroSpecial: "/sprites/hero-special.png",
+  crescentSlash: "/sprites/crescent-slash.png",
   vampire: "/sprites/vampire.png",
   vampireDie: "/sprites/vampire-die.png",
   gargoyle: "/sprites/gargoyle.png",
@@ -458,8 +466,10 @@ export function mountCampaign(
   });
 
   const keys = new Set<string>();
+  const keysDownThisFrame = new Set<string>();
   const injected = new Set<string>();
   const pointer = new Set<Action>();
+  const pointerDownThisFrame = new Set<Action>();
   let alive = true;
   let paused = false;
   let raf = 0;
@@ -473,6 +483,19 @@ export function mountCampaign(
   let nextId = 1;
   let prev = new Set<Action>();
   const shots: Shot[] = [];
+  type SpecialSlash = {
+    id: number;
+    x: number;
+    y: number;
+    w: number;
+    h: number;
+    vx: number;
+    facing: 1 | -1;
+    life: number;
+    maxLife: number;
+    hitEnemies: Set<number>;
+  };
+  const specialSlashes: SpecialSlash[] = [];
   let enemies: Enemy[] = [];
   let items: ActiveItem[] = [];
   let clearedOnce = false;
@@ -503,6 +526,9 @@ export function mountCampaign(
     hurtT: 0,
     hp: T.maxHp as number,
     mana: T.maxMana as number,
+    special: 0,
+    specialT: 0,
+    specialDuration: 0.85,
     lives: 3,
     attackT: 0,
     attackLock: 0,
@@ -731,6 +757,8 @@ export function mountCampaign(
     player.crouching = false;
     player.hp = T.maxHp;
     player.mana = T.maxMana;
+    player.special = 0;
+    player.specialT = 0;
     player.lives = 3;
     player.dead = false;
     player.dying = false;
@@ -753,6 +781,7 @@ export function mountCampaign(
     ambushTimer = 3.5;
     sound.stopBossVoice();
     shots.length = 0;
+    specialSlashes.length = 0;
     enemies = level.spawns.map((s) => makeEnemy(s));
     items = level.items.map((it) => ({
       id: it.id,
@@ -770,8 +799,8 @@ export function mountCampaign(
   }
 
   function actions() {
-    const set = new Set<Action>(pointer);
-    for (const code of new Set([...keys, ...injected])) {
+    const set = new Set<Action>([...pointer, ...pointerDownThisFrame]);
+    for (const code of new Set([...keys, ...injected, ...keysDownThisFrame])) {
       const mapped = CODE[code];
       if (mapped) for (const action of mapped) set.add(action);
     }
@@ -989,6 +1018,16 @@ export function mountCampaign(
       sound.playSfx(e.boss ? "bossHurt" : "enemyDie");
       shake = Math.max(shake, e.boss ? 8 : 4);
 
+      // Increase special meter on enemy kill
+      const gain = e.boss ? 50 : e.kind === "knight" || e.kind === "armoredSkeleton" || e.kind === "gargoyle" ? 25 : 18;
+      const wasFull = player.special >= 100;
+      player.special = Math.min(100, player.special + gain);
+      if (!wasFull && player.special >= 100) {
+        player.toast = "⚔️ GOLPE CRESCENTE PRONTO! [E] ou [Ataque + Magia]";
+        player.toastT = 3.2;
+        sound.playSfx("relic");
+      }
+
       // Thematic death burst particles for all enemies
       const burstCount = e.boss ? 36 : 16;
       for (let i = 0; i < burstCount; i++) {
@@ -1110,7 +1149,7 @@ export function mountCampaign(
     blit(img, frame, worldX - facing * o.dx, worldY + o.up, height, facing);
   }
 
-  function step(dt: number, press: { jump: boolean; attack: boolean; dash: boolean; spell: boolean }, held: Set<Action>) {
+  function step(dt: number, press: { jump: boolean; attack: boolean; dash: boolean; spell: boolean; special?: boolean }, held: Set<Action>) {
     time += dt;
     player.toastT = Math.max(0, player.toastT - dt);
     player.iframes = Math.max(0, player.iframes - dt);
@@ -1120,6 +1159,10 @@ export function mountCampaign(
     player.comboWindow = Math.max(0, player.comboWindow - dt);
     player.dropT = Math.max(0, player.dropT - dt);
     player.controlLock = Math.max(0, player.controlLock - dt);
+    if (player.specialT > 0) {
+      player.specialT = Math.max(0, player.specialT - dt);
+      player.iframes = Math.max(player.iframes, 0.25);
+    }
 
     if (player.dying) {
       player.vx *= Math.max(0, 1 - 8 * dt);
@@ -1273,7 +1316,69 @@ export function mountCampaign(
       sound.playSfx("chargeWind");
     }
 
-    if (player.hurtT <= 0) {
+    // Special Attack Trigger ("Golpe Crescente"):
+    // Activated by pressing the dedicated Special button [E, X, V, U] OR pressing Attack + Magic simultaneously
+    // when the special meter is full (>= 100)
+    const wantsSpecial = (
+      press.special ||
+      held.has("special") ||
+      ((press.attack || held.has("attack")) && (press.spell || held.has("spell")))
+    ) && player.special >= 100 && player.specialT <= 0 && player.hurtT <= 0 && !player.guard;
+
+    if (wantsSpecial) {
+      player.special = 0;
+      player.specialT = 0.85;
+      player.specialDuration = 0.85;
+      player.iframes = Math.max(player.iframes, 0.95);
+      player.attackT = 0;
+      player.attackLock = 0.85;
+      player.castT = 0;
+      player.dashT = 0;
+      player.charge = "idle";
+      player.holdT = 0;
+      player.vx = 0;
+      player.vy = 0;
+      hitstop = 0.08;
+      shake = 14;
+      sound.playSfx("special");
+
+      // Spawn Crescent Blade Wave forward!
+      specialSlashes.push({
+        id: nextId++,
+        x: player.x + (player.facing > 0 ? player.w + 12 : -164),
+        y: player.y - 40,
+        w: 152,
+        h: 132,
+        vx: player.facing * 360,
+        facing: player.facing,
+        life: 0.70,
+        maxLife: 0.70,
+        hitEnemies: new Set(),
+      });
+
+      // Burst of red and white sparks around Aldric
+      for (let i = 0; i < 32; i++) {
+        const ang = Math.random() * Math.PI * 2;
+        const spd = 50 + Math.random() * 90;
+        particles.push({
+          x: player.x + player.w / 2,
+          y: player.y + player.h / 2,
+          vx: Math.cos(ang) * spd,
+          vy: Math.sin(ang) * spd - 20,
+          size: 2.5 + Math.random() * 2.5,
+          alpha: 1,
+          maxAlpha: 1,
+          color: i % 2 === 0 ? "#ff1744" : "#ffffff",
+          depth: "fg",
+          pulse: Math.random() * Math.PI * 2,
+        });
+      }
+    }
+
+    if (player.specialT > 0) {
+      player.vx = 0;
+      if (player.grounded) player.vy = 0;
+    } else if (player.hurtT <= 0) {
       if (press.attack && !player.guard && player.castT <= 0 && player.charge !== "wind" && (player.attackLock <= 0 || player.comboWindow > 0)) {
         player.swingId++;
         const down = aimDown && !player.grounded && !player.crouching;
@@ -1658,6 +1763,76 @@ export function mountCampaign(
       }
     }
     for (let i = shots.length - 1; i >= 0; i--) if (shots[i].life <= 0) shots.splice(i, 1);
+
+    // Update and collide Special Slashes ("Golpe Crescente")
+    for (let i = specialSlashes.length - 1; i >= 0; i--) {
+      const s = specialSlashes[i];
+      s.life -= dt;
+      s.x += s.vx * dt;
+
+      // Trail ambient crimson sparks
+      if (Math.random() < 0.6) {
+        particles.push({
+          x: s.x + Math.random() * s.w,
+          y: s.y + Math.random() * s.h,
+          vx: -s.vx * 0.15 + (Math.random() - 0.5) * 40,
+          vy: (Math.random() - 0.5) * 40 - 15,
+          size: 2 + Math.random() * 2,
+          alpha: 1,
+          maxAlpha: 1,
+          color: Math.random() > 0.3 ? "#ff1744" : "#ffffff",
+          depth: "fg",
+          pulse: Math.random() * Math.PI * 2,
+        });
+      }
+
+      for (const e of enemies) {
+        if (e.dead || e.dying || s.hitEnemies.has(e.id)) continue;
+        if (s.x < e.x + e.w && s.x + s.w > e.x && s.y < e.y + e.h && s.y + s.h > e.y) {
+          s.hitEnemies.add(e.id);
+          player.swingId++;
+          e.lastSwing = player.swingId;
+          const isFatal = e.hp <= 260;
+          e.hp -= 260;
+          shake = Math.max(shake, 9);
+          hitstop = Math.max(hitstop, 0.04);
+          sound.playSfx("slice");
+
+          if (isFatal) {
+            e.hp = 0;
+            e.dying = true;
+            e.deathT = 0;
+            e.deathDuration = e.boss ? 1.25 : 0.65;
+            e.state = "dying";
+            e.wind = 0;
+            e.vx = s.facing * (e.boss ? 12 : 18);
+            e.vy = 0;
+            if (e.kind !== "bat") e.grounded = true;
+            sound.playSfx(e.boss ? "bossHurt" : "enemyDie");
+
+            const burstCount = e.boss ? 36 : 18;
+            for (let b = 0; b < burstCount; b++) {
+              const angle = (b / burstCount) * Math.PI * 2;
+              const spd = 40 + Math.random() * (e.boss ? 90 : 60);
+              particles.push({
+                x: e.x + e.w / 2,
+                y: e.y + e.h / 2,
+                vx: Math.cos(angle) * spd,
+                vy: Math.sin(angle) * spd - 20,
+                size: 2.5 + Math.random() * 2,
+                alpha: 1,
+                maxAlpha: 1,
+                color: b % 2 === 0 ? "#ff1744" : "#ffffff",
+                depth: "fg",
+                pulse: Math.random() * Math.PI * 2,
+              });
+            }
+          }
+        }
+      }
+
+      if (s.life <= 0) specialSlashes.splice(i, 1);
+    }
 
     const bosses = enemies.filter((e) => e.boss);
     const open = bosses.length > 0 && bosses.every((e) => e.dead);
@@ -3716,6 +3891,14 @@ export function mountCampaign(
       sheet = "heroDie";
       heroCols = 2;
       frame = 3; // Slumped flat on ground in defeat
+    } else if (player.specialT > 0) {
+      sheet = "heroSpecial";
+      heroCols = 2;
+      const progress = 1 - Math.max(0, player.specialT / player.specialDuration);
+      if (progress < 0.22) frame = 0;      // Windup stance with glowing broadsword
+      else if (progress < 0.52) frame = 1; // Deep lunge forward thrust with billowing crimson cape
+      else if (progress < 0.78) frame = 2; // Peak crescent release with winged cape flare
+      else frame = 3;                      // Recovery flourish sweeping runic blade
     } else if (player.dashT > 0) {
       sheet = "heroDash";
       frame = Math.min(2, Math.floor(((T.dashTime - player.dashT) / T.dashTime) * 3));
@@ -3782,6 +3965,43 @@ export function mountCampaign(
         const slashY = player.y + 4;
         blit(art.slash, 0, slashX, slashY, 56, player.facing);
       }
+    }
+
+    // Render Special Crescent Slashes ("Golpe Crescente")
+    for (const s of specialSlashes) {
+      const progress = 1 - Math.max(0, s.life / s.maxLife);
+      const sFrame = Math.min(3, Math.floor(progress * 4));
+      const drawX = s.x + s.w / 2;
+      const drawY = s.y + s.h;
+      blit(art.crescentSlash, sFrame, drawX, drawY, s.h, s.facing, 2);
+
+      // Core radial light around the crescent
+      const cx = Math.round(drawX - camX);
+      const cy = Math.round(s.y + s.h / 2 - camY);
+      g.save();
+      g.globalAlpha = 0.55;
+      const cGlow = g.createRadialGradient(cx, cy, 6, cx, cy, 70);
+      cGlow.addColorStop(0, "rgba(255, 255, 255, 0.85)");
+      cGlow.addColorStop(0.4, "rgba(255, 23, 68, 0.65)");
+      cGlow.addColorStop(1, "rgba(200, 0, 0, 0)");
+      g.fillStyle = cGlow;
+      g.fillRect(cx - 70, cy - 70, 140, 140);
+      g.restore();
+    }
+
+    if (player.specialT > 0) {
+      const gx = Math.round(player.x + player.w / 2 - camX);
+      const gy = Math.round(player.y + player.h / 2 - camY);
+      g.save();
+      g.globalAlpha = 0.6 + Math.sin(time * 24) * 0.25;
+      const glow = g.createRadialGradient(gx, gy, 4, gx, gy, 56);
+      glow.addColorStop(0, "rgba(255, 255, 255, 0.9)");
+      glow.addColorStop(0.3, "rgba(255, 23, 68, 0.75)");
+      glow.addColorStop(0.7, "rgba(180, 0, 30, 0.35)");
+      glow.addColorStop(1, "rgba(100, 0, 0, 0)");
+      g.fillStyle = glow;
+      g.fillRect(gx - 56, gy - 56, 112, 112);
+      g.restore();
     }
 
     // 4. Foreground Atmospheric 2.5D Depth:
@@ -3897,6 +4117,8 @@ export function mountCampaign(
       maxHp: T.maxHp,
       mana: Math.round(player.mana),
       maxMana: T.maxMana,
+      special: Math.round(player.special),
+      specialReady: player.special >= 100,
       lives: player.lives,
       bossName: boss?.name || "",
       bossHp: boss ? Math.max(0, boss.hp) : 0,
@@ -3928,6 +4150,7 @@ export function mountCampaign(
       attack: held.has("attack") && !prev.has("attack"),
       dash: held.has("dash") && !prev.has("dash"),
       spell: held.has("spell") && !prev.has("spell"),
+      special: held.has("special") && !prev.has("special"),
     };
     prev = held;
     let first = true;
@@ -3935,12 +4158,14 @@ export function mountCampaign(
     while (acc >= 1 / 60 && steps < 5) {
       if (hitstop > 0) hitstop -= 1 / 60;
       else {
-        step(1 / 60, first ? press : { jump: false, attack: false, dash: false, spell: false }, held);
+        step(1 / 60, first ? press : { jump: false, attack: false, dash: false, spell: false, special: false }, held);
         first = false;
       }
       acc -= 1 / 60;
       steps++;
     }
+    keysDownThisFrame.clear();
+    pointerDownThisFrame.clear();
     draw();
     const bossObj = enemies.find((e) => e.boss && !e.dead);
     const wantsBossIntro = !!bossObj && !bossIntroPlayed && (bossObj.x < camX + T.viewW + 24 || player.x > bossObj.homeX - 460 || bossObj.hp < bossObj.max);
@@ -3972,6 +4197,7 @@ export function mountCampaign(
     if (!hot && document.activeElement !== canvas) return;
     e.preventDefault();
     keys.add(e.code);
+    keysDownThisFrame.add(e.code);
   };
   const onUp = (e: KeyboardEvent) => keys.delete(e.code);
   const onBlur = () => keys.clear();
@@ -4020,6 +4246,9 @@ export function mountCampaign(
     },
     getHp: () => player.hp,
     getLives: () => player.lives,
+    getSpecial: () => player.special,
+    setSpecial: (v: number) => { player.special = v; },
+    isSpecialActive: () => player.specialT > 0,
     isDead: () => player.dead,
   };
   window.__controlsTest = probe;
@@ -4038,8 +4267,12 @@ export function mountCampaign(
       if (window.__controlsTest === probe) delete window.__controlsTest;
     },
     setHeld(action: Action, down: boolean) {
-      if (down) pointer.add(action);
-      else pointer.delete(action);
+      if (down) {
+        pointer.add(action);
+        pointerDownThisFrame.add(action);
+      } else {
+        pointer.delete(action);
+      }
     },
     reset() {
       sound.playStageBgm(level.id);
