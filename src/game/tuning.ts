@@ -29,12 +29,12 @@ export const tuning = {
   chargeDamage: 3,
   spellCost: 25,
   spellDamage: 2,
-  maxHp: 4,
+  maxHp: 6,
   maxMana: 100,
-  manaRegen: 8,
+  manaRegen: 9,
   hitstopLight: 0.04,
   hitstopHeavy: 0.065,
-  hurtIFrames: 0.7,
+  hurtIFrames: 1.15,
 } as const;
 
 export const tuningRows: { key: keyof typeof tuning; label: string; unit: string }[] = [

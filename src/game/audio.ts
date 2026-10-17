@@ -1004,27 +1004,72 @@ class SoundEngine {
       return;
     }
     if (kind === "special") {
-      this.slashPool.play(Math.min(1, this.sfxVol * 1.5), 0.72);
-      this.spellPool.play(Math.min(1, this.sfxVol * 1.25), 0.88);
+      // 1. Studio ElevenLabs Heavy Blade Slash Wave + Blood Magic Surge + Metallic Slice
+      this.slashPool.play(1.0, 0.78);
+      this.slicePool.play(1.0, 0.85);
+      this.spellPool.play(1.0, 0.92);
+      this.bossAtkPools["2-2"]?.play(1.0, 0.96); // Heavy blade slash wave (Valerius signature wave)
+      this.bossAtkPools["3-1"]?.play(0.95, 1.04); // Blood magic spell surge
+
+      // 2. Multi-layered Web Audio Epic Thunder-Blade Resonance & Crimson Wind Whoosh
       const actx = this.init();
       if (actx && this.sfxGain) {
         const now = actx.currentTime;
+
+        // Layer A: Thunderous Sub-Bass Impact Boom (190Hz -> 30Hz)
         const subOsc = actx.createOscillator();
         const subGain = actx.createGain();
         subOsc.type = "sawtooth";
-        subOsc.frequency.setValueAtTime(160, now);
-        subOsc.frequency.exponentialRampToValueAtTime(36, now + 0.42);
-        const filter = actx.createBiquadFilter();
-        filter.type = "lowpass";
-        filter.frequency.setValueAtTime(500, now);
-        filter.frequency.exponentialRampToValueAtTime(80, now + 0.42);
-        subGain.gain.setValueAtTime(Math.min(0.5, this.sfxVol * 0.6), now);
-        subGain.gain.exponentialRampToValueAtTime(0.001, now + 0.45);
-        subOsc.connect(filter);
-        filter.connect(subGain);
+        subOsc.frequency.setValueAtTime(190, now);
+        subOsc.frequency.exponentialRampToValueAtTime(30, now + 0.65);
+        const subFilter = actx.createBiquadFilter();
+        subFilter.type = "lowpass";
+        subFilter.frequency.setValueAtTime(650, now);
+        subFilter.frequency.exponentialRampToValueAtTime(75, now + 0.65);
+        subGain.gain.setValueAtTime(Math.min(0.75, this.sfxVol * 0.85), now);
+        subGain.gain.exponentialRampToValueAtTime(0.001, now + 0.68);
+        subOsc.connect(subFilter);
+        subFilter.connect(subGain);
         subGain.connect(this.sfxGain);
         subOsc.start(now);
-        subOsc.stop(now + 0.45);
+        subOsc.stop(now + 0.68);
+
+        // Layer B: Roaring Crimson Flame-Wind Whoosh (Bandpass Noise Sweep)
+        if (this.noiseBuffer) {
+          const wind = actx.createBufferSource();
+          wind.buffer = this.noiseBuffer;
+          const windFilter = actx.createBiquadFilter();
+          windFilter.type = "bandpass";
+          windFilter.Q.value = 1.8;
+          windFilter.frequency.setValueAtTime(280, now);
+          windFilter.frequency.exponentialRampToValueAtTime(2400, now + 0.16);
+          windFilter.frequency.exponentialRampToValueAtTime(340, now + 0.72);
+          const windGain = actx.createGain();
+          windGain.gain.setValueAtTime(0.01, now);
+          windGain.gain.linearRampToValueAtTime(Math.min(0.65, this.sfxVol * 0.75), now + 0.08);
+          windGain.gain.exponentialRampToValueAtTime(0.001, now + 0.74);
+          wind.connect(windFilter);
+          windFilter.connect(windGain);
+          windGain.connect(this.sfxGain);
+          wind.start(now);
+          wind.stop(now + 0.74);
+        }
+
+        // Layer C: Heroic Gothic Power Chord Ring (D Minor / D5 Crescent Blade Resonance)
+        [293.66, 440.0, 587.33, 698.46, 880.0, 1174.66].forEach((freq, idx) => {
+          const osc = actx.createOscillator();
+          const gain = actx.createGain();
+          osc.type = idx % 2 === 0 ? "triangle" : "sine";
+          const startAt = now + idx * 0.022;
+          osc.frequency.setValueAtTime(freq * 0.98, startAt);
+          osc.frequency.linearRampToValueAtTime(freq, startAt + 0.06);
+          gain.gain.setValueAtTime(0.22 / (1 + idx * 0.18), startAt);
+          gain.gain.exponentialRampToValueAtTime(0.0008, startAt + 0.62);
+          osc.connect(gain);
+          gain.connect(this.sfxGain!);
+          osc.start(startAt);
+          osc.stop(startAt + 0.64);
+        });
       }
       return;
     }

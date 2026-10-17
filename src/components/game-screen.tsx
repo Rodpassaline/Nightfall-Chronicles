@@ -555,52 +555,85 @@ export function GameScreen() {
 
   if (mode === "stages") {
     return (
-      <main className="mx-auto max-w-5xl px-4 py-8">
-        <div className="mb-6 flex flex-wrap items-end justify-between gap-3">
-          <div>
-            <p className="font-display text-xs tracking-widest text-gold">Mapa do castelo</p>
-            <h1 className="font-display text-3xl text-fg">Sete portões</h1>
-          </div>
-          <div className="flex items-center gap-2">
-            <button
-              type="button"
-              className="inline-flex h-11 items-center gap-1.5 border border-line px-3 font-display text-xs tracking-widest text-fg hover:border-gold"
-              onClick={toggleAudio}
-            >
-              {muted ? <VolumeX className="h-4 w-4 text-blood" /> : <Volume2 className="h-4 w-4 text-gold" />}
-              <span>{muted ? "Mudo" : "Som"}</span>
-            </button>
-            <button type="button" className="h-11 border border-line px-4 font-display text-xs tracking-widest text-fg" onClick={() => setMode("title")}>
-              Título
-            </button>
-          </div>
-        </div>
-        <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3">
-          {levels.map((item) => {
-            const locked = item.id > progress.unlocked;
-            const cleared = progress.cleared.includes(item.id);
-            return (
+      <div
+        className="fixed inset-0 z-40 h-screen w-screen overflow-y-auto overflow-x-hidden bg-bg touch-pan-y overscroll-y-contain"
+        style={{ WebkitOverflowScrolling: "touch", touchAction: "pan-y" }}
+      >
+        <main className="mx-auto max-w-5xl px-4 py-6 pb-20">
+          <div className="mb-5 flex flex-wrap items-end justify-between gap-3">
+            <div>
+              <p className="font-display text-xs tracking-widest text-gold">Mapa do castelo</p>
+              <h1 className="font-display text-2xl sm:text-3xl text-fg">Sete portões</h1>
+            </div>
+            <div className="flex items-center gap-2">
               <button
-                key={item.id}
                 type="button"
-                disabled={locked}
-                onPointerDown={() => {
-                  if (!locked) play(item.id);
-                }}
-                onClick={() => play(item.id)}
-                className={locked ? "border border-line bg-surface text-left opacity-50" : "border border-line bg-surface text-left"}
+                className="inline-flex h-10 sm:h-11 items-center gap-1.5 border border-line bg-surface px-3 font-display text-xs tracking-widest text-fg hover:border-gold active:scale-95 transition"
+                onClick={toggleAudio}
               >
-                <img src={item.bg} alt="" className="h-28 w-full object-cover" />
-                <div className="px-3 py-3">
-                  <p className="font-display text-xs tracking-widest text-gold">Fase {item.id}</p>
-                  <p className="font-display text-lg text-fg">{item.title}</p>
-                  <p className="text-sm text-muted">{locked ? "Selada até a fase anterior" : cleared ? "Conquistada" : item.place}</p>
-                </div>
+                {muted ? <VolumeX className="h-4 w-4 text-blood" /> : <Volume2 className="h-4 w-4 text-gold" />}
+                <span>{muted ? "Mudo" : "Som"}</span>
               </button>
-            );
-          })}
-        </div>
-      </main>
+              <button
+                type="button"
+                className="h-10 sm:h-11 border border-line bg-surface px-4 font-display text-xs tracking-widest text-fg hover:border-gold active:scale-95 transition"
+                onClick={() => setMode("title")}
+              >
+                Título
+              </button>
+            </div>
+          </div>
+          <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3 touch-pan-y">
+            {levels.map((item) => {
+              const locked = item.id > progress.unlocked;
+              const cleared = progress.cleared.includes(item.id);
+              return (
+                <button
+                  key={item.id}
+                  type="button"
+                  disabled={locked}
+                  onPointerDown={(e) => {
+                    e.currentTarget.dataset.startX = String(e.clientX);
+                    e.currentTarget.dataset.startY = String(e.clientY);
+                    e.currentTarget.dataset.dragged = "0";
+                  }}
+                  onPointerMove={(e) => {
+                    if (!e.currentTarget.dataset.startX) return;
+                    const dx = e.clientX - Number(e.currentTarget.dataset.startX);
+                    const dy = e.clientY - Number(e.currentTarget.dataset.startY);
+                    if (Math.hypot(dx, dy) > 10) {
+                      e.currentTarget.dataset.dragged = "1";
+                    }
+                  }}
+                  onClick={(e) => {
+                    if (e.currentTarget.dataset.dragged === "1" || locked) return;
+                    play(item.id);
+                  }}
+                  className={
+                    locked
+                      ? "border border-line bg-surface text-left opacity-50 touch-pan-y"
+                      : "border border-line bg-surface text-left hover:border-gold active:border-gold transition touch-pan-y"
+                  }
+                >
+                  <img
+                    src={item.bg}
+                    alt=""
+                    draggable={false}
+                    className="pointer-events-none h-24 sm:h-28 w-full object-cover select-none"
+                  />
+                  <div className="pointer-events-none px-3 py-2.5 sm:py-3">
+                    <p className="font-display text-xs tracking-widest text-gold">Fase {item.id}</p>
+                    <p className="font-display text-base sm:text-lg text-fg">{item.title}</p>
+                    <p className="text-xs sm:text-sm text-muted">
+                      {locked ? "Selada até a fase anterior" : cleared ? "Conquistada" : item.place}
+                    </p>
+                  </div>
+                </button>
+              );
+            })}
+          </div>
+        </main>
+      </div>
     );
   }
 

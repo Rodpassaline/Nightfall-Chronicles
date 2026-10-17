@@ -709,13 +709,13 @@ export function mountCampaign(
     const finalY = spawn.kind === "bat" ? floor - (spawn.boss ? 56 : 74) : floor - h;
     const y = isEmerging ? floor : finalY;
 
-    // Scale enemy & boss HP so fast sword combos feel rewarding and challenging rather than melting foes
-    const stageFactor = 1 + (level.id - 1) * 0.12;
+    // Balanced enemy & boss HP: regular enemies die in a fair 3-5 hit combo (and 1-shot to Special!), while Bosses provide an epic duel
+    const stageFactor = 1 + (level.id - 1) * 0.04;
     const scaledHp = isBoss
-      ? Math.round(spawn.hp * (2.15 + (level.id - 1) * 0.16))
+      ? Math.round(spawn.hp * (1.55 + (level.id - 1) * 0.08))
       : spawn.kind === "bat"
-        ? Math.max(3, Math.round(spawn.hp * 1.5))
-        : Math.round(spawn.hp * 1.65 * stageFactor);
+        ? 2
+        : Math.round(spawn.hp * stageFactor);
 
     return {
       id: nextId++,
@@ -736,7 +736,7 @@ export function mountCampaign(
       homeX: spawn.x,
       homeY: finalY,
       t: Math.random() * 3,
-      cd: isEmerging ? 0.35 : 0.65,
+      cd: isEmerging ? 0.45 : 0.75,
       wind: 0,
       state: isEmerging
         ? "emerge"
@@ -844,14 +844,16 @@ export function mountCampaign(
     c.lastSwing = player.swingId;
     c.activated = true;
     sound.playSfx("relic");
+    sound.playSfx("itemHeal");
     sound.playSfx("slice");
     shake = Math.max(shake, 7);
     hitstop = Math.max(hitstop, 0.04);
 
-    // Reward player with Mana and Special charge for solving the platforming seal!
-    player.mana = Math.min(T.maxMana, player.mana + 20);
+    // Reward player with +1 HP heal, +25 Mana, and +25% Special charge for solving the platforming seal!
+    player.hp = Math.min(T.maxHp, player.hp + 1);
+    player.mana = Math.min(T.maxMana, player.mana + 25);
     const wasFull = player.special >= 100;
-    player.special = Math.min(100, player.special + 15);
+    player.special = Math.min(100, player.special + 25);
     if (!wasFull && player.special >= 100) {
       sound.playSfx("relic");
     }
@@ -880,10 +882,10 @@ export function mountCampaign(
       gate.open = true;
       sound.playSfx("gateOpen");
       shake = Math.max(shake, 10);
-      player.toast = `⛓️ ${c.label} quebrado! O Portão de Ferro Selado se ergueu!`;
+      player.toast = `⛓️ ${c.label} quebrado (+1 HP)! O Portão de Ferro Selado se ergueu!`;
       player.toastT = 3.6;
     } else {
-      player.toast = `🔮 ${c.label} quebrado (${solvedCount}/${gateCrystals.length})! Quebre o próximo Cristal no alto para abrir o Portão!`;
+      player.toast = `🔮 ${c.label} quebrado (+1 HP · ${solvedCount}/${gateCrystals.length})! Quebre o próximo Cristal no alto!`;
       player.toastT = 3.4;
     }
   }
@@ -923,7 +925,7 @@ export function mountCampaign(
     clearedOnce = false;
     bossIntroPlayed = false;
     bossEnragedAnnounced = false;
-    ambushTimer = 3.2;
+    ambushTimer = 24.0;
     sound.stopBossVoice();
     shots.length = 0;
     specialSlashes.length = 0;
@@ -957,29 +959,27 @@ export function mountCampaign(
     body.wall = 0;
     body.grounded = false;
     body.x += body.vx * dt;
-    // Collide with locked Gothic Seal Gates
-    if (body === player) {
-      for (const gate of sealGates) {
-        if (gate.open) continue;
-        if (overlap(body, gate)) {
-          if (body.vx > 0 || body.x + body.w / 2 < gate.x + gate.w / 2) {
-            body.x = gate.x - body.w;
-            body.wall = 1;
-          } else {
-            body.x = gate.x + gate.w;
-            body.wall = -1;
-          }
-          body.vx = 0;
-          if (gate.warnCooldown <= 0) {
-            gate.warnCooldown = 2.2;
-            const gateCrystals = sealCrystals.filter((c) => c.gateId === gate.id);
-            const missing = gateCrystals.find((c) => !c.activated);
-            const broken = gateCrystals.filter((c) => c.activated).length;
-            const distM = missing ? Math.max(1, Math.round(Math.abs(player.x - missing.x) / 18)) : 0;
-            sound.playSfx("slash");
-            player.toast = `🔒 Portão Selado (${broken}/${gateCrystals.length})! Volte ${distM}m e quebre o ${missing?.label || "Cristal"} nas plataformas!`;
-            player.toastT = 3.0;
-          }
+    // Collide with locked Gothic Seal Gates (blocks both player and enemies so foes behind a gate cannot phase through)
+    for (const gate of sealGates) {
+      if (gate.open) continue;
+      if (overlap(body, gate)) {
+        if (body.vx > 0 || body.x + body.w / 2 < gate.x + gate.w / 2) {
+          body.x = gate.x - body.w;
+          body.wall = 1;
+        } else {
+          body.x = gate.x + gate.w;
+          body.wall = -1;
+        }
+        body.vx = 0;
+        if (body === player && gate.warnCooldown <= 0) {
+          gate.warnCooldown = 2.2;
+          const gateCrystals = sealCrystals.filter((c) => c.gateId === gate.id);
+          const missing = gateCrystals.find((c) => !c.activated);
+          const broken = gateCrystals.filter((c) => c.activated).length;
+          const distM = missing ? Math.max(1, Math.round(Math.abs(player.x - missing.x) / 18)) : 0;
+          sound.playSfx("slash");
+          player.toast = `🔒 Portão Selado (${broken}/${gateCrystals.length})! Volte ${distM}m e quebre o ${missing?.label || "Cristal"} nas plataformas!`;
+          player.toastT = 3.0;
         }
       }
     }
@@ -1190,8 +1190,8 @@ export function mountCampaign(
       sound.playSfx(e.boss ? "bossHurt" : "enemyDie");
       shake = Math.max(shake, e.boss ? 8 : 4);
 
-      // Increase special meter on enemy kill (balanced so earning 100% requires real combat)
-      const gain = e.boss ? 30 : e.kind === "knight" || e.kind === "armoredSkeleton" || e.kind === "gargoyle" ? 16 : 11;
+      // Increase special meter on enemy kill (4 to 5 kills fills the 100% Special bar!)
+      const gain = e.boss ? 40 : e.kind === "knight" || e.kind === "armoredSkeleton" || e.kind === "gargoyle" || e.kind === "vampire" ? 25 : 20;
       const wasFull = player.special >= 100;
       player.special = Math.min(100, player.special + gain);
       if (!wasFull && player.special >= 100) {
@@ -1230,10 +1230,10 @@ export function mountCampaign(
       return; // Do not apply non-fatal recoil or hitstun
     }
 
-    // Hitstun duration and recovery delay (keeps enemies aggressive and prevents effortless stunlocking)
+    // Hitstun duration and recovery delay (responsive stagger when Aldric hits an enemy)
     const isHeavy = player.combo === 2 || hitSource === "spell" || pogo || dmg >= 2;
-    e.hurt = e.boss ? (isHeavy ? 0.20 : 0.14) : (isHeavy ? 0.30 : 0.22);
-    e.cd = Math.max(e.cd, e.boss ? 0.28 : 0.38);
+    e.hurt = e.boss ? (isHeavy ? 0.22 : 0.16) : (isHeavy ? 0.38 : 0.30);
+    e.cd = Math.max(e.cd, e.boss ? 0.32 : 0.48);
     e.wind = 0; // Interrupt active windup on enemies
     if (!e.boss && e.state === "slash") e.state = "idle";
 
@@ -2010,6 +2010,13 @@ export function mountCampaign(
         });
       }
 
+      // Evaporate any enemy projectiles in the path of the Crescent Blade Wave!
+      for (const sh of shots) {
+        if (!sh.friendly && sh.life > 0 && overlap(s, sh)) {
+          sh.life = 0;
+        }
+      }
+
       // Shatter Gothic Seal Crystals touched by the Crescent Wave
       for (const c of sealCrystals) {
         if (!c.activated && overlap(s, c)) {
@@ -2024,8 +2031,9 @@ export function mountCampaign(
           s.hitEnemies.add(e.id);
           player.swingId++;
           e.lastSwing = player.swingId;
-          // Heavy damage (12 DMG) — obliterates lesser undead, heavily wounds armored knights, and takes a fair ~12-18% chunk off Bosses without one-shotting them!
-          const specialDmg = e.boss ? 11 : 14;
+          // INSTANT ONE-SHOT KILL (9999 DMG) against ALL regular enemies (clears the path completely!),
+          // and deals a heavy ~28% max HP chunk to Bosses!
+          const specialDmg = e.boss ? Math.max(12, Math.round(e.max * 0.28)) : 9999;
           const isFatal = e.hp <= specialDmg;
           e.hp -= specialDmg;
           shake = Math.max(shake, 9);
@@ -2062,7 +2070,7 @@ export function mountCampaign(
               });
             }
           } else {
-            e.hurt = e.boss ? 0.25 : 0.38;
+            e.hurt = e.boss ? 0.28 : 0.42;
             e.vx = s.facing * (e.boss ? 45 : 95);
           }
         }
@@ -2086,54 +2094,35 @@ export function mountCampaign(
       sound.playBgm("victory");
     }
 
-    // Dynamic Ambush & Ground Eruption System (GnG / Castlevania relentless pressure)
+    // Controlled Ambush System: Only spawns a lone scout when the screen is completely empty of enemies
+    // and never swarms the player while fighting or solving Seal Puzzles!
     const bossChamberX = level.width - 650;
     const inBossArena = player.x > bossChamberX;
-    if (!player.dead && !player.won && !inBossArena) {
+    const nearGate = sealGates.some((g) => !g.open && Math.abs(player.x - g.x) < 220);
+    if (!player.dead && !player.won && !inBossArena && !nearGate) {
       ambushTimer -= dt;
       if (ambushTimer <= 0) {
-        ambushTimer = 4.8 + Math.random() * 3.2;
-        const nearbyEnemies = enemies.filter((e) => !e.dead && !e.dying && Math.abs(e.x - player.x) < 460).length;
-        if (nearbyEnemies < 6) {
+        ambushTimer = 24.0 + Math.random() * 8.0;
+        const nearbyEnemies = enemies.filter((e) => !e.dead && !e.dying && Math.abs(e.x - player.x) < 420).length;
+        if (nearbyEnemies === 0) {
           const roll = Math.random();
           if (roll < 0.65) {
-            // Ground ambush: undead claws out of the earth!
-            const dir = Math.random() > 0.4 ? 1 : -1;
-            const spawnDist = dir > 0 ? (150 + Math.random() * 120) : -(140 + Math.random() * 80);
-            const sx = clamp(player.x + spawnDist, 80, bossChamberX - 40);
+            const dir = player.facing;
+            const spawnDist = dir * (165 + Math.random() * 60);
+            const sx = clamp(player.x + spawnDist, 120, bossChamberX - 80);
             const floor = findFloorFor(sx, GROUND_Y);
-
-            let spawnKind: Kind = "zombie";
-            let hp = 4;
-            if (level.theme === "catacombs") {
-              spawnKind = Math.random() > 0.5 ? "redSkeleton" : "zombie";
-              hp = spawnKind === "redSkeleton" ? 6 : 5;
-            } else if (level.theme === "gallery") {
-              spawnKind = Math.random() > 0.5 ? "armoredSkeleton" : "skeleton";
-              hp = spawnKind === "armoredSkeleton" ? 8 : 5;
-            } else if (level.theme === "chapel") {
-              spawnKind = Math.random() > 0.6 ? "vampire" : "skeleton";
-              hp = spawnKind === "vampire" ? 7 : 5;
-            } else if (level.theme === "alchemy") {
-              spawnKind = Math.random() > 0.5 ? "gargoyle" : "knight";
-              hp = 8;
-            } else if (level.theme === "throne") {
-              spawnKind = Math.random() > 0.5 ? "knight" : "vampire";
-              hp = 8;
-            }
-
-            const newEnemy = makeEnemy({ kind: spawnKind, x: sx, y: floor, hp }, true);
+            const spawnKind: Kind = level.theme === "gallery" || level.theme === "chapel" ? "skeleton" : "zombie";
+            const newEnemy = makeEnemy({ kind: spawnKind, x: sx, y: floor, hp: 4 }, true);
             newEnemy.alertSoundPlayed = true;
             enemies.push(newEnemy);
             sound.playEnemyAlert(spawnKind);
           } else {
-            // Aerial ambush: predatory bat wave swoops across the screen!
-            const fromRight = Math.random() > 0.5;
+            const fromRight = player.facing > 0;
             const bx = fromRight ? camX + T.viewW + 25 : camX - 25;
-            const by = player.y - 60 - Math.random() * 30;
+            const by = player.y - 60 - Math.random() * 25;
             const batEnemy = makeEnemy({ kind: "bat", x: bx, y: by, hp: 2 }, false);
             batEnemy.facing = fromRight ? -1 : 1;
-            batEnemy.vx = (fromRight ? -1 : 1) * 120;
+            batEnemy.vx = (fromRight ? -1 : 1) * 110;
             batEnemy.alertSoundPlayed = true;
             enemies.push(batEnemy);
             sound.playEnemyAlert("bat");
@@ -2243,7 +2232,7 @@ export function mountCampaign(
 
         particles.push({
           x: e.x + Math.random() * e.w,
-          y: e.y + Math.random() * e.h,
+          y: e.y + e.h,
           vx: (Math.random() - 0.5) * 35,
           vy: -20 - Math.random() * 30,
           size: 1.5 + Math.random() * 1.5,
@@ -2294,9 +2283,9 @@ export function mountCampaign(
               pulse: Math.random() * Math.PI * 2,
             });
           }
-        } else if (Math.random() < 0.10) {
+        } else if (Math.random() < 0.22) {
           const roll = Math.random();
-          const kind: ItemKind = roll < 0.04 ? "life" : roll < 0.50 ? "heal" : "mana";
+          const kind: ItemKind = roll < 0.08 ? "life" : roll < 0.62 ? "heal" : "mana";
           items.push({
             id: nextId++,
             kind,
@@ -2317,10 +2306,11 @@ export function mountCampaign(
     e.facing = dx >= 0 ? 1 : -1;
 
     // =========================================================================
-    // PROXIMITY ACTIVATION: Full-screen aggressive detection!
-    // Enemies spot and hunt Aldric as soon as he is anywhere on screen or approaching.
+    // PROXIMITY ACTIVATION & CROWD CONTROL (Anti-Swarm):
+    // Regular enemies only wake up when visibly on-screen (~215px), never rushing
+    // from off-screen or ganging up in huge packs!
     // =========================================================================
-    const maxActiveDist = e.boss ? 620 : 480;
+    const maxActiveDist = e.boss ? 620 : 215;
     if (dist > maxActiveDist) {
       e.vx = 0;
       if (e.kind !== "bat") {
@@ -2328,6 +2318,36 @@ export function mountCampaign(
         resolve(e, dt, false);
       }
       return;
+    }
+
+    // Territorial Leash & Simultaneous Attacker Cap for regular ground enemies:
+    // Prevents more than 2 ground enemies from dogpiling Aldric at the exact same time!
+    if (!e.boss && e.kind !== "bat" && e.hurt <= 0 && e.wind <= 0) {
+      const distFromHome = e.x - e.homeX;
+      if (Math.abs(distFromHome) > 250 && dist > 115) {
+        e.facing = distFromHome > 0 ? -1 : 1;
+        e.vx = e.facing * 45;
+        e.vy = Math.min(e.vy + T.gravDown * dt, T.terminal);
+        resolve(e, dt, false);
+        return;
+      }
+      if (dist > 95) {
+        let closerAttackers = 0;
+        for (const other of enemies) {
+          if (other === e || other.dead || other.dying || other.boss || other.kind === "bat") continue;
+          const odist = Math.abs((player.x + player.w / 2) - (other.x + other.w / 2));
+          if (odist < dist && odist < 145) {
+            closerAttackers++;
+          }
+        }
+        if (closerAttackers >= 2) {
+          e.vx = 0;
+          e.state = e.kind === "armoredSkeleton" || e.kind === "knight" ? "shield" : "idle";
+          e.vy = Math.min(e.vy + T.gravDown * dt, T.terminal);
+          resolve(e, dt, false);
+          return;
+        }
+      }
     }
 
     // =========================================================================
