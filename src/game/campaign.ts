@@ -518,6 +518,9 @@ export function mountCampaign(
     wall: 0 as -1 | 0 | 1,
     coyote: T.coyote as number,
     buffer: 0,
+    attackBuffer: 0,
+    dashBuffer: 0,
+    spellBuffer: 0,
     jumps: 1,
     dashT: 0,
     dashCd: 0,
@@ -1257,8 +1260,20 @@ export function mountCampaign(
 
     if (press.jump) player.buffer = T.jumpBuffer;
     else player.buffer = Math.max(0, player.buffer - dt);
-    if (player.attackT > 0) player.attackT -= dt;
-    if (player.attackT <= 0 && player.attackLock > 0 && player.castT <= 0) player.comboWindow = Math.max(player.comboWindow, 0.20);
+    if (press.attack) player.attackBuffer = 0.22;
+    else player.attackBuffer = Math.max(0, player.attackBuffer - dt);
+    if (press.dash) player.dashBuffer = 0.16;
+    else player.dashBuffer = Math.max(0, player.dashBuffer - dt);
+    if (press.spell) player.spellBuffer = 0.16;
+    else player.spellBuffer = Math.max(0, player.spellBuffer - dt);
+
+    if (player.attackT > 0) {
+      player.attackT -= dt;
+      if (player.attackT <= 0.06 && player.castT <= 0) {
+        player.comboWindow = Math.max(player.comboWindow, 0.24);
+      }
+    }
+    if (player.attackT <= 0 && player.attackLock > 0 && player.castT <= 0) player.comboWindow = Math.max(player.comboWindow, 0.24);
     if (player.castT > 0) {
       const before = player.castT;
       player.castT = Math.max(0, player.castT - dt);
@@ -1332,6 +1347,7 @@ export function mountCampaign(
       player.iframes = Math.max(player.iframes, 0.95);
       player.attackT = 0;
       player.attackLock = 0.85;
+      player.attackBuffer = 0;
       player.castT = 0;
       player.dashT = 0;
       player.charge = "idle";
@@ -1379,18 +1395,20 @@ export function mountCampaign(
       player.vx = 0;
       if (player.grounded) player.vy = 0;
     } else if (player.hurtT <= 0) {
-      if (press.attack && !player.guard && player.castT <= 0 && player.charge !== "wind" && (player.attackLock <= 0 || player.comboWindow > 0)) {
+      if ((press.attack || player.attackBuffer > 0) && !player.guard && player.castT <= 0 && player.charge !== "wind" && (player.attackLock <= 0 || player.comboWindow > 0)) {
+        player.attackBuffer = 0;
         player.swingId++;
         const down = aimDown && !player.grounded && !player.crouching;
         player.attackKind = down ? "down" : aimUp ? "up" : player.crouching ? "crouch" : "side";
         player.combo = (player.attackKind === "side" || player.attackKind === "crouch") && player.comboWindow > 0 ? (player.combo + 1) % 3 : 0;
         player.attackT = 0.20;
-        player.attackLock = 0.20;
+        player.attackLock = 0.18;
         player.comboWindow = 0;
         if (player.combo === 2) sound.playSfx("slashHeavy");
         else sound.playSfx("slash");
       }
-      if (press.spell && !player.guard && player.castT <= 0) {
+      if ((press.spell || player.spellBuffer > 0) && !player.guard && player.castT <= 0) {
+        player.spellBuffer = 0;
         if (player.mana < T.spellCost) {
           player.toast = "Mana insuficiente.";
           player.toastT = 0.6;
@@ -1405,7 +1423,8 @@ export function mountCampaign(
           sound.playSfx("spell");
         }
       }
-      if (press.dash && player.dashCd <= 0 && player.dashT <= 0) {
+      if ((press.dash || player.dashBuffer > 0) && player.dashCd <= 0 && player.dashT <= 0) {
+        player.dashBuffer = 0;
         const d = (dir !== 0 ? dir : player.facing) as 1 | -1;
         player.dashT = T.dashTime;
         player.dashCd = T.dashCooldown;
@@ -4145,27 +4164,35 @@ export function mountCampaign(
     acc += Math.min(0.05, (now - last) / 1000);
     last = now;
     const held = actions();
-    const press = {
-      jump: held.has("jump") && !prev.has("jump"),
-      attack: held.has("attack") && !prev.has("attack"),
-      dash: held.has("dash") && !prev.has("dash"),
-      spell: held.has("spell") && !prev.has("spell"),
-      special: held.has("special") && !prev.has("special"),
+    const hasKeyAction = (act: Action) => {
+      for (const code of keysDownThisFrame) {
+        if (CODE[code]?.includes(act)) return true;
+      }
+      return false;
     };
-    prev = held;
-    let first = true;
+    const press = {
+      jump: pointerDownThisFrame.has("jump") || hasKeyAction("jump") || (held.has("jump") && !prev.has("jump")),
+      attack: pointerDownThisFrame.has("attack") || hasKeyAction("attack") || (held.has("attack") && !prev.has("attack")),
+      dash: pointerDownThisFrame.has("dash") || hasKeyAction("dash") || (held.has("dash") && !prev.has("dash")),
+      spell: pointerDownThisFrame.has("spell") || hasKeyAction("spell") || (held.has("spell") && !prev.has("spell")),
+      special: pointerDownThisFrame.has("special") || hasKeyAction("special") || (held.has("special") && !prev.has("special")),
+    };
+    let consumedInput = false;
     let steps = 0;
     while (acc >= 1 / 60 && steps < 5) {
       if (hitstop > 0) hitstop -= 1 / 60;
       else {
-        step(1 / 60, first ? press : { jump: false, attack: false, dash: false, spell: false, special: false }, held);
-        first = false;
+        step(1 / 60, !consumedInput ? press : { jump: false, attack: false, dash: false, spell: false, special: false }, held);
+        consumedInput = true;
       }
       acc -= 1 / 60;
       steps++;
     }
-    keysDownThisFrame.clear();
-    pointerDownThisFrame.clear();
+    if (consumedInput) {
+      prev = held;
+      keysDownThisFrame.clear();
+      pointerDownThisFrame.clear();
+    }
     draw();
     const bossObj = enemies.find((e) => e.boss && !e.dead);
     const wantsBossIntro = !!bossObj && !bossIntroPlayed && (bossObj.x < camX + T.viewW + 24 || player.x > bossObj.homeX - 460 || bossObj.hp < bossObj.max);

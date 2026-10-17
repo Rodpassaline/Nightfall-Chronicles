@@ -240,25 +240,17 @@ export function GameScreen() {
       apiRef.current.setHeld("right", false);
     }
 
-    // Vertical movement (aimDown to crouch/drop, aimUp to look/jump)
+    // Vertical movement (aimDown to crouch/drop, aimUp to look up — never override the right-hand PULO button!)
     const deadY = 16;
     if (dy > deadY) {
       apiRef.current.setHeld("aimDown", true);
       apiRef.current.setHeld("aimUp", false);
-      apiRef.current.setHeld("jump", false);
     } else if (dy < -deadY) {
       apiRef.current.setHeld("aimUp", true);
       apiRef.current.setHeld("aimDown", false);
-      // If pushed further up, also trigger jump
-      if (dy < -28) {
-        apiRef.current.setHeld("jump", true);
-      } else {
-        apiRef.current.setHeld("jump", false);
-      }
     } else {
       apiRef.current.setHeld("aimDown", false);
       apiRef.current.setHeld("aimUp", false);
-      apiRef.current.setHeld("jump", false);
     }
   };
 
@@ -284,20 +276,19 @@ export function GameScreen() {
       apiRef.current.setHeld("right", false);
       apiRef.current.setHeld("aimDown", false);
       apiRef.current.setHeld("aimUp", false);
-      apiRef.current.setHeld("jump", false);
     }
   };
 
   // Right Side Action Button Handlers (Attack, Jump, Dash, Spell, Guard, Special)
-  const handleActionDown = (e: React.PointerEvent<HTMLButtonElement>, action: "attack" | "jump" | "dash" | "spell" | "guard" | "special") => {
+  // Supports both direct Touch events (zero-latency multi-touch on smartphones) and Pointer events without pointer-capture contention
+  const handleActionDown = (
+    e: React.PointerEvent<HTMLButtonElement> | React.TouchEvent<HTMLButtonElement>,
+    action: "attack" | "jump" | "dash" | "spell" | "guard" | "special",
+  ) => {
     e.preventDefault();
     e.stopPropagation();
-    try {
-      e.currentTarget.setPointerCapture(e.pointerId);
-    } catch {
-      // ignore
-    }
     setHeldActions((prev) => {
+      if (prev.has(action)) return prev;
       const next = new Set(prev);
       next.add(action);
       return next;
@@ -305,10 +296,14 @@ export function GameScreen() {
     apiRef.current?.setHeld(action, true);
   };
 
-  const handleActionUp = (e: React.PointerEvent<HTMLButtonElement>, action: "attack" | "jump" | "dash" | "spell" | "guard" | "special") => {
+  const handleActionUp = (
+    e: React.PointerEvent<HTMLButtonElement> | React.TouchEvent<HTMLButtonElement>,
+    action: "attack" | "jump" | "dash" | "spell" | "guard" | "special",
+  ) => {
     e.preventDefault();
     e.stopPropagation();
     setHeldActions((prev) => {
+      if (!prev.has(action)) return prev;
       const next = new Set(prev);
       next.delete(action);
       return next;
@@ -597,9 +592,17 @@ export function GameScreen() {
         height={270}
         tabIndex={0}
         aria-label={`Fase ${level.title}`}
-        className="pixel-canvas-fullscreen focus:outline-none"
-        onMouseDown={() => apiRef.current?.setHeld("attack", true)}
-        onMouseUp={() => apiRef.current?.setHeld("attack", false)}
+        className="pixel-canvas-fullscreen focus:outline-none touch-none"
+        onMouseDown={() => {
+          if (!showTouchControls && !isMobileDevice) {
+            apiRef.current?.setHeld("attack", true);
+          }
+        }}
+        onMouseUp={() => {
+          if (!showTouchControls && !isMobileDevice) {
+            apiRef.current?.setHeld("attack", false);
+          }
+        }}
       />
 
       {/* Left Half Touchscreen Movement Zone (Active across the entire left 50% of the screen) */}
@@ -687,18 +690,21 @@ export function GameScreen() {
           {/* 1. PRIMARY ATTACK BUTTON (Large Fire/Sword Circle inset from bottom-right, Free Fire Main Fire position) */}
           <button
             type="button"
-            className={`pointer-events-auto absolute bottom-[54px] right-[92px] sm:bottom-[64px] sm:right-[108px] h-[78px] w-[78px] sm:h-[86px] sm:w-[86px] rounded-full border-2 flex flex-col items-center justify-center transition-all duration-75 active:scale-90 shadow-2xl ${
+            className={`pointer-events-auto touch-none after:content-[''] after:absolute after:-inset-2.5 after:rounded-full absolute bottom-[54px] right-[92px] sm:bottom-[64px] sm:right-[108px] h-[78px] w-[78px] sm:h-[86px] sm:w-[86px] rounded-full border-2 flex flex-col items-center justify-center transition-all duration-75 active:scale-90 shadow-2xl ${
               heldActions.has("attack")
                 ? "border-red-400 bg-red-600/80 scale-90 shadow-[0_0_26px_rgba(239,68,68,0.95)] text-white"
                 : "border-white/45 bg-black/45 backdrop-blur-[2px] text-white hover:border-white/70 shadow-[0_4px_18px_rgba(0,0,0,0.65)]"
             }`}
+            onTouchStart={(e) => handleActionDown(e, "attack")}
+            onTouchEnd={(e) => handleActionUp(e, "attack")}
+            onTouchCancel={(e) => handleActionUp(e, "attack")}
             onPointerDown={(e) => handleActionDown(e, "attack")}
             onPointerUp={(e) => handleActionUp(e, "attack")}
             onPointerCancel={(e) => handleActionUp(e, "attack")}
           >
             <div className="pointer-events-none absolute inset-1.5 rounded-full border border-white/20" />
-            <Sword className="h-8 w-8 sm:h-9 sm:w-9 -rotate-45 text-white drop-shadow-[0_2px_4px_rgba(0,0,0,0.9)]" />
-            <span className="text-[8.5px] font-display font-bold tracking-wider leading-none mt-0.5 text-white/90">
+            <Sword className="pointer-events-none h-8 w-8 sm:h-9 sm:w-9 -rotate-45 text-white drop-shadow-[0_2px_4px_rgba(0,0,0,0.9)]" />
+            <span className="pointer-events-none text-[8.5px] font-display font-bold tracking-wider leading-none mt-0.5 text-white/90">
               ATAQUE
             </span>
           </button>
@@ -706,18 +712,21 @@ export function GameScreen() {
           {/* 2. TOP-RIGHT ARC BUTTON: MAGIA (Free Fire Scope/Aim position at top of right edge) */}
           <button
             type="button"
-            className={`pointer-events-auto absolute bottom-[180px] right-3.5 sm:bottom-[198px] sm:right-5 h-[52px] w-[52px] sm:h-14 sm:w-14 rounded-full border-2 flex flex-col items-center justify-center transition-all duration-75 active:scale-90 shadow-xl ${
+            className={`pointer-events-auto touch-none after:content-[''] after:absolute after:-inset-2 after:rounded-full absolute bottom-[180px] right-3.5 sm:bottom-[198px] sm:right-5 h-[52px] w-[52px] sm:h-14 sm:w-14 rounded-full border-2 flex flex-col items-center justify-center transition-all duration-75 active:scale-90 shadow-xl ${
               heldActions.has("spell")
                 ? "border-purple-300 bg-purple-700/80 scale-90 shadow-[0_0_18px_rgba(168,85,247,0.95)] text-white"
                 : "border-white/35 bg-black/45 backdrop-blur-[2px] text-white/95 hover:border-white/60"
             }`}
+            onTouchStart={(e) => handleActionDown(e, "spell")}
+            onTouchEnd={(e) => handleActionUp(e, "spell")}
+            onTouchCancel={(e) => handleActionUp(e, "spell")}
             onPointerDown={(e) => handleActionDown(e, "spell")}
             onPointerUp={(e) => handleActionUp(e, "spell")}
             onPointerCancel={(e) => handleActionUp(e, "spell")}
           >
             <div className="pointer-events-none absolute inset-1 rounded-full border border-white/15" />
-            <Sparkles className="h-5 w-5 text-purple-200 drop-shadow" />
-            <span className="text-[7.5px] font-display font-bold tracking-tight leading-none mt-0.5 text-white/90">
+            <Sparkles className="pointer-events-none h-5 w-5 text-purple-200 drop-shadow" />
+            <span className="pointer-events-none text-[7.5px] font-display font-bold tracking-tight leading-none mt-0.5 text-white/90">
               MAGIA
             </span>
           </button>
@@ -725,18 +734,21 @@ export function GameScreen() {
           {/* 3. MIDDLE-RIGHT ARC BUTTON: PULO (Free Fire Jump position at middle of right edge) */}
           <button
             type="button"
-            className={`pointer-events-auto absolute bottom-[96px] right-3.5 sm:bottom-[106px] sm:right-5 h-[52px] w-[52px] sm:h-14 sm:w-14 rounded-full border-2 flex flex-col items-center justify-center transition-all duration-75 active:scale-90 shadow-xl ${
+            className={`pointer-events-auto touch-none after:content-[''] after:absolute after:-inset-2 after:rounded-full absolute bottom-[96px] right-3.5 sm:bottom-[106px] sm:right-5 h-[52px] w-[52px] sm:h-14 sm:w-14 rounded-full border-2 flex flex-col items-center justify-center transition-all duration-75 active:scale-90 shadow-xl ${
               heldActions.has("jump")
                 ? "border-amber-300 bg-amber-600/80 scale-90 shadow-[0_0_18px_rgba(245,158,11,0.95)] text-white"
                 : "border-white/35 bg-black/45 backdrop-blur-[2px] text-white/95 hover:border-white/60"
             }`}
+            onTouchStart={(e) => handleActionDown(e, "jump")}
+            onTouchEnd={(e) => handleActionUp(e, "jump")}
+            onTouchCancel={(e) => handleActionUp(e, "jump")}
             onPointerDown={(e) => handleActionDown(e, "jump")}
             onPointerUp={(e) => handleActionUp(e, "jump")}
             onPointerCancel={(e) => handleActionUp(e, "jump")}
           >
             <div className="pointer-events-none absolute inset-1 rounded-full border border-white/15" />
-            <ChevronsUp className="h-6 w-6 text-white drop-shadow" />
-            <span className="text-[7.5px] font-display font-bold tracking-tight leading-none mt-0.5 text-white/90">
+            <ChevronsUp className="pointer-events-none h-6 w-6 text-white drop-shadow" />
+            <span className="pointer-events-none text-[7.5px] font-display font-bold tracking-tight leading-none mt-0.5 text-white/90">
               PULO
             </span>
           </button>
@@ -744,18 +756,21 @@ export function GameScreen() {
           {/* 4. BOTTOM-RIGHT CORNER BUTTON: DASH (Free Fire Crouch position at bottom-right corner) */}
           <button
             type="button"
-            className={`pointer-events-auto absolute bottom-3.5 right-3.5 sm:bottom-4 sm:right-5 h-[52px] w-[52px] sm:h-14 sm:w-14 rounded-full border-2 flex flex-col items-center justify-center transition-all duration-75 active:scale-90 shadow-xl ${
+            className={`pointer-events-auto touch-none after:content-[''] after:absolute after:-inset-2 after:rounded-full absolute bottom-3.5 right-3.5 sm:bottom-4 sm:right-5 h-[52px] w-[52px] sm:h-14 sm:w-14 rounded-full border-2 flex flex-col items-center justify-center transition-all duration-75 active:scale-90 shadow-xl ${
               heldActions.has("dash")
                 ? "border-cyan-300 bg-cyan-700/80 scale-90 shadow-[0_0_18px_rgba(34,211,238,0.95)] text-white"
                 : "border-white/35 bg-black/45 backdrop-blur-[2px] text-white/95 hover:border-white/60"
             }`}
+            onTouchStart={(e) => handleActionDown(e, "dash")}
+            onTouchEnd={(e) => handleActionUp(e, "dash")}
+            onTouchCancel={(e) => handleActionUp(e, "dash")}
             onPointerDown={(e) => handleActionDown(e, "dash")}
             onPointerUp={(e) => handleActionUp(e, "dash")}
             onPointerCancel={(e) => handleActionUp(e, "dash")}
           >
             <div className="pointer-events-none absolute inset-1 rounded-full border border-white/15" />
-            <Wind className="h-5 w-5 text-cyan-200 drop-shadow" />
-            <span className="text-[7.5px] font-display font-bold tracking-tight leading-none mt-0.5 text-white/90">
+            <Wind className="pointer-events-none h-5 w-5 text-cyan-200 drop-shadow" />
+            <span className="pointer-events-none text-[7.5px] font-display font-bold tracking-tight leading-none mt-0.5 text-white/90">
               DASH
             </span>
           </button>
@@ -763,18 +778,21 @@ export function GameScreen() {
           {/* 5. BOTTOM-LEFT OF ATTACK CLUSTER: ESCUDO (Free Fire Prone position to bottom-left of Fire button) */}
           <button
             type="button"
-            className={`pointer-events-auto absolute bottom-3.5 right-[182px] sm:bottom-4 sm:right-[208px] h-[50px] w-[50px] sm:h-[54px] sm:w-[54px] rounded-full border-2 flex flex-col items-center justify-center transition-all duration-75 active:scale-90 shadow-xl ${
+            className={`pointer-events-auto touch-none after:content-[''] after:absolute after:-inset-2 after:rounded-full absolute bottom-3.5 right-[182px] sm:bottom-4 sm:right-[208px] h-[50px] w-[50px] sm:h-[54px] sm:w-[54px] rounded-full border-2 flex flex-col items-center justify-center transition-all duration-75 active:scale-90 shadow-xl ${
               heldActions.has("guard")
                 ? "border-gold bg-amber-800/85 scale-90 shadow-[0_0_16px_rgba(200,160,80,0.9)] text-white"
                 : "border-white/35 bg-black/45 backdrop-blur-[2px] text-white/90 hover:border-white/60"
             }`}
+            onTouchStart={(e) => handleActionDown(e, "guard")}
+            onTouchEnd={(e) => handleActionUp(e, "guard")}
+            onTouchCancel={(e) => handleActionUp(e, "guard")}
             onPointerDown={(e) => handleActionDown(e, "guard")}
             onPointerUp={(e) => handleActionUp(e, "guard")}
             onPointerCancel={(e) => handleActionUp(e, "guard")}
           >
             <div className="pointer-events-none absolute inset-1 rounded-full border border-white/15" />
-            <Shield className="h-4 w-4 sm:h-5 sm:w-5 text-amber-200 drop-shadow" />
-            <span className="text-[7px] font-display font-bold tracking-tight leading-none mt-0.5 text-white/90">
+            <Shield className="pointer-events-none h-4 w-4 sm:h-5 sm:w-5 text-amber-200 drop-shadow" />
+            <span className="pointer-events-none text-[7px] font-display font-bold tracking-tight leading-none mt-0.5 text-white/90">
               ESCUDO
             </span>
           </button>
@@ -782,21 +800,24 @@ export function GameScreen() {
           {/* 6. UPPER-LEFT OF ATTACK BUTTON: ESPECIAL (Free Fire Gloo Wall / Skill position to upper-left of Fire button) */}
           <button
             type="button"
-            className={`pointer-events-auto absolute bottom-[122px] right-[188px] sm:bottom-[136px] sm:right-[214px] h-[56px] w-[56px] sm:h-[60px] sm:w-[60px] rounded-full border-2 flex flex-col items-center justify-center transition-all duration-75 active:scale-90 shadow-xl ${
+            className={`pointer-events-auto touch-none after:content-[''] after:absolute after:-inset-2 after:rounded-full absolute bottom-[122px] right-[188px] sm:bottom-[136px] sm:right-[214px] h-[56px] w-[56px] sm:h-[60px] sm:w-[60px] rounded-full border-2 flex flex-col items-center justify-center transition-all duration-75 active:scale-90 shadow-xl ${
               heldActions.has("special")
                 ? "border-red-300 bg-red-600 scale-90 shadow-[0_0_24px_rgba(255,23,68,1)] text-white"
                 : hud.specialReady
                   ? "border-red-500 bg-red-950/85 backdrop-blur-[2px] text-red-200 animate-pulse shadow-[0_0_18px_rgba(255,23,68,0.85)]"
                   : "border-white/30 bg-black/45 backdrop-blur-[2px] text-white/75 hover:border-white/50"
             }`}
+            onTouchStart={(e) => handleActionDown(e, "special")}
+            onTouchEnd={(e) => handleActionUp(e, "special")}
+            onTouchCancel={(e) => handleActionUp(e, "special")}
             onPointerDown={(e) => handleActionDown(e, "special")}
             onPointerUp={(e) => handleActionUp(e, "special")}
             onPointerCancel={(e) => handleActionUp(e, "special")}
             title="Golpe Especial (Golpe Crescente)"
           >
             <div className="pointer-events-none absolute inset-1 rounded-full border border-white/15" />
-            <Flame className={`h-5 w-5 ${hud.specialReady ? "text-red-400 fill-red-500" : "text-red-400/70"}`} />
-            <span className="text-[7px] font-display font-bold tracking-tighter leading-none mt-0.5">
+            <Flame className={`pointer-events-none h-5 w-5 ${hud.specialReady ? "text-red-400 fill-red-500" : "text-red-400/70"}`} />
+            <span className="pointer-events-none text-[7px] font-display font-bold tracking-tighter leading-none mt-0.5">
               {hud.specialReady ? "ESPECIAL!" : `${hud.special}%`}
             </span>
           </button>
