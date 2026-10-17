@@ -67,12 +67,51 @@ export function GameScreen() {
     setMuted(false);
   }, []);
 
+  const [isMobileDevice, setIsMobileDevice] = useState(() => {
+    if (typeof window === "undefined") return false;
+    const cap = (window as unknown as { Capacitor?: { isNativePlatform?: () => boolean } }).Capacitor;
+    return (
+      Boolean(cap?.isNativePlatform?.()) ||
+      "ontouchstart" in window ||
+      navigator.maxTouchPoints > 0 ||
+      window.innerWidth <= 1024 ||
+      window.matchMedia?.("(pointer: coarse)")?.matches === true
+    );
+  });
+
+  const ensureMobileFullscreen = () => {
+    if (typeof window === "undefined") return;
+    const cap = (window as unknown as { Capacitor?: { isNativePlatform?: () => boolean } }).Capacitor;
+    // In Capacitor native Android, fullscreen is already enforced natively by MainActivity
+    if (cap?.isNativePlatform?.()) return;
+    if (
+      ("ontouchstart" in window || navigator.maxTouchPoints > 0 || window.innerWidth <= 1024) &&
+      !document.fullscreenElement &&
+      document.documentElement.requestFullscreen
+    ) {
+      document.documentElement.requestFullscreen().catch(() => {});
+    }
+  };
+
   useEffect(() => {
     const onFsChange = () => {
       setIsFullscreen(Boolean(document.fullscreenElement));
     };
+    const onResize = () => {
+      const cap = (window as unknown as { Capacitor?: { isNativePlatform?: () => boolean } }).Capacitor;
+      const mobile =
+        Boolean(cap?.isNativePlatform?.()) ||
+        "ontouchstart" in window ||
+        navigator.maxTouchPoints > 0 ||
+        window.innerWidth <= 1024;
+      setIsMobileDevice(mobile);
+    };
     document.addEventListener("fullscreenchange", onFsChange);
-    return () => document.removeEventListener("fullscreenchange", onFsChange);
+    window.addEventListener("resize", onResize);
+    return () => {
+      document.removeEventListener("fullscreenchange", onFsChange);
+      window.removeEventListener("resize", onResize);
+    };
   }, []);
 
   const toggleFullscreen = () => {
@@ -86,7 +125,9 @@ export function GameScreen() {
   // Touchscreen Controls State (Default on for mobile/tablets or screens <= 1024px)
   const [showTouchControls, setShowTouchControls] = useState(() => {
     if (typeof window === "undefined") return true;
+    const cap = (window as unknown as { Capacitor?: { isNativePlatform?: () => boolean } }).Capacitor;
     return (
+      Boolean(cap?.isNativePlatform?.()) ||
       "ontouchstart" in window ||
       navigator.maxTouchPoints > 0 ||
       window.innerWidth <= 1024
@@ -281,6 +322,7 @@ export function GameScreen() {
 
   useEffect(() => {
     const handleGesture = () => {
+      ensureMobileFullscreen();
       sound.resumePlayback();
       if (!sound.isMuted() && (mode === "title" || mode === "stages")) {
         sound.playBgm("title");
@@ -314,6 +356,7 @@ export function GameScreen() {
   };
 
   const startIntro = () => {
+    ensureMobileFullscreen();
     sound.init();
     sound.playBgm("title");
     setMode("intro");
@@ -326,6 +369,7 @@ export function GameScreen() {
       isStartingRef.current = false;
     }, 500);
 
+    ensureMobileFullscreen();
     sound.init();
     // Se o jogador clica em iniciar pela primeira vez (ou se não assistiu ao prólogo), exibe a narrativa épica
     if (!hasSeenIntro && progress.cleared.length === 0) {
@@ -386,6 +430,7 @@ export function GameScreen() {
   const continueId = levels.find((item) => item.id <= progress.unlocked && !progress.cleared.includes(item.id))?.id ?? progress.unlocked;
 
   const play = (id: number) => {
+    ensureMobileFullscreen();
     sound.setMuted(false);
     setMuted(false);
     sound.init();
@@ -404,6 +449,7 @@ export function GameScreen() {
         onToggleMute={toggleAudio}
         isFullscreen={isFullscreen}
         onToggleFullscreen={toggleFullscreen}
+        hideFullscreenButton={isMobileDevice}
       />
     );
   }
@@ -568,181 +614,192 @@ export function GameScreen() {
         />
       ) : null}
 
-      {/* Floating Joystick Visual Indicator on Left Half */}
-      {showTouchControls && joystick.active ? (
+      {/* Free Fire Style Virtual Joystick on Left Half (Always visible when touch controls enabled) */}
+      {showTouchControls ? (
         <div
-          className="absolute pointer-events-none z-30 select-none -translate-x-1/2 -translate-y-1/2 transition-opacity duration-75"
-          style={{
-            left: `${joystick.originX}px`,
-            top: `${joystick.originY}px`,
-          }}
+          className={`absolute pointer-events-none z-30 select-none transition-opacity duration-75 ${
+            joystick.active
+              ? "-translate-x-1/2 -translate-y-1/2 opacity-95"
+              : "bottom-7 left-8 sm:bottom-9 sm:left-12 opacity-75"
+          }`}
+          style={
+            joystick.active
+              ? {
+                  left: `${joystick.originX}px`,
+                  top: `${joystick.originY}px`,
+                }
+              : undefined
+          }
         >
-          {/* Base Ring with Pips */}
-          <div className="relative w-24 h-24 rounded-full border-2 border-gold/70 bg-black/60 backdrop-blur-sm shadow-[0_0_20px_rgba(200,160,80,0.4)] flex items-center justify-center">
-            {/* Directional Pips */}
+          {/* Free Fire Style Translucent Outer Base Ring */}
+          <div className="relative w-28 h-28 sm:w-32 sm:h-32 rounded-full border-2 border-white/30 bg-black/25 backdrop-blur-[1px] shadow-[inset_0_0_18px_rgba(0,0,0,0.5)] flex items-center justify-center">
+            {/* Subtle Inner Guide Circle */}
+            <div className="w-16 h-16 rounded-full border border-white/15 pointer-events-none" />
+
+            {/* Directional Rim Chevrons */}
             <span
-              className={`absolute top-1 text-[11px] font-bold ${
-                joystick.dy < -16 ? "text-gold scale-125 shadow-[0_0_8px_rgba(255,215,0,0.9)]" : "text-gold/40"
+              className={`absolute top-1.5 text-[10px] font-bold transition-transform ${
+                joystick.active && joystick.dy < -16 ? "text-white scale-125" : "text-white/35"
               }`}
             >
               ▲
             </span>
             <span
-              className={`absolute bottom-1 text-[11px] font-bold ${
-                joystick.dy > 16 ? "text-gold scale-125 shadow-[0_0_8px_rgba(255,215,0,0.9)]" : "text-gold/40"
+              className={`absolute bottom-1.5 text-[10px] font-bold transition-transform ${
+                joystick.active && joystick.dy > 16 ? "text-white scale-125" : "text-white/35"
               }`}
             >
               ▼
             </span>
             <span
-              className={`absolute left-1.5 text-[11px] font-bold ${
-                joystick.dx < -12 ? "text-gold scale-125 shadow-[0_0_8px_rgba(255,215,0,0.9)]" : "text-gold/40"
+              className={`absolute left-1.5 text-[10px] font-bold transition-transform ${
+                joystick.active && joystick.dx < -12 ? "text-white scale-125" : "text-white/35"
               }`}
             >
               ◀
             </span>
             <span
-              className={`absolute right-1.5 text-[11px] font-bold ${
-                joystick.dx > 12 ? "text-gold scale-125 shadow-[0_0_8px_rgba(255,215,0,0.9)]" : "text-gold/40"
+              className={`absolute right-1.5 text-[10px] font-bold transition-transform ${
+                joystick.active && joystick.dx > 12 ? "text-white scale-125" : "text-white/35"
               }`}
             >
               ▶
             </span>
 
-            {/* Moving Thumb Knob */}
+            {/* Free Fire Metallic White/Silver Thumb Knob */}
             <div
-              className="absolute w-12 h-12 rounded-full border-2 border-gold bg-gradient-to-br from-gold/90 via-blood/80 to-black shadow-[0_0_12px_rgba(200,160,80,0.7)] flex items-center justify-center"
+              className="absolute w-11 h-11 sm:w-12 sm:h-12 rounded-full border-2 border-white bg-gradient-to-b from-white/95 via-zinc-200/90 to-zinc-400/85 shadow-[0_3px_12px_rgba(0,0,0,0.75)] flex items-center justify-center"
               style={{
-                transform: `translate(${joystick.clampedDx}px, ${joystick.clampedDy}px)`,
+                transform: `translate(${joystick.active ? joystick.clampedDx : 0}px, ${
+                  joystick.active ? joystick.clampedDy : 0
+                }px)`,
               }}
             >
-              <div className="w-3.5 h-3.5 rounded-full bg-gold/90 border border-white/50" />
+              <div className="w-6 h-6 rounded-full border border-zinc-400/50 bg-white/60" />
             </div>
           </div>
         </div>
       ) : null}
 
-      {/* Idle Left Touch Zone Guide */}
-      {showTouchControls && !joystick.active ? (
-        <div className="absolute bottom-6 left-6 pointer-events-none z-20 flex flex-col items-center opacity-40 select-none animate-pulse">
-          <div className="w-20 h-20 rounded-full border border-gold/40 bg-black/40 backdrop-blur-xs flex items-center justify-center">
-            <span className="text-gold/80 text-sm">✦</span>
-          </div>
-          <span className="font-display text-[9px] text-gold/70 tracking-widest mt-1">
-            TOQUE PARA MOVER
-          </span>
-        </div>
-      ) : null}
-
-      {/* Right Half Touchscreen Action Buttons */}
+      {/* Right Half Touchscreen Action Buttons — Free Fire Ergonomic Radial Arc Layout */}
       {showTouchControls ? (
-        <div className="absolute bottom-4 right-4 sm:bottom-6 sm:right-6 z-30 flex flex-col items-end gap-2.5 pointer-events-none select-none">
-          {/* Top Row: Guard & Magic */}
-          <div className="flex items-center gap-2.5">
-            {/* Guard Button */}
-            <button
-              type="button"
-              className={`pointer-events-auto h-12 w-12 rounded-full border-2 flex flex-col items-center justify-center transition-all duration-75 active:scale-90 shadow-xl ${
-                heldActions.has("guard")
-                  ? "border-gold bg-blood/80 scale-90 shadow-[0_0_15px_rgba(200,160,80,0.8)] text-white"
-                  : "border-gold/50 bg-black/65 backdrop-blur-sm text-gold/90 hover:border-gold"
-              }`}
-              onPointerDown={(e) => handleActionDown(e, "guard")}
-              onPointerUp={(e) => handleActionUp(e, "guard")}
-              onPointerCancel={(e) => handleActionUp(e, "guard")}
-            >
-              <Shield className="h-4 w-4" />
-              <span className="text-[7.5px] font-display font-bold tracking-tighter leading-none mt-0.5">ESCUDO</span>
-            </button>
+        <div className="absolute inset-0 z-30 pointer-events-none select-none overflow-hidden">
+          {/* 1. PRIMARY ATTACK BUTTON (Large Fire/Sword Circle inset from bottom-right, Free Fire Main Fire position) */}
+          <button
+            type="button"
+            className={`pointer-events-auto absolute bottom-[54px] right-[92px] sm:bottom-[64px] sm:right-[108px] h-[78px] w-[78px] sm:h-[86px] sm:w-[86px] rounded-full border-2 flex flex-col items-center justify-center transition-all duration-75 active:scale-90 shadow-2xl ${
+              heldActions.has("attack")
+                ? "border-red-400 bg-red-600/80 scale-90 shadow-[0_0_26px_rgba(239,68,68,0.95)] text-white"
+                : "border-white/45 bg-black/45 backdrop-blur-[2px] text-white hover:border-white/70 shadow-[0_4px_18px_rgba(0,0,0,0.65)]"
+            }`}
+            onPointerDown={(e) => handleActionDown(e, "attack")}
+            onPointerUp={(e) => handleActionUp(e, "attack")}
+            onPointerCancel={(e) => handleActionUp(e, "attack")}
+          >
+            <div className="pointer-events-none absolute inset-1.5 rounded-full border border-white/20" />
+            <Sword className="h-8 w-8 sm:h-9 sm:w-9 -rotate-45 text-white drop-shadow-[0_2px_4px_rgba(0,0,0,0.9)]" />
+            <span className="text-[8.5px] font-display font-bold tracking-wider leading-none mt-0.5 text-white/90">
+              ATAQUE
+            </span>
+          </button>
 
-            {/* Magic Button */}
-            <button
-              type="button"
-              className={`pointer-events-auto h-14 w-14 rounded-full border-2 flex flex-col items-center justify-center transition-all duration-75 active:scale-90 shadow-xl ${
-                heldActions.has("spell")
-                  ? "border-purple-400 bg-purple-900/90 scale-90 shadow-[0_0_15px_rgba(168,85,247,0.9)] text-white"
-                  : "border-purple-400/60 bg-black/65 backdrop-blur-sm text-purple-300 hover:border-purple-400"
-              }`}
-              onPointerDown={(e) => handleActionDown(e, "spell")}
-              onPointerUp={(e) => handleActionUp(e, "spell")}
-              onPointerCancel={(e) => handleActionUp(e, "spell")}
-            >
-              <Sparkles className="h-5 w-5" />
-              <span className="text-[8px] font-display font-bold tracking-tighter leading-none mt-0.5">MAGIA</span>
-            </button>
+          {/* 2. TOP-RIGHT ARC BUTTON: MAGIA (Free Fire Scope/Aim position at top of right edge) */}
+          <button
+            type="button"
+            className={`pointer-events-auto absolute bottom-[180px] right-3.5 sm:bottom-[198px] sm:right-5 h-[52px] w-[52px] sm:h-14 sm:w-14 rounded-full border-2 flex flex-col items-center justify-center transition-all duration-75 active:scale-90 shadow-xl ${
+              heldActions.has("spell")
+                ? "border-purple-300 bg-purple-700/80 scale-90 shadow-[0_0_18px_rgba(168,85,247,0.95)] text-white"
+                : "border-white/35 bg-black/45 backdrop-blur-[2px] text-white/95 hover:border-white/60"
+            }`}
+            onPointerDown={(e) => handleActionDown(e, "spell")}
+            onPointerUp={(e) => handleActionUp(e, "spell")}
+            onPointerCancel={(e) => handleActionUp(e, "spell")}
+          >
+            <div className="pointer-events-none absolute inset-1 rounded-full border border-white/15" />
+            <Sparkles className="h-5 w-5 text-purple-200 drop-shadow" />
+            <span className="text-[7.5px] font-display font-bold tracking-tight leading-none mt-0.5 text-white/90">
+              MAGIA
+            </span>
+          </button>
 
-            {/* Special Button ("Golpe Crescente") */}
-            <button
-              type="button"
-              className={`pointer-events-auto h-14 w-14 rounded-full border-2 flex flex-col items-center justify-center transition-all duration-75 active:scale-90 shadow-xl ${
-                heldActions.has("special")
-                  ? "border-red-400 bg-red-600 scale-90 shadow-[0_0_20px_rgba(255,23,68,1)] text-white"
-                  : hud.specialReady
-                    ? "border-red-500 bg-red-950/90 backdrop-blur-sm text-red-300 hover:border-red-400 animate-pulse shadow-[0_0_16px_rgba(255,23,68,0.8)]"
-                    : "border-red-950/40 bg-black/65 backdrop-blur-sm text-red-500/50 hover:border-red-900/60"
-              }`}
-              onPointerDown={(e) => handleActionDown(e, "special")}
-              onPointerUp={(e) => handleActionUp(e, "special")}
-              onPointerCancel={(e) => handleActionUp(e, "special")}
-              title="Golpe Especial (Ataque + Magia ou Botão Especial)"
-            >
-              <Flame className={`h-5 w-5 ${hud.specialReady ? "text-red-400 fill-red-500" : ""}`} />
-              <span className="text-[7.5px] font-display font-bold tracking-tighter leading-none mt-0.5">
-                {hud.specialReady ? "ESPECIAL!" : "ESPECIAL"}
-              </span>
-            </button>
-          </div>
+          {/* 3. MIDDLE-RIGHT ARC BUTTON: PULO (Free Fire Jump position at middle of right edge) */}
+          <button
+            type="button"
+            className={`pointer-events-auto absolute bottom-[96px] right-3.5 sm:bottom-[106px] sm:right-5 h-[52px] w-[52px] sm:h-14 sm:w-14 rounded-full border-2 flex flex-col items-center justify-center transition-all duration-75 active:scale-90 shadow-xl ${
+              heldActions.has("jump")
+                ? "border-amber-300 bg-amber-600/80 scale-90 shadow-[0_0_18px_rgba(245,158,11,0.95)] text-white"
+                : "border-white/35 bg-black/45 backdrop-blur-[2px] text-white/95 hover:border-white/60"
+            }`}
+            onPointerDown={(e) => handleActionDown(e, "jump")}
+            onPointerUp={(e) => handleActionUp(e, "jump")}
+            onPointerCancel={(e) => handleActionUp(e, "jump")}
+          >
+            <div className="pointer-events-none absolute inset-1 rounded-full border border-white/15" />
+            <ChevronsUp className="h-6 w-6 text-white drop-shadow" />
+            <span className="text-[7.5px] font-display font-bold tracking-tight leading-none mt-0.5 text-white/90">
+              PULO
+            </span>
+          </button>
 
-          {/* Bottom Row: Dash, Jump & Primary Attack */}
-          <div className="flex items-center gap-2.5">
-            {/* Dash Button */}
-            <button
-              type="button"
-              className={`pointer-events-auto h-13 w-13 rounded-full border-2 flex flex-col items-center justify-center transition-all duration-75 active:scale-90 shadow-xl ${
-                heldActions.has("dash")
-                  ? "border-cyan-400 bg-cyan-900/90 scale-90 shadow-[0_0_15px_rgba(34,211,238,0.9)] text-white"
-                  : "border-cyan-500/60 bg-black/65 backdrop-blur-sm text-cyan-300 hover:border-cyan-400"
-              }`}
-              onPointerDown={(e) => handleActionDown(e, "dash")}
-              onPointerUp={(e) => handleActionUp(e, "dash")}
-              onPointerCancel={(e) => handleActionUp(e, "dash")}
-            >
-              <Wind className="h-5 w-5" />
-              <span className="text-[8px] font-display font-bold tracking-tighter leading-none mt-0.5">DASH</span>
-            </button>
+          {/* 4. BOTTOM-RIGHT CORNER BUTTON: DASH (Free Fire Crouch position at bottom-right corner) */}
+          <button
+            type="button"
+            className={`pointer-events-auto absolute bottom-3.5 right-3.5 sm:bottom-4 sm:right-5 h-[52px] w-[52px] sm:h-14 sm:w-14 rounded-full border-2 flex flex-col items-center justify-center transition-all duration-75 active:scale-90 shadow-xl ${
+              heldActions.has("dash")
+                ? "border-cyan-300 bg-cyan-700/80 scale-90 shadow-[0_0_18px_rgba(34,211,238,0.95)] text-white"
+                : "border-white/35 bg-black/45 backdrop-blur-[2px] text-white/95 hover:border-white/60"
+            }`}
+            onPointerDown={(e) => handleActionDown(e, "dash")}
+            onPointerUp={(e) => handleActionUp(e, "dash")}
+            onPointerCancel={(e) => handleActionUp(e, "dash")}
+          >
+            <div className="pointer-events-none absolute inset-1 rounded-full border border-white/15" />
+            <Wind className="h-5 w-5 text-cyan-200 drop-shadow" />
+            <span className="text-[7.5px] font-display font-bold tracking-tight leading-none mt-0.5 text-white/90">
+              DASH
+            </span>
+          </button>
 
-            {/* Jump Button */}
-            <button
-              type="button"
-              className={`pointer-events-auto h-15 w-15 rounded-full border-2 flex flex-col items-center justify-center transition-all duration-75 active:scale-90 shadow-xl ${
-                heldActions.has("jump")
-                  ? "border-gold bg-gold/50 scale-90 shadow-[0_0_18px_rgba(200,160,80,0.9)] text-white"
-                  : "border-gold/70 bg-black/70 backdrop-blur-sm text-gold hover:border-gold"
-              }`}
-              onPointerDown={(e) => handleActionDown(e, "jump")}
-              onPointerUp={(e) => handleActionUp(e, "jump")}
-              onPointerCancel={(e) => handleActionUp(e, "jump")}
-            >
-              <ChevronsUp className="h-6 w-6" />
-              <span className="text-[9px] font-display font-bold tracking-wider leading-none mt-0.5">PULO</span>
-            </button>
+          {/* 5. BOTTOM-LEFT OF ATTACK CLUSTER: ESCUDO (Free Fire Prone position to bottom-left of Fire button) */}
+          <button
+            type="button"
+            className={`pointer-events-auto absolute bottom-3.5 right-[182px] sm:bottom-4 sm:right-[208px] h-[50px] w-[50px] sm:h-[54px] sm:w-[54px] rounded-full border-2 flex flex-col items-center justify-center transition-all duration-75 active:scale-90 shadow-xl ${
+              heldActions.has("guard")
+                ? "border-gold bg-amber-800/85 scale-90 shadow-[0_0_16px_rgba(200,160,80,0.9)] text-white"
+                : "border-white/35 bg-black/45 backdrop-blur-[2px] text-white/90 hover:border-white/60"
+            }`}
+            onPointerDown={(e) => handleActionDown(e, "guard")}
+            onPointerUp={(e) => handleActionUp(e, "guard")}
+            onPointerCancel={(e) => handleActionUp(e, "guard")}
+          >
+            <div className="pointer-events-none absolute inset-1 rounded-full border border-white/15" />
+            <Shield className="h-4 w-4 sm:h-5 sm:w-5 text-amber-200 drop-shadow" />
+            <span className="text-[7px] font-display font-bold tracking-tight leading-none mt-0.5 text-white/90">
+              ESCUDO
+            </span>
+          </button>
 
-            {/* Attack Button (Master Attack & Charge Button) */}
-            <button
-              type="button"
-              className={`pointer-events-auto h-18 w-18 rounded-full border-3 flex flex-col items-center justify-center transition-all duration-75 active:scale-90 shadow-2xl ${
-                heldActions.has("attack")
-                  ? "border-blood bg-blood scale-90 shadow-[0_0_24px_rgba(180,35,48,1)] text-white"
-                  : "border-blood/80 bg-black/75 backdrop-blur-sm text-blood hover:border-blood shadow-[0_0_12px_rgba(180,35,48,0.4)]"
-              }`}
-              onPointerDown={(e) => handleActionDown(e, "attack")}
-              onPointerUp={(e) => handleActionUp(e, "attack")}
-              onPointerCancel={(e) => handleActionUp(e, "attack")}
-            >
-              <Sword className="h-7 w-7 text-fg" />
-              <span className="text-[9px] font-display font-bold tracking-wider leading-none mt-0.5 text-fg">ATAQUE</span>
-            </button>
-          </div>
+          {/* 6. UPPER-LEFT OF ATTACK BUTTON: ESPECIAL (Free Fire Gloo Wall / Skill position to upper-left of Fire button) */}
+          <button
+            type="button"
+            className={`pointer-events-auto absolute bottom-[122px] right-[188px] sm:bottom-[136px] sm:right-[214px] h-[56px] w-[56px] sm:h-[60px] sm:w-[60px] rounded-full border-2 flex flex-col items-center justify-center transition-all duration-75 active:scale-90 shadow-xl ${
+              heldActions.has("special")
+                ? "border-red-300 bg-red-600 scale-90 shadow-[0_0_24px_rgba(255,23,68,1)] text-white"
+                : hud.specialReady
+                  ? "border-red-500 bg-red-950/85 backdrop-blur-[2px] text-red-200 animate-pulse shadow-[0_0_18px_rgba(255,23,68,0.85)]"
+                  : "border-white/30 bg-black/45 backdrop-blur-[2px] text-white/75 hover:border-white/50"
+            }`}
+            onPointerDown={(e) => handleActionDown(e, "special")}
+            onPointerUp={(e) => handleActionUp(e, "special")}
+            onPointerCancel={(e) => handleActionUp(e, "special")}
+            title="Golpe Especial (Golpe Crescente)"
+          >
+            <div className="pointer-events-none absolute inset-1 rounded-full border border-white/15" />
+            <Flame className={`h-5 w-5 ${hud.specialReady ? "text-red-400 fill-red-500" : "text-red-400/70"}`} />
+            <span className="text-[7px] font-display font-bold tracking-tighter leading-none mt-0.5">
+              {hud.specialReady ? "ESPECIAL!" : `${hud.special}%`}
+            </span>
+          </button>
         </div>
       ) : null}
 
@@ -845,14 +902,16 @@ export function GameScreen() {
           >
             {muted ? <VolumeX className="h-4 w-4 text-blood" /> : <Volume2 className="h-4 w-4 text-gold" />}
           </button>
-          <button
-            type="button"
-            className="flex h-8 w-8 sm:h-9 sm:w-9 items-center justify-center border border-line bg-surface/80 text-fg hover:border-gold hover:text-gold rounded transition"
-            onClick={toggleFullscreen}
-            title={isFullscreen ? "Sair da Tela Cheia" : "Tela Cheia"}
-          >
-            {isFullscreen ? <Minimize2 className="h-4 w-4 text-gold" /> : <Maximize2 className="h-4 w-4 text-fg" />}
-          </button>
+          {!isMobileDevice ? (
+            <button
+              type="button"
+              className="flex h-8 w-8 sm:h-9 sm:w-9 items-center justify-center border border-line bg-surface/80 text-fg hover:border-gold hover:text-gold rounded transition"
+              onClick={toggleFullscreen}
+              title={isFullscreen ? "Sair da Tela Cheia" : "Tela Cheia"}
+            >
+              {isFullscreen ? <Minimize2 className="h-4 w-4 text-gold" /> : <Maximize2 className="h-4 w-4 text-fg" />}
+            </button>
+          ) : null}
           <button
             type="button"
             className="h-8 sm:h-9 border border-line bg-surface/80 px-2 sm:px-2.5 font-display text-[11px] sm:text-xs tracking-wider text-fg hover:border-blood hover:text-blood rounded transition"

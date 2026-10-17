@@ -15,6 +15,7 @@ interface PrologueScreenProps {
   onToggleMute: () => void;
   isFullscreen: boolean;
   onToggleFullscreen: () => void;
+  hideFullscreenButton?: boolean;
 }
 
 interface StoryBeat {
@@ -109,6 +110,7 @@ export function PrologueScreen({
   onToggleMute,
   isFullscreen,
   onToggleFullscreen,
+  hideFullscreenButton = false,
 }: PrologueScreenProps) {
   const [currentIdx, setCurrentIdx] = useState(0);
   const [isFlashing, setIsFlashing] = useState(false);
@@ -354,19 +356,21 @@ export function PrologueScreen({
         </div>
 
         <div className="flex items-center gap-2 sm:gap-3">
-          {/* Fullscreen Button */}
-          <button
-            type="button"
-            className="inline-flex h-8 w-8 sm:h-9 sm:w-9 items-center justify-center border border-line bg-black/70 backdrop-blur-sm font-display text-xs text-fg hover:border-gold rounded transition-all cursor-pointer shadow-md"
-            onClick={onToggleFullscreen}
-            title={isFullscreen ? "Sair da Tela Cheia" : "Tela Cheia"}
-          >
-            {isFullscreen ? (
-              <Minimize2 className="h-4 w-4 text-gold" />
-            ) : (
-              <Maximize2 className="h-4 w-4 text-gold" />
-            )}
-          </button>
+          {/* Fullscreen Button (Desktop only) */}
+          {!hideFullscreenButton ? (
+            <button
+              type="button"
+              className="inline-flex h-8 w-8 sm:h-9 sm:w-9 items-center justify-center border border-line bg-black/70 backdrop-blur-sm font-display text-xs text-fg hover:border-gold rounded transition-all cursor-pointer shadow-md"
+              onClick={onToggleFullscreen}
+              title={isFullscreen ? "Sair da Tela Cheia" : "Tela Cheia"}
+            >
+              {isFullscreen ? (
+                <Minimize2 className="h-4 w-4 text-gold" />
+              ) : (
+                <Maximize2 className="h-4 w-4 text-gold" />
+              )}
+            </button>
+          ) : null}
 
           {/* Audio Button */}
           <button
