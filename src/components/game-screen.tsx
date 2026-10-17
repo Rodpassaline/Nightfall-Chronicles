@@ -311,6 +311,51 @@ export function GameScreen() {
     apiRef.current?.setHeld(action, false);
   };
 
+  // Safety release: if all touches end or window loses focus, ensure no action button stays stuck held
+  useEffect(() => {
+    const clearAllActionButtons = () => {
+      setHeldActions((prev) => (prev.size === 0 ? prev : new Set()));
+      const actions: ("attack" | "jump" | "dash" | "spell" | "guard" | "special")[] = [
+        "attack",
+        "jump",
+        "dash",
+        "spell",
+        "guard",
+        "special",
+      ];
+      for (const act of actions) {
+        apiRef.current?.setHeld(act, false);
+      }
+    };
+    const handleGlobalTouchEnd = (ev: TouchEvent) => {
+      if (ev.touches.length === 0) {
+        clearAllActionButtons();
+        return;
+      }
+      // Check if any active touch is still on an action button
+      let hasActionTouch = false;
+      for (let i = 0; i < ev.touches.length; i++) {
+        const t = ev.touches[i];
+        const el = t.target as HTMLElement | null;
+        if (el && el.closest?.("[data-action-btn]")) {
+          hasActionTouch = true;
+          break;
+        }
+      }
+      if (!hasActionTouch) {
+        clearAllActionButtons();
+      }
+    };
+    window.addEventListener("touchend", handleGlobalTouchEnd, { passive: true });
+    window.addEventListener("touchcancel", clearAllActionButtons, { passive: true });
+    window.addEventListener("blur", clearAllActionButtons);
+    return () => {
+      window.removeEventListener("touchend", handleGlobalTouchEnd);
+      window.removeEventListener("touchcancel", clearAllActionButtons);
+      window.removeEventListener("blur", clearAllActionButtons);
+    };
+  }, []);
+
   useEffect(() => {
     setProgress(loadProgress());
   }, []);
@@ -690,6 +735,7 @@ export function GameScreen() {
           {/* 1. PRIMARY ATTACK BUTTON (Large Fire/Sword Circle inset from bottom-right, Free Fire Main Fire position) */}
           <button
             type="button"
+            data-action-btn="attack"
             className={`pointer-events-auto touch-none after:content-[''] after:absolute after:-inset-2.5 after:rounded-full absolute bottom-[54px] right-[92px] sm:bottom-[64px] sm:right-[108px] h-[78px] w-[78px] sm:h-[86px] sm:w-[86px] rounded-full border-2 flex flex-col items-center justify-center transition-all duration-75 active:scale-90 shadow-2xl ${
               heldActions.has("attack")
                 ? "border-red-400 bg-red-600/80 scale-90 shadow-[0_0_26px_rgba(239,68,68,0.95)] text-white"
@@ -701,6 +747,7 @@ export function GameScreen() {
             onPointerDown={(e) => handleActionDown(e, "attack")}
             onPointerUp={(e) => handleActionUp(e, "attack")}
             onPointerCancel={(e) => handleActionUp(e, "attack")}
+            onPointerLeave={(e) => handleActionUp(e, "attack")}
           >
             <div className="pointer-events-none absolute inset-1.5 rounded-full border border-white/20" />
             <Sword className="pointer-events-none h-8 w-8 sm:h-9 sm:w-9 -rotate-45 text-white drop-shadow-[0_2px_4px_rgba(0,0,0,0.9)]" />
@@ -712,6 +759,7 @@ export function GameScreen() {
           {/* 2. TOP-RIGHT ARC BUTTON: MAGIA (Free Fire Scope/Aim position at top of right edge) */}
           <button
             type="button"
+            data-action-btn="spell"
             className={`pointer-events-auto touch-none after:content-[''] after:absolute after:-inset-2 after:rounded-full absolute bottom-[180px] right-3.5 sm:bottom-[198px] sm:right-5 h-[52px] w-[52px] sm:h-14 sm:w-14 rounded-full border-2 flex flex-col items-center justify-center transition-all duration-75 active:scale-90 shadow-xl ${
               heldActions.has("spell")
                 ? "border-purple-300 bg-purple-700/80 scale-90 shadow-[0_0_18px_rgba(168,85,247,0.95)] text-white"
@@ -723,6 +771,7 @@ export function GameScreen() {
             onPointerDown={(e) => handleActionDown(e, "spell")}
             onPointerUp={(e) => handleActionUp(e, "spell")}
             onPointerCancel={(e) => handleActionUp(e, "spell")}
+            onPointerLeave={(e) => handleActionUp(e, "spell")}
           >
             <div className="pointer-events-none absolute inset-1 rounded-full border border-white/15" />
             <Sparkles className="pointer-events-none h-5 w-5 text-purple-200 drop-shadow" />
@@ -734,6 +783,7 @@ export function GameScreen() {
           {/* 3. MIDDLE-RIGHT ARC BUTTON: PULO (Free Fire Jump position at middle of right edge) */}
           <button
             type="button"
+            data-action-btn="jump"
             className={`pointer-events-auto touch-none after:content-[''] after:absolute after:-inset-2 after:rounded-full absolute bottom-[96px] right-3.5 sm:bottom-[106px] sm:right-5 h-[52px] w-[52px] sm:h-14 sm:w-14 rounded-full border-2 flex flex-col items-center justify-center transition-all duration-75 active:scale-90 shadow-xl ${
               heldActions.has("jump")
                 ? "border-amber-300 bg-amber-600/80 scale-90 shadow-[0_0_18px_rgba(245,158,11,0.95)] text-white"
@@ -745,6 +795,7 @@ export function GameScreen() {
             onPointerDown={(e) => handleActionDown(e, "jump")}
             onPointerUp={(e) => handleActionUp(e, "jump")}
             onPointerCancel={(e) => handleActionUp(e, "jump")}
+            onPointerLeave={(e) => handleActionUp(e, "jump")}
           >
             <div className="pointer-events-none absolute inset-1 rounded-full border border-white/15" />
             <ChevronsUp className="pointer-events-none h-6 w-6 text-white drop-shadow" />
@@ -756,6 +807,7 @@ export function GameScreen() {
           {/* 4. BOTTOM-RIGHT CORNER BUTTON: DASH (Free Fire Crouch position at bottom-right corner) */}
           <button
             type="button"
+            data-action-btn="dash"
             className={`pointer-events-auto touch-none after:content-[''] after:absolute after:-inset-2 after:rounded-full absolute bottom-3.5 right-3.5 sm:bottom-4 sm:right-5 h-[52px] w-[52px] sm:h-14 sm:w-14 rounded-full border-2 flex flex-col items-center justify-center transition-all duration-75 active:scale-90 shadow-xl ${
               heldActions.has("dash")
                 ? "border-cyan-300 bg-cyan-700/80 scale-90 shadow-[0_0_18px_rgba(34,211,238,0.95)] text-white"
@@ -767,6 +819,7 @@ export function GameScreen() {
             onPointerDown={(e) => handleActionDown(e, "dash")}
             onPointerUp={(e) => handleActionUp(e, "dash")}
             onPointerCancel={(e) => handleActionUp(e, "dash")}
+            onPointerLeave={(e) => handleActionUp(e, "dash")}
           >
             <div className="pointer-events-none absolute inset-1 rounded-full border border-white/15" />
             <Wind className="pointer-events-none h-5 w-5 text-cyan-200 drop-shadow" />
@@ -778,6 +831,7 @@ export function GameScreen() {
           {/* 5. BOTTOM-LEFT OF ATTACK CLUSTER: ESCUDO (Free Fire Prone position to bottom-left of Fire button) */}
           <button
             type="button"
+            data-action-btn="guard"
             className={`pointer-events-auto touch-none after:content-[''] after:absolute after:-inset-2 after:rounded-full absolute bottom-3.5 right-[182px] sm:bottom-4 sm:right-[208px] h-[50px] w-[50px] sm:h-[54px] sm:w-[54px] rounded-full border-2 flex flex-col items-center justify-center transition-all duration-75 active:scale-90 shadow-xl ${
               heldActions.has("guard")
                 ? "border-gold bg-amber-800/85 scale-90 shadow-[0_0_16px_rgba(200,160,80,0.9)] text-white"
@@ -789,6 +843,7 @@ export function GameScreen() {
             onPointerDown={(e) => handleActionDown(e, "guard")}
             onPointerUp={(e) => handleActionUp(e, "guard")}
             onPointerCancel={(e) => handleActionUp(e, "guard")}
+            onPointerLeave={(e) => handleActionUp(e, "guard")}
           >
             <div className="pointer-events-none absolute inset-1 rounded-full border border-white/15" />
             <Shield className="pointer-events-none h-4 w-4 sm:h-5 sm:w-5 text-amber-200 drop-shadow" />
@@ -800,6 +855,7 @@ export function GameScreen() {
           {/* 6. UPPER-LEFT OF ATTACK BUTTON: ESPECIAL (Free Fire Gloo Wall / Skill position to upper-left of Fire button) */}
           <button
             type="button"
+            data-action-btn="special"
             className={`pointer-events-auto touch-none after:content-[''] after:absolute after:-inset-2 after:rounded-full absolute bottom-[122px] right-[188px] sm:bottom-[136px] sm:right-[214px] h-[56px] w-[56px] sm:h-[60px] sm:w-[60px] rounded-full border-2 flex flex-col items-center justify-center transition-all duration-75 active:scale-90 shadow-xl ${
               heldActions.has("special")
                 ? "border-red-300 bg-red-600 scale-90 shadow-[0_0_24px_rgba(255,23,68,1)] text-white"
@@ -813,6 +869,7 @@ export function GameScreen() {
             onPointerDown={(e) => handleActionDown(e, "special")}
             onPointerUp={(e) => handleActionUp(e, "special")}
             onPointerCancel={(e) => handleActionUp(e, "special")}
+            onPointerLeave={(e) => handleActionUp(e, "special")}
             title="Golpe Especial (Golpe Crescente)"
           >
             <div className="pointer-events-none absolute inset-1 rounded-full border border-white/15" />
@@ -826,26 +883,26 @@ export function GameScreen() {
 
       {/* Floating Minimalist Gothic HUD (Top) */}
       <header className="absolute top-2 left-2 right-2 sm:top-3 sm:left-4 sm:right-4 z-30 pointer-events-none flex items-start justify-between gap-2">
-        {/* Left: Player Vital Stats */}
-        <div className="flex items-center gap-2 sm:gap-3 bg-black/75 backdrop-blur-md border border-gold/40 p-1.5 sm:p-2 rounded shadow-2xl">
+        {/* Left: Player Vital Stats — STRICT CONSTANT WIDTH & HEIGHT ACROSS ALL STAGES AND SCREENS */}
+        <div className="w-[220px] sm:w-[256px] shrink-0 overflow-hidden flex items-center gap-2 sm:gap-2.5 bg-black/75 backdrop-blur-md border border-gold/40 p-1.5 sm:p-2 rounded shadow-2xl">
           <img
             src="/art/hero.jpg"
             alt="Aldric Vale"
-            className="h-8 w-8 sm:h-10 sm:w-10 border border-gold/50 object-cover object-top rounded-xs shadow"
+            className="h-9 w-9 sm:h-10 sm:w-10 shrink-0 border border-gold/50 object-cover object-top rounded-xs shadow"
           />
-          <div className="flex flex-col min-w-28 sm:min-w-36">
-            <div className="flex items-center justify-between gap-1.5">
-              <span className="font-display text-[10px] sm:text-xs text-gold tracking-widest font-bold truncate">
+          <div className="flex flex-col flex-1 min-w-0 w-full">
+            <div className="flex items-center justify-between gap-1.5 min-w-0">
+              <span className="font-display text-[10px] sm:text-xs text-gold tracking-wider font-bold truncate min-w-0 flex-1">
                 Fase {level.id} · {level.title}
               </span>
               {/* Hearts / Lives */}
-              <div className="flex items-center gap-0.5 bg-blood/30 border border-gold/40 px-1.5 py-0.2 rounded">
+              <div className="shrink-0 flex items-center gap-0.5 bg-blood/30 border border-gold/40 px-1.5 py-0.2 rounded">
                 <span className="text-[10px] text-blood font-bold leading-none">♥</span>
                 <span className="font-display text-[10px] text-gold font-bold leading-none">x{hud.lives}</span>
               </div>
             </div>
-            {/* Health Bars */}
-            <div className="mt-1 flex gap-0.5 sm:gap-1">
+            {/* Health Bars (Constant width) */}
+            <div className="mt-1 flex gap-0.5 sm:gap-1 w-full">
               {Array.from({ length: hud.maxHp }, (_, i) => (
                 <span
                   key={i}
@@ -855,25 +912,25 @@ export function GameScreen() {
                 />
               ))}
             </div>
-            {/* Mana Bar */}
-            <div className="mt-1 h-1 bg-surface-2 rounded-full overflow-hidden">
+            {/* Mana Bar (Constant width) */}
+            <div className="mt-1 h-1 w-full bg-surface-2 rounded-full overflow-hidden">
               <div
                 className="h-full bg-gold transition-all duration-150"
                 style={{ width: `${(hud.mana / hud.maxMana) * 100}%` }}
               />
             </div>
-            {/* Special Meter (Golpe Crescente) */}
-            <div className="mt-1 flex flex-col gap-0.5">
-              <div className="flex items-center justify-between text-[8px] font-display">
-                <span className={`font-bold tracking-wider flex items-center gap-0.5 ${hud.specialReady ? "text-red-400 animate-pulse font-extrabold" : "text-muted"}`}>
-                  <Flame className={`h-2.5 w-2.5 ${hud.specialReady ? "text-red-500 fill-red-500 animate-bounce" : "text-muted"}`} />
+            {/* Special Meter (Golpe Crescente — Constant width) */}
+            <div className="mt-1 flex flex-col gap-0.5 w-full">
+              <div className="flex items-center justify-between text-[8px] font-display leading-none h-3">
+                <span className={`font-bold tracking-wider flex items-center gap-0.5 truncate ${hud.specialReady ? "text-red-400 animate-pulse font-extrabold" : "text-muted"}`}>
+                  <Flame className={`h-2.5 w-2.5 shrink-0 ${hud.specialReady ? "text-red-500 fill-red-500 animate-bounce" : "text-muted"}`} />
                   {hud.specialReady ? "ESPECIAL PRONTO!" : "ESPECIAL"}
                 </span>
-                <span className={`font-bold ${hud.specialReady ? "text-red-400 font-extrabold" : "text-muted"}`}>
+                <span className={`font-bold shrink-0 ${hud.specialReady ? "text-red-400 font-extrabold" : "text-muted"}`}>
                   {hud.special}%
                 </span>
               </div>
-              <div className={`h-1.5 rounded-full overflow-hidden border ${hud.specialReady ? "border-red-500/80 bg-red-950/60 shadow-[0_0_8px_rgba(255,23,68,0.8)]" : "border-line/40 bg-surface-2"}`}>
+              <div className={`h-1.5 w-full rounded-full overflow-hidden border ${hud.specialReady ? "border-red-500/80 bg-red-950/60 shadow-[0_0_8px_rgba(255,23,68,0.8)]" : "border-line/40 bg-surface-2"}`}>
                 <div
                   className={`h-full transition-all duration-200 ${
                     hud.specialReady
@@ -887,10 +944,10 @@ export function GameScreen() {
           </div>
         </div>
 
-        {/* Center: Boss Meter (Active during Boss Fights) */}
+        {/* Center: Boss Meter (Active during Boss Fights) OR Seal Puzzle Progress */}
         {hud.bossOn ? (
-          <div className="flex flex-col items-center bg-black/85 backdrop-blur-md border border-blood/70 px-3 py-1 sm:px-4 sm:py-1.5 rounded shadow-2xl max-w-xs sm:max-w-md w-full mx-2">
-            <span className="font-display text-[10px] sm:text-xs tracking-widest text-fg font-bold uppercase truncate">
+          <div className="flex flex-col items-center bg-black/85 backdrop-blur-md border border-blood/70 px-3 py-1 sm:px-4 sm:py-1.5 rounded shadow-2xl max-w-[200px] sm:max-w-xs w-full mx-1 min-w-0">
+            <span className="font-display text-[10px] sm:text-xs tracking-widest text-fg font-bold uppercase truncate w-full text-center">
               {hud.bossName}
             </span>
             <div className="mt-1 h-1.5 sm:h-2 w-full bg-surface-2 rounded-full overflow-hidden border border-blood/40">
@@ -900,10 +957,17 @@ export function GameScreen() {
               />
             </div>
           </div>
+        ) : (hud.sealsTotal ?? 0) > 0 ? (
+          <div className="hidden xs:flex items-center gap-1.5 bg-black/75 backdrop-blur-md border border-gold/35 px-2.5 py-1 rounded shadow-xl shrink-0">
+            <span className="text-[10px] leading-none">{(hud.sealsSolved ?? 0) >= (hud.sealsTotal ?? 4) ? "⛓️" : "🔮"}</span>
+            <span className="font-display text-[9px] sm:text-[10px] tracking-wider font-bold text-gold/95">
+              SELOS {hud.sealsSolved ?? 0}/{hud.sealsTotal ?? 4}
+            </span>
+          </div>
         ) : null}
 
         {/* Right: Quick Controls (Pointer Events Enabled) */}
-        <div className="pointer-events-auto flex items-center gap-1 sm:gap-1.5 bg-black/75 backdrop-blur-md border border-gold/40 p-1 sm:p-1.5 rounded shadow-2xl">
+        <div className="pointer-events-auto shrink-0 flex items-center gap-1 sm:gap-1.5 bg-black/75 backdrop-blur-md border border-gold/40 p-1 sm:p-1.5 rounded shadow-2xl">
           <button
             type="button"
             className={`flex h-8 sm:h-9 px-2 sm:px-2.5 items-center gap-1 border border-line bg-surface/80 font-display text-[11px] sm:text-xs tracking-wider rounded transition ${

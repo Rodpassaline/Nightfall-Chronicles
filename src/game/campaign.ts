@@ -21,6 +21,8 @@ export type GameHud = {
   title: string;
   dashReady: boolean;
   charge: number;
+  sealsSolved?: number;
+  sealsTotal?: number;
 };
 
 type Action = "left" | "right" | "jump" | "aimUp" | "aimDown" | "attack" | "dash" | "spell" | "guard" | "special";
@@ -706,6 +708,15 @@ export function mountCampaign(
     const floor = spawn.kind === "bat" ? approxFloor : findFloorFor(spawn.x + w / 2, approxFloor);
     const finalY = spawn.kind === "bat" ? floor - (spawn.boss ? 56 : 74) : floor - h;
     const y = isEmerging ? floor : finalY;
+
+    // Scale enemy & boss HP so fast sword combos feel rewarding and challenging rather than melting foes
+    const stageFactor = 1 + (level.id - 1) * 0.12;
+    const scaledHp = isBoss
+      ? Math.round(spawn.hp * (2.15 + (level.id - 1) * 0.16))
+      : spawn.kind === "bat"
+        ? Math.max(3, Math.round(spawn.hp * 1.5))
+        : Math.round(spawn.hp * 1.65 * stageFactor);
+
     return {
       id: nextId++,
       kind: spawn.kind,
@@ -718,14 +729,14 @@ export function mountCampaign(
       vy: 0,
       grounded: spawn.kind !== "bat",
       wall: 0,
-      hp: spawn.hp,
-      max: spawn.hp,
+      hp: scaledHp,
+      max: scaledHp,
       facing: -1,
       boss: isBoss,
       homeX: spawn.x,
       homeY: finalY,
       t: Math.random() * 3,
-      cd: isEmerging ? 0.4 : 0.8,
+      cd: isEmerging ? 0.35 : 0.65,
       wind: 0,
       state: isEmerging
         ? "emerge"
@@ -746,6 +757,135 @@ export function mountCampaign(
       emergeY: finalY,
       alertSoundPlayed: false,
     };
+  }
+
+  // =========================================================================
+  // GOTHIC SEAL PUZZLE SYSTEM (Sealed Iron Portcullis & Runic Blood Crystals)
+  // =========================================================================
+  type SealCrystal = {
+    id: number;
+    gateId: number;
+    label: string;
+    x: number;
+    y: number;
+    w: number;
+    h: number;
+    activated: boolean;
+    pulseT: number;
+    lastSwing: number;
+  };
+
+  type SealGate = {
+    id: number;
+    x: number;
+    y: number;
+    w: number;
+    h: number;
+    open: boolean;
+    openProgress: number; // 0 = closed, 1 = fully raised into ceiling
+    warnCooldown: number;
+  };
+
+  let sealCrystals: SealCrystal[] = [];
+  let sealGates: SealGate[] = [];
+
+  function initStagePuzzles() {
+    sealCrystals = [];
+    sealGates = [];
+
+    // Stage-specific coordinates aligned with elevated platforms in each stage
+    const gate1X = level.id === 1 ? 2480 : level.id === 2 ? 2150 : level.id === 7 ? 2100 : 2180;
+    const gate2X = level.id === 1 ? 4720 : level.id === 2 ? 4840 : level.id === 7 ? 4460 : 4660;
+
+    const c1X = level.id === 2 ? 750 : 710;
+    const c1HintY = level.id === 2 ? 95 : 105;
+
+    const c2X = level.id === 1 ? 1890 : 1630;
+    const c2HintY = 75;
+
+    const c3X = level.id === 1 ? 2850 : level.id === 2 ? 2930 : 2950;
+    const c3HintY = level.id === 1 ? 80 : level.id === 2 ? 65 : 70;
+
+    const c4X = level.id === 1 ? 4090 : level.id === 2 ? 4350 : level.id === 7 ? 4230 : 4310;
+    const c4HintY = level.id === 2 ? 85 : 75;
+
+    sealGates = [
+      { id: 1, x: gate1X, y: 0, w: 22, h: GROUND_Y, open: false, openProgress: 0, warnCooldown: 0 },
+      { id: 2, x: gate2X, y: 0, w: 22, h: GROUND_Y, open: false, openProgress: 0, warnCooldown: 0 },
+    ];
+
+    const rawCrystals = [
+      { id: 1, gateId: 1, label: "SELO I", x: c1X, hintY: c1HintY },
+      { id: 2, gateId: 1, label: "SELO II", x: c2X, hintY: c2HintY },
+      { id: 3, gateId: 2, label: "SELO III", x: c3X, hintY: c3HintY },
+      { id: 4, gateId: 2, label: "SELO IV", x: c4X, hintY: c4HintY },
+    ];
+
+    for (const rc of rawCrystals) {
+      const floorY = findFloorFor(rc.x + 12, rc.hintY);
+      const ch = 42;
+      sealCrystals.push({
+        id: rc.id,
+        gateId: rc.gateId,
+        label: rc.label,
+        x: rc.x,
+        y: floorY - ch,
+        w: 24,
+        h: ch,
+        activated: false,
+        pulseT: Math.random() * Math.PI * 2,
+        lastSwing: -1,
+      });
+    }
+  }
+
+  function activateCrystal(c: SealCrystal) {
+    if (c.activated || c.lastSwing === player.swingId) return;
+    c.lastSwing = player.swingId;
+    c.activated = true;
+    sound.playSfx("relic");
+    sound.playSfx("slice");
+    shake = Math.max(shake, 7);
+    hitstop = Math.max(hitstop, 0.04);
+
+    // Reward player with Mana and Special charge for solving the platforming seal!
+    player.mana = Math.min(T.maxMana, player.mana + 20);
+    const wasFull = player.special >= 100;
+    player.special = Math.min(100, player.special + 15);
+    if (!wasFull && player.special >= 100) {
+      sound.playSfx("relic");
+    }
+
+    for (let i = 0; i < 28; i++) {
+      const ang = (i / 28) * Math.PI * 2;
+      const spd = 40 + Math.random() * 75;
+      particles.push({
+        x: c.x + c.w / 2,
+        y: c.y + c.h / 2,
+        vx: Math.cos(ang) * spd,
+        vy: Math.sin(ang) * spd - 20,
+        size: 2.5 + Math.random() * 2,
+        alpha: 1,
+        maxAlpha: 1,
+        color: i % 2 === 0 ? "#ffd700" : "#ff1744",
+        depth: "fg",
+        pulse: Math.random() * Math.PI * 2,
+      });
+    }
+
+    const gateCrystals = sealCrystals.filter((item) => item.gateId === c.gateId);
+    const solvedCount = gateCrystals.filter((item) => item.activated).length;
+    const gate = sealGates.find((gItem) => gItem.id === c.gateId);
+    if (gate && solvedCount >= gateCrystals.length) {
+      gate.open = true;
+      sound.playSfx("gateOpen");
+      shake = Math.max(shake, 10);
+      player.toast = `⛓️ ${c.label} quebrado! O Portão de Ferro Selado se ergueu!`;
+      player.toastT = 3.6;
+    } else {
+      player.toast = `🔮 ${c.label} quebrado (${solvedCount}/${gateCrystals.length})! Quebre o próximo Cristal no alto para abrir o Portão!`;
+      player.toastT = 3.4;
+    }
   }
 
   function spawn() {
@@ -772,16 +912,18 @@ export function mountCampaign(
     player.iframes = 0;
     player.hurtT = 0;
     player.attackT = 0;
+    player.attackLock = 0;
     player.castT = 0;
     player.castFired = false;
     player.dashT = 0;
     player.charge = "idle";
-    player.toast = `${level.title}. Há escadas e ruínas adiante.`;
-    player.toastT = 2.6;
+    player.holdT = 0;
+    player.toast = `${level.title}. Quebre os Cristais de Selo no alto para abrir os Portões!`;
+    player.toastT = 3.2;
     clearedOnce = false;
     bossIntroPlayed = false;
     bossEnragedAnnounced = false;
-    ambushTimer = 3.5;
+    ambushTimer = 3.2;
     sound.stopBossVoice();
     shots.length = 0;
     specialSlashes.length = 0;
@@ -796,6 +938,7 @@ export function mountCampaign(
       collected: false,
       bounceT: Math.random() * Math.PI * 2,
     }));
+    initStagePuzzles();
     initParticles();
     // Play stage-specific music track (Fase 1-7, com Fase 7 tocando Sinister Horror para o Mestre)
     sound.playStageBgm(level.id);
@@ -814,6 +957,32 @@ export function mountCampaign(
     body.wall = 0;
     body.grounded = false;
     body.x += body.vx * dt;
+    // Collide with locked Gothic Seal Gates
+    if (body === player) {
+      for (const gate of sealGates) {
+        if (gate.open) continue;
+        if (overlap(body, gate)) {
+          if (body.vx > 0 || body.x + body.w / 2 < gate.x + gate.w / 2) {
+            body.x = gate.x - body.w;
+            body.wall = 1;
+          } else {
+            body.x = gate.x + gate.w;
+            body.wall = -1;
+          }
+          body.vx = 0;
+          if (gate.warnCooldown <= 0) {
+            gate.warnCooldown = 2.2;
+            const gateCrystals = sealCrystals.filter((c) => c.gateId === gate.id);
+            const missing = gateCrystals.find((c) => !c.activated);
+            const broken = gateCrystals.filter((c) => c.activated).length;
+            const distM = missing ? Math.max(1, Math.round(Math.abs(player.x - missing.x) / 18)) : 0;
+            sound.playSfx("slash");
+            player.toast = `🔒 Portão Selado (${broken}/${gateCrystals.length})! Volte ${distM}m e quebre o ${missing?.label || "Cristal"} nas plataformas!`;
+            player.toastT = 3.0;
+          }
+        }
+      }
+    }
     for (const s of level.solids) {
       if (s.oneWay || !overlap(body, s)) continue;
       const feet = body.y + body.h;
@@ -1021,8 +1190,8 @@ export function mountCampaign(
       sound.playSfx(e.boss ? "bossHurt" : "enemyDie");
       shake = Math.max(shake, e.boss ? 8 : 4);
 
-      // Increase special meter on enemy kill
-      const gain = e.boss ? 50 : e.kind === "knight" || e.kind === "armoredSkeleton" || e.kind === "gargoyle" ? 25 : 18;
+      // Increase special meter on enemy kill (balanced so earning 100% requires real combat)
+      const gain = e.boss ? 30 : e.kind === "knight" || e.kind === "armoredSkeleton" || e.kind === "gargoyle" ? 16 : 11;
       const wasFull = player.special >= 100;
       player.special = Math.min(100, player.special + gain);
       if (!wasFull && player.special >= 100) {
@@ -1061,16 +1230,16 @@ export function mountCampaign(
       return; // Do not apply non-fatal recoil or hitstun
     }
 
-    // Hitstun duration and recovery delay (slows down enemy and prevents immediate counter-advance)
+    // Hitstun duration and recovery delay (keeps enemies aggressive and prevents effortless stunlocking)
     const isHeavy = player.combo === 2 || hitSource === "spell" || pogo || dmg >= 2;
-    e.hurt = e.boss ? (isHeavy ? 0.26 : 0.18) : (isHeavy ? 0.42 : 0.32);
-    e.cd = Math.max(e.cd, e.boss ? 0.35 : 0.52);
+    e.hurt = e.boss ? (isHeavy ? 0.20 : 0.14) : (isHeavy ? 0.30 : 0.22);
+    e.cd = Math.max(e.cd, e.boss ? 0.28 : 0.38);
     e.wind = 0; // Interrupt active windup on enemies
     if (!e.boss && e.state === "slash") e.state = "idle";
 
     // Dynamic recoil impulse (knocks the enemy back horizontally along the stone floor)
-    const baseKnock = e.boss ? 42 : (e.kind === "armoredSkeleton" || e.kind === "knight") ? 85 : 125;
-    const knockSpeed = isHeavy ? baseKnock * 1.35 : baseKnock;
+    const baseKnock = e.boss ? 36 : (e.kind === "armoredSkeleton" || e.kind === "knight") ? 75 : 108;
+    const knockSpeed = isHeavy ? baseKnock * 1.3 : baseKnock;
     e.vx = knockDir * knockSpeed;
     if (e.kind !== "bat" && !(e.kind === "gargoyle" && (e.state === "hover" || e.state === "dive"))) {
       e.vy = 0; // Pure horizontal recoil on the stone floor, never pop up into the air!
@@ -1079,7 +1248,7 @@ export function mountCampaign(
     if (e.kind === "gargoyle" && (e.state === "hover" || e.state === "dive")) {
       e.state = "hover";
       e.hoverT = 0;
-      e.cd = 0.45;
+      e.cd = 0.40;
     }
 
     hitstop = dmg >= 3 ? T.hitstopHeavy : T.hitstopLight;
@@ -1154,17 +1323,34 @@ export function mountCampaign(
 
   function step(dt: number, press: { jump: boolean; attack: boolean; dash: boolean; spell: boolean; special?: boolean }, held: Set<Action>) {
     time += dt;
-    player.toastT = Math.max(0, player.toastT - dt);
-    player.iframes = Math.max(0, player.iframes - dt);
-    player.hurtT = Math.max(0, player.hurtT - dt);
-    player.dashCd = Math.max(0, player.dashCd - dt);
-    player.attackLock = Math.max(0, player.attackLock - dt);
-    player.comboWindow = Math.max(0, player.comboWindow - dt);
-    player.dropT = Math.max(0, player.dropT - dt);
-    player.controlLock = Math.max(0, player.controlLock - dt);
+    player.toastT = Math.max(0, (player.toastT || 0) - dt);
+    player.iframes = Math.max(0, (player.iframes || 0) - dt);
+    player.hurtT = Math.max(0, (player.hurtT || 0) - dt);
+    player.dashCd = Math.max(0, (player.dashCd || 0) - dt);
+    player.attackLock = Math.max(0, Math.min(0.9, (player.attackLock || 0) - dt));
+    player.comboWindow = Math.max(0, (player.comboWindow || 0) - dt);
+    player.dropT = Math.max(0, (player.dropT || 0) - dt);
+    if (!player.dying) {
+      player.controlLock = Math.max(0, Math.min(0.5, (player.controlLock || 0) - dt));
+    }
     if (player.specialT > 0) {
-      player.specialT = Math.max(0, player.specialT - dt);
+      player.specialT = Math.max(0, Math.min(0.9, player.specialT - dt));
       player.iframes = Math.max(player.iframes, 0.25);
+    }
+    // Never allow charge="wind" to persist and freeze the character!
+    if (player.charge === "wind") {
+      player.charge = "idle";
+    }
+
+    // Update Gothic Seal Gates & Crystals
+    for (const gate of sealGates) {
+      gate.warnCooldown = Math.max(0, gate.warnCooldown - dt);
+      if (gate.open && gate.openProgress < 1) {
+        gate.openProgress = Math.min(1, gate.openProgress + dt * 1.4);
+      }
+    }
+    for (const c of sealCrystals) {
+      c.pulseT += dt * 3.5;
     }
 
     if (player.dying) {
@@ -1248,7 +1434,7 @@ export function mountCampaign(
     else if (right && !left) dir = 1;
 
     player.guardFlash = Math.max(0, player.guardFlash - dt);
-    player.guard = held.has("guard") && player.grounded && player.attackT <= 0 && player.castT <= 0 && player.dashT <= 0 && player.hurtT <= 0 && player.charge !== "wind";
+    player.guard = held.has("guard") && player.grounded && player.attackT <= 0 && player.castT <= 0 && player.dashT <= 0 && player.hurtT <= 0;
     player.guardT = player.guard ? player.guardT + dt : 0;
     const wantsCrouch = (player.grounded || player.crouching) && aimDown && !player.guard && player.dashT <= 0 && player.dropT <= 0;
     player.crouching = wantsCrouch;
@@ -1268,7 +1454,7 @@ export function mountCampaign(
     else player.spellBuffer = Math.max(0, player.spellBuffer - dt);
 
     if (player.attackT > 0) {
-      player.attackT -= dt;
+      player.attackT = Math.max(0, Math.min(0.35, player.attackT - dt));
       if (player.attackT <= 0.06 && player.castT <= 0) {
         player.comboWindow = Math.max(player.comboWindow, 0.24);
       }
@@ -1276,7 +1462,7 @@ export function mountCampaign(
     if (player.attackT <= 0 && player.attackLock > 0 && player.castT <= 0) player.comboWindow = Math.max(player.comboWindow, 0.24);
     if (player.castT > 0) {
       const before = player.castT;
-      player.castT = Math.max(0, player.castT - dt);
+      player.castT = Math.max(0, Math.min(0.35, player.castT - dt));
       if (!player.castFired && before > 0.14 && player.castT <= 0.14) {
         player.castFired = true;
         const hand = handPoint();
@@ -1297,13 +1483,17 @@ export function mountCampaign(
       }
     }
 
+    // Charged Slash / Auto-Combo when holding Attack:
+    // Never freezes Aldric in a "wind" pose! Instead, holding Attack for 0.55s automatically unleashes the Charged Wave and resets holdT.
     const holding = held.has("attack");
-    if (holding && player.charge !== "wind" && player.castT <= 0) player.holdT += dt;
-    if (!holding) {
-      if (player.charge === "wind") {
+    if (holding && player.castT <= 0 && player.specialT <= 0) {
+      player.holdT += dt;
+      if (player.holdT >= 0.55 && player.attackLock <= 0) {
+        player.holdT = 0;
         player.charge = "idle";
         player.swingId++;
-        player.attackT = 0.3;
+        player.attackT = 0.24;
+        player.attackLock = 0.22;
         player.attackKind = player.crouching ? "crouch" : "side";
         const tip = swordPoint(0);
         fire({
@@ -1321,14 +1511,13 @@ export function mountCampaign(
           frameLock: 2,
         });
         sound.playSfx("chargeFire");
-        sound.playSfx("spell");
         sound.playSfx("slashHeavy");
+        // Release stuck touch/pointer state if any so it never loops endlessly without user input
+        pointer.delete("attack");
       }
+    } else {
       player.holdT = 0;
-    }
-    if (player.castT <= 0 && player.charge !== "wind" && holding && player.holdT > 0.48 && player.attackLock <= 0) {
-      player.charge = "wind";
-      sound.playSfx("chargeWind");
+      player.charge = "idle";
     }
 
     // Special Attack Trigger ("Golpe Crescente"):
@@ -1354,7 +1543,7 @@ export function mountCampaign(
       player.holdT = 0;
       player.vx = 0;
       player.vy = 0;
-      hitstop = 0.08;
+      hitstop = 0.06;
       shake = 14;
       sound.playSfx("special");
 
@@ -1395,7 +1584,7 @@ export function mountCampaign(
       player.vx = 0;
       if (player.grounded) player.vy = 0;
     } else if (player.hurtT <= 0) {
-      if ((press.attack || player.attackBuffer > 0) && !player.guard && player.castT <= 0 && player.charge !== "wind" && (player.attackLock <= 0 || player.comboWindow > 0)) {
+      if ((press.attack || player.attackBuffer > 0) && !player.guard && player.castT <= 0 && (player.attackLock <= 0 || player.comboWindow > 0)) {
         player.attackBuffer = 0;
         player.swingId++;
         const down = aimDown && !player.grounded && !player.crouching;
@@ -1447,9 +1636,7 @@ export function mountCampaign(
       player.vx = player.dashDir * T.dashSpeed;
       player.vy = 0;
     } else {
-      if (player.charge === "wind") {
-        player.vx *= Math.max(0, 1 - 10 * dt);
-      } else if (player.castT > 0) {
+      if (player.castT > 0) {
         if (player.grounded) {
           player.vx *= Math.max(0, 1 - 4 * dt);
         } else {
@@ -1561,6 +1748,18 @@ export function mountCampaign(
                   h: 68,
                 };
       for (const e of enemies) if (!e.dead && !e.dying && overlap(box, e)) hurtEnemy(e, player.combo === 2 ? T.finisherDamage : T.slashDamage, player.attackKind === "down", "slash");
+
+      // Shatter Gothic Seal Crystals with Sword Strike (or Downward Pogo)!
+      for (const c of sealCrystals) {
+        if (!c.activated && overlap(box, c)) {
+          activateCrystal(c);
+          if (player.attackKind === "down") {
+            player.vy = -T.pogoV;
+            player.jumps = 1;
+            player.grounded = false;
+          }
+        }
+      }
 
       // Castlevania weapon strike parry: slash enemy projectiles out of the air!
       for (const s of shots) {
@@ -1769,6 +1968,12 @@ export function mountCampaign(
       s.y += s.vy * dt;
       s.drawCenterY += s.vy * dt;
       if (s.friendly) {
+        for (const c of sealCrystals) {
+          if (!c.activated && overlap(s, c)) {
+            player.swingId++;
+            activateCrystal(c);
+          }
+        }
         for (const e of enemies) {
           if (e.dead || e.dying || s.hits.includes(e.id) || !overlap(s, e)) continue;
           s.hits.push(e.id);
@@ -1805,17 +2010,27 @@ export function mountCampaign(
         });
       }
 
+      // Shatter Gothic Seal Crystals touched by the Crescent Wave
+      for (const c of sealCrystals) {
+        if (!c.activated && overlap(s, c)) {
+          player.swingId++;
+          activateCrystal(c);
+        }
+      }
+
       for (const e of enemies) {
         if (e.dead || e.dying || s.hitEnemies.has(e.id)) continue;
         if (s.x < e.x + e.w && s.x + s.w > e.x && s.y < e.y + e.h && s.y + s.h > e.y) {
           s.hitEnemies.add(e.id);
           player.swingId++;
           e.lastSwing = player.swingId;
-          const isFatal = e.hp <= 260;
-          e.hp -= 260;
+          // Heavy damage (12 DMG) — obliterates lesser undead, heavily wounds armored knights, and takes a fair ~12-18% chunk off Bosses without one-shotting them!
+          const specialDmg = e.boss ? 11 : 14;
+          const isFatal = e.hp <= specialDmg;
+          e.hp -= specialDmg;
           shake = Math.max(shake, 9);
           hitstop = Math.max(hitstop, 0.04);
-          sound.playSfx("slice");
+          sound.playSfx(e.boss ? "bossHurt" : "slice");
 
           if (isFatal) {
             e.hp = 0;
@@ -1846,6 +2061,9 @@ export function mountCampaign(
                 pulse: Math.random() * Math.PI * 2,
               });
             }
+          } else {
+            e.hurt = e.boss ? 0.25 : 0.38;
+            e.vx = s.facing * (e.boss ? 45 : 95);
           }
         }
       }
@@ -3768,6 +3986,133 @@ export function mountCampaign(
       }
     }
 
+    // =========================================================================
+    // RENDER GOTHIC SEAL PUZZLES (Runic Blood Crystals & Iron Portcullis Gates)
+    // =========================================================================
+    for (const c of sealCrystals) {
+      const sx = Math.round(c.x - camX);
+      const sy = Math.round(c.y - camY);
+      if (sx < -60 || sx > T.viewW + 60) continue;
+
+      const cx = sx + Math.round(c.w / 2);
+      const baseBot = sy + c.h;
+
+      // 1. Vertical Beacon Pillar (helps player spot elevated puzzle crystals from the floor)
+      g.save();
+      const beamGrad = g.createLinearGradient(0, baseBot - 95, 0, baseBot);
+      if (c.activated) {
+        beamGrad.addColorStop(0, "rgba(250, 204, 21, 0)");
+        beamGrad.addColorStop(1, "rgba(250, 204, 21, 0.25)");
+      } else {
+        beamGrad.addColorStop(0, "rgba(255, 23, 68, 0)");
+        beamGrad.addColorStop(1, "rgba(255, 23, 68, 0.32)");
+      }
+      g.fillStyle = beamGrad;
+      g.fillRect(cx - 8, baseBot - 95, 16, 95);
+
+      // 2. Ornate Gothic Stone Altar Base
+      g.fillStyle = "#18181b";
+      g.fillRect(cx - 11, baseBot - 12, 22, 12);
+      g.fillStyle = "#27272a";
+      g.fillRect(cx - 8, baseBot - 16, 16, 5);
+      g.fillStyle = c.activated ? "#eab308" : "#e11d48";
+      g.fillRect(cx - 6, baseBot - 10, 12, 2);
+
+      // 3. Levitating Diamond Seal Crystal
+      const bob = Math.sin(c.pulseT) * 3.5;
+      const gemY = Math.round(sy + 12 + bob);
+
+      const halo = g.createRadialGradient(cx, gemY, 2, cx, gemY, 24);
+      if (c.activated) {
+        halo.addColorStop(0, "rgba(254, 240, 138, 0.85)");
+        halo.addColorStop(0.5, "rgba(234, 179, 8, 0.35)");
+        halo.addColorStop(1, "rgba(0, 0, 0, 0)");
+      } else {
+        halo.addColorStop(0, "rgba(255, 255, 255, 0.9)");
+        halo.addColorStop(0.35, "rgba(255, 23, 68, 0.75)");
+        halo.addColorStop(1, "rgba(0, 0, 0, 0)");
+      }
+      g.fillStyle = halo;
+      g.fillRect(cx - 24, gemY - 24, 48, 48);
+
+      // Diamond polygon
+      g.beginPath();
+      g.moveTo(cx, gemY - 10);
+      g.lineTo(cx + 7, gemY);
+      g.lineTo(cx, gemY + 10);
+      g.lineTo(cx - 7, gemY);
+      g.closePath();
+      g.fillStyle = c.activated ? "#fde047" : "#ff1744";
+      g.fill();
+      g.lineWidth = 1.5;
+      g.strokeStyle = "#ffffff";
+      g.stroke();
+
+      // Label above crystal
+      g.font = "bold 7px monospace";
+      g.textAlign = "center";
+      g.fillStyle = c.activated ? "#fde047" : "#fecdd3";
+      g.fillText(c.activated ? `${c.label} OK` : `${c.label} [GOLPEIE]`, cx, sy - 4);
+      g.restore();
+    }
+
+    // Render Gothic Sealed Iron Portcullis Gates
+    for (const gate of sealGates) {
+      if (gate.openProgress >= 1) continue;
+      const sx = Math.round(gate.x - camX);
+      if (sx < -60 || sx > T.viewW + 60) continue;
+
+      const liftY = Math.round(gate.openProgress * gate.h);
+      const curH = gate.h - liftY;
+      if (curH <= 0) continue;
+
+      g.save();
+      // Dark stone archway frame
+      g.fillStyle = "#09090b";
+      g.fillRect(sx - 2, 0, gate.w + 4, curH);
+
+      // Vertical wrought-iron bars
+      g.fillStyle = "#3f3f46";
+      for (let bx = sx + 2; bx < sx + gate.w - 2; bx += 5) {
+        g.fillRect(bx, 0, 3, curH - 4);
+        // Iron spike tip at bottom
+        g.fillStyle = "#71717a";
+        g.fillRect(bx + 1, curH - 4, 1, 4);
+        g.fillStyle = "#3f3f46";
+      }
+
+      // Horizontal riveted iron crossbeams
+      for (let by = 28; by < curH - 12; by += 36) {
+        g.fillStyle = "#27272a";
+        g.fillRect(sx - 1, by, gate.w + 2, 6);
+        g.fillStyle = "#ef4444";
+        g.fillRect(sx + 3, by + 2, gate.w - 6, 2);
+      }
+
+      // Glowing Crimson Rune Lock Emblem at eye level
+      if (!gate.open) {
+        const lockY = Math.min(curH - 30, 145);
+        const lockGlow = g.createRadialGradient(sx + gate.w / 2, lockY, 2, sx + gate.w / 2, lockY, 28);
+        lockGlow.addColorStop(0, "rgba(255, 23, 68, 0.75)");
+        lockGlow.addColorStop(1, "rgba(0, 0, 0, 0)");
+        g.fillStyle = lockGlow;
+        g.fillRect(sx - 18, lockY - 28, gate.w + 36, 56);
+
+        const gateCrystals = sealCrystals.filter((c) => c.gateId === gate.id);
+        const broken = gateCrystals.filter((c) => c.activated).length;
+        g.fillStyle = "rgba(0, 0, 0, 0.85)";
+        g.fillRect(sx - 24, lockY - 26, gate.w + 48, 14);
+        g.strokeStyle = "#ef4444";
+        g.lineWidth = 1;
+        g.strokeRect(sx - 24, lockY - 26, gate.w + 48, 14);
+        g.font = "bold 7px monospace";
+        g.textAlign = "center";
+        g.fillStyle = "#fda4af";
+        g.fillText(`SELOS ${broken}/${gateCrystals.length}`, sx + gate.w / 2, lockY - 16);
+      }
+      g.restore();
+    }
+
     const bosses = enemies.filter((e) => e.boss);
     const open = bosses.length > 0 && bosses.every((e) => e.dead);
 
@@ -3932,17 +4277,16 @@ export function mountCampaign(
         sheet = "heroCast";
         frame = Math.min(4, Math.floor((1 - player.castT / 0.28) * 5));
       }
-    } else if (player.attackT > 0 || player.charge === "wind") {
+    } else if (player.attackT > 0) {
       if (player.attackKind === "crouch") {
         sheet = "heroCrouch";
-        frame = player.charge === "wind" ? 1 : player.attackT > 0.1 ? 1 : 2;
+        frame = player.attackT > 0.1 ? 1 : 2;
       } else if (player.attackKind === "down" && !player.grounded) {
         sheet = "heroJump";
         frame = 3;
       } else {
         sheet = "heroAttack";
-        if (player.charge === "wind") frame = 0;
-        else if (player.attackKind === "up") frame = 1;
+        if (player.attackKind === "up") frame = 1;
         else frame = Math.min(4, Math.floor((1 - player.attackT / 0.2) * 5));
       }
     } else if (!player.grounded) {
@@ -3959,19 +4303,6 @@ export function mountCampaign(
     const heroFeet = player.y + player.h + (56 / 320) * DRAW_H.hero;
     blit(art[sheet], frame, player.x + player.w / 2, heroFeet, DRAW_H.hero, player.facing, heroCols);
     if (isInvulnerable) {
-      g.restore();
-    }
-    if (player.charge === "wind") {
-      const pulse = 0.5 + Math.sin(time * 9) * 0.2;
-      const gx = player.x + player.w / 2 + player.facing * 6 - camX;
-      const gy = player.y + player.h - 58 - camY;
-      g.save();
-      g.globalAlpha = pulse;
-      const glow = g.createRadialGradient(gx, gy, 2, gx, gy, 34);
-      glow.addColorStop(0, "rgba(255,200,110,0.9)");
-      glow.addColorStop(1, "rgba(222,75,46,0)");
-      g.fillStyle = glow;
-      g.fillRect(gx - 34, gy - 34, 68, 68);
       g.restore();
     }
     if (player.attackT > 0 && player.castT <= 0) {
@@ -4131,6 +4462,8 @@ export function mountCampaign(
         sound.playBgm("boss");
       }
     }
+    const sealsSolved = sealCrystals.filter((c) => c.activated).length;
+    const sealsTotal = sealCrystals.length;
     onHud({
       hp: player.hp,
       maxHp: T.maxHp,
@@ -4148,7 +4481,9 @@ export function mountCampaign(
       dead: player.dead,
       title: level.title,
       dashReady: player.dashCd <= 0,
-      charge: player.charge === "wind" ? 1 : Math.min(1, player.holdT / 0.48),
+      charge: Math.min(1, player.holdT / 0.55),
+      sealsSolved,
+      sealsTotal,
     });
   }
 
