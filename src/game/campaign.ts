@@ -157,6 +157,11 @@ const SRC = {
   bossDracula: "/sprites/boss-dracula.png",
   bossDraculaP2: "/sprites/boss-dracula-p2.png",
   portalGate: "/sprites/portal-gate.png",
+  sealGate: "/sprites/seal-gate.png",
+  sealGateArch: "/sprites/seal-gate-arch.png",
+  sealGateGrate: "/sprites/seal-gate-grate.png",
+  sealCrystal: "/sprites/seal-crystal.png",
+  sealCrystalOpen: "/sprites/seal-crystal-open.png",
   slash: "/sprites/slash.png",
   spell: "/sprites/spell.png",
   blood: "/sprites/blood.png",
@@ -4207,128 +4212,117 @@ export function mountCampaign(
     }
 
     // =========================================================================
-    // RENDER GOTHIC SEAL PUZZLES (Runic Blood Crystals & Iron Portcullis Gates)
+    // RENDER GOTHIC SEAL PUZZLES (Realistic Seal Crystal Altars & Gargoyle Portcullis Gates)
     // =========================================================================
     for (const c of sealCrystals) {
       const sx = Math.round(c.x - camX);
       const sy = Math.round(c.y - camY);
-      if (sx < -60 || sx > T.viewW + 60) continue;
+      if (sx < -80 || sx > T.viewW + 80) continue;
 
       const cx = sx + Math.round(c.w / 2);
       const baseBot = sy + c.h;
 
-      // 1. Vertical Beacon Pillar (helps player spot elevated puzzle crystals from the floor)
+      // 1. Subtle Atmospheric Beacon Pillar (helps player spot elevated puzzle altars from the floor)
       g.save();
-      const beamGrad = g.createLinearGradient(0, baseBot - 95, 0, baseBot);
+      const beamGrad = g.createLinearGradient(0, baseBot - 90, 0, baseBot);
       if (c.activated) {
         beamGrad.addColorStop(0, "rgba(250, 204, 21, 0)");
-        beamGrad.addColorStop(1, "rgba(250, 204, 21, 0.25)");
+        beamGrad.addColorStop(1, "rgba(250, 204, 21, 0.22)");
       } else {
         beamGrad.addColorStop(0, "rgba(255, 23, 68, 0)");
-        beamGrad.addColorStop(1, "rgba(255, 23, 68, 0.32)");
+        beamGrad.addColorStop(1, "rgba(255, 23, 68, 0.28)");
       }
       g.fillStyle = beamGrad;
-      g.fillRect(cx - 8, baseBot - 95, 16, 95);
+      g.fillRect(cx - 12, baseBot - 90, 24, 90);
 
-      // 2. Ornate Gothic Stone Altar Base
-      g.fillStyle = "#18181b";
-      g.fillRect(cx - 11, baseBot - 12, 22, 12);
-      g.fillStyle = "#27272a";
-      g.fillRect(cx - 8, baseBot - 16, 16, 5);
-      g.fillStyle = c.activated ? "#eab308" : "#e11d48";
-      g.fillRect(cx - 6, baseBot - 10, 12, 2);
-
-      // 3. Levitating Diamond Seal Crystal
-      const bob = Math.sin(c.pulseT) * 3.5;
-      const gemY = Math.round(sy + 12 + bob);
-
-      const halo = g.createRadialGradient(cx, gemY, 2, cx, gemY, 24);
-      if (c.activated) {
-        halo.addColorStop(0, "rgba(254, 240, 138, 0.85)");
-        halo.addColorStop(0.5, "rgba(234, 179, 8, 0.35)");
-        halo.addColorStop(1, "rgba(0, 0, 0, 0)");
+      // 2. Realistic Pixel-Art Gothic Seal Crystal Altar Sprite
+      const cImg = c.activated ? art.sealCrystalOpen : art.sealCrystal;
+      const drawW = 46;
+      const drawH = 60;
+      const bob = c.activated ? 0 : Math.sin(c.pulseT) * 1.5;
+      if (cImg && cImg.complete && cImg.naturalWidth > 0) {
+        g.drawImage(cImg, Math.round(cx - drawW / 2), Math.round(baseBot - drawH + bob), drawW, drawH);
       } else {
-        halo.addColorStop(0, "rgba(255, 255, 255, 0.9)");
-        halo.addColorStop(0.35, "rgba(255, 23, 68, 0.75)");
-        halo.addColorStop(1, "rgba(0, 0, 0, 0)");
+        g.fillStyle = c.activated ? "#fde047" : "#ff1744";
+        g.fillRect(cx - 8, baseBot - 36, 16, 36);
       }
-      g.fillStyle = halo;
-      g.fillRect(cx - 24, gemY - 24, 48, 48);
 
-      // Diamond polygon
-      g.beginPath();
-      g.moveTo(cx, gemY - 10);
-      g.lineTo(cx + 7, gemY);
-      g.lineTo(cx, gemY + 10);
-      g.lineTo(cx - 7, gemY);
-      g.closePath();
-      g.fillStyle = c.activated ? "#fde047" : "#ff1744";
-      g.fill();
-      g.lineWidth = 1.5;
-      g.strokeStyle = "#ffffff";
-      g.stroke();
-
-      // Label above crystal
+      // 3. Crisp Gothic Label Badge above Altar
       g.font = "bold 7px monospace";
       g.textAlign = "center";
+      g.fillStyle = "rgba(9, 9, 11, 0.85)";
+      const labelTxt = c.activated ? `${c.label} PURIFICADO` : `${c.label} [GOLPEIE]`;
+      const tw = g.measureText(labelTxt).width + 8;
+      g.fillRect(Math.round(cx - tw / 2), sy - 18, Math.round(tw), 11);
+      g.strokeStyle = c.activated ? "rgba(250, 204, 21, 0.65)" : "rgba(244, 63, 94, 0.7)";
+      g.lineWidth = 1;
+      g.strokeRect(Math.round(cx - tw / 2), sy - 18, Math.round(tw), 11);
       g.fillStyle = c.activated ? "#fde047" : "#fecdd3";
-      g.fillText(c.activated ? `${c.label} OK` : `${c.label} [GOLPEIE]`, cx, sy - 4);
+      g.fillText(labelTxt, cx, sy - 10);
       g.restore();
     }
 
-    // Render Gothic Sealed Iron Portcullis Gates
+    // Render Realistic Gothic Gargoyle Stone Archway & Forged Iron Portcullis Gates
     for (const gate of sealGates) {
-      if (gate.openProgress >= 1) continue;
-      const sx = Math.round(gate.x - camX);
-      if (sx < -60 || sx > T.viewW + 60) continue;
+      const centerX = Math.round(gate.x + gate.w / 2 - camX);
+      if (centerX < -110 || centerX > T.viewW + 110) continue;
 
-      const liftY = Math.round(gate.openProgress * gate.h);
-      const curH = gate.h - liftY;
-      if (curH <= 0) continue;
+      const groundScreenY = Math.round(gate.h - camY);
+      const gateDrawW = 132;
+      const gateDrawH = Math.max(248, gate.h + 12);
+      const drawX = Math.round(centerX - gateDrawW / 2);
+      const archTopY = groundScreenY - gateDrawH + 6;
 
       g.save();
-      // Dark stone archway frame
-      g.fillStyle = "#09090b";
-      g.fillRect(sx - 2, 0, gate.w + 4, curH);
 
-      // Vertical wrought-iron bars
-      g.fillStyle = "#3f3f46";
-      for (let bx = sx + 2; bx < sx + gate.w - 2; bx += 5) {
-        g.fillRect(bx, 0, 3, curH - 4);
-        // Iron spike tip at bottom
-        g.fillStyle = "#71717a";
-        g.fillRect(bx + 1, curH - 4, 1, 4);
-        g.fillStyle = "#3f3f46";
+      // 1. Movable Inner Forged-Iron Portcullis Grate & Demonic Blood Crest (slides up inside the stone arch when unlocked!)
+      if (gate.openProgress < 1) {
+        const liftPx = Math.round(gate.openProgress * (gateDrawH - 36));
+        const grateImg = art.sealGateGrate || art.sealGate;
+        // Clip so the rising portcullis retracts cleanly into the upper stone vault
+        g.save();
+        g.beginPath();
+        g.rect(drawX, Math.max(0, archTopY + 14), gateDrawW, gateDrawH);
+        g.clip();
+
+        // Pulsing crimson aura behind the demonic blood seal crest while locked
+        if (!gate.open) {
+          const crestY = archTopY + Math.round(gateDrawH * 0.49) - liftPx;
+          const pulseR = 36 + Math.sin(time * 5) * 6;
+          const sealGlow = g.createRadialGradient(centerX, crestY, 4, centerX, crestY, pulseR);
+          sealGlow.addColorStop(0, "rgba(255, 23, 68, 0.65)");
+          sealGlow.addColorStop(0.55, "rgba(185, 28, 28, 0.28)");
+          sealGlow.addColorStop(1, "rgba(0, 0, 0, 0)");
+          g.fillStyle = sealGlow;
+          g.fillRect(centerX - pulseR, crestY - pulseR, pulseR * 2, pulseR * 2);
+        }
+
+        if (grateImg && grateImg.complete && grateImg.naturalWidth > 0) {
+          g.drawImage(grateImg, drawX, archTopY - liftPx, gateDrawW, gateDrawH);
+        }
+        g.restore();
       }
 
-      // Horizontal riveted iron crossbeams
-      for (let by = 28; by < curH - 12; by += 36) {
-        g.fillStyle = "#27272a";
-        g.fillRect(sx - 1, by, gate.w + 2, 6);
-        g.fillStyle = "#ef4444";
-        g.fillRect(sx + 3, by + 2, gate.w - 6, 2);
+      // 2. Stationary Carved Stone Gargoyle Archway Frame (stays anchored in the castle corridor even after opening!)
+      const archImg = art.sealGateArch || art.sealGate;
+      if (archImg && archImg.complete && archImg.naturalWidth > 0) {
+        g.drawImage(archImg, drawX, archTopY, gateDrawW, gateDrawH);
       }
 
-      // Glowing Crimson Rune Lock Emblem at eye level
+      // 3. Subtle Gothic Seal Status Plaque when locked
       if (!gate.open) {
-        const lockY = Math.min(curH - 30, 145);
-        const lockGlow = g.createRadialGradient(sx + gate.w / 2, lockY, 2, sx + gate.w / 2, lockY, 28);
-        lockGlow.addColorStop(0, "rgba(255, 23, 68, 0.75)");
-        lockGlow.addColorStop(1, "rgba(0, 0, 0, 0)");
-        g.fillStyle = lockGlow;
-        g.fillRect(sx - 18, lockY - 28, gate.w + 36, 56);
-
         const gateCrystals = sealCrystals.filter((c) => c.gateId === gate.id);
         const broken = gateCrystals.filter((c) => c.activated).length;
-        g.fillStyle = "rgba(0, 0, 0, 0.85)";
-        g.fillRect(sx - 24, lockY - 26, gate.w + 48, 14);
-        g.strokeStyle = "#ef4444";
+        const badgeY = Math.min(groundScreenY - 38, Math.max(44, archTopY + Math.round(gateDrawH * 0.24)));
+        g.fillStyle = "rgba(9, 9, 11, 0.88)";
+        g.fillRect(centerX - 34, badgeY - 10, 68, 13);
+        g.strokeStyle = "rgba(225, 29, 72, 0.85)";
         g.lineWidth = 1;
-        g.strokeRect(sx - 24, lockY - 26, gate.w + 48, 14);
-        g.font = "bold 7px monospace";
+        g.strokeRect(centerX - 34, badgeY - 10, 68, 13);
+        g.font = "bold 7.5px monospace";
         g.textAlign = "center";
         g.fillStyle = "#fda4af";
-        g.fillText(`SELOS ${broken}/${gateCrystals.length}`, sx + gate.w / 2, lockY - 16);
+        g.fillText(`SELOS ${broken}/${gateCrystals.length}`, centerX, badgeY - 1);
       }
       g.restore();
     }
