@@ -979,13 +979,46 @@ export function GameScreen() {
 
         {/* Center: Boss Meter (Active during Boss Fights) OR Seal Puzzle Progress */}
         {hud.bossOn ? (
-          <div className="flex flex-col items-center bg-black/85 backdrop-blur-md border border-blood/70 px-3 py-1 sm:px-4 sm:py-1.5 rounded shadow-2xl max-w-[200px] sm:max-w-xs w-full mx-1 min-w-0">
-            <span className="font-display text-[10px] sm:text-xs tracking-widest text-fg font-bold uppercase truncate w-full text-center">
-              {hud.bossName}
-            </span>
+          <div
+            className={`flex flex-col items-center bg-black/85 backdrop-blur-md border px-3 py-1 sm:px-4 sm:py-1.5 rounded shadow-2xl max-w-[220px] sm:max-w-xs w-full mx-1 min-w-0 transition-all ${
+              hud.bossTransforming
+                ? "border-amber-400 shadow-[0_0_20px_rgba(251,191,36,0.9)] animate-pulse"
+                : (hud.bossPhase ?? 1) >= 3
+                  ? "border-purple-500/90 shadow-[0_0_16px_rgba(168,85,247,0.75)]"
+                  : (hud.bossPhase ?? 1) >= 2
+                    ? "border-amber-500/85 shadow-[0_0_14px_rgba(245,158,11,0.65)]"
+                    : "border-blood/70"
+            }`}
+          >
+            <div className="flex items-center justify-between gap-1.5 w-full min-w-0">
+              <span className="font-display text-[9.5px] sm:text-xs tracking-wider text-fg font-bold uppercase truncate flex-1">
+                {hud.bossName}
+              </span>
+              <span
+                className={`shrink-0 font-display text-[8px] sm:text-[9px] font-extrabold px-1.5 py-0.5 rounded border leading-none ${
+                  (hud.bossPhase ?? 1) >= 3
+                    ? "border-purple-400 bg-purple-950/90 text-purple-200 animate-pulse"
+                    : (hud.bossPhase ?? 1) >= 2
+                      ? "border-amber-400 bg-amber-950/90 text-amber-200"
+                      : "border-blood/60 bg-blood/25 text-red-200"
+                }`}
+              >
+                {(hud.bossPhase ?? 1) >= 3
+                  ? "FASE III · DEMÔNIO"
+                  : (hud.bossPhase ?? 1) >= 2
+                    ? "FASE II · MUTAÇÃO"
+                    : "FASE I"}
+              </span>
+            </div>
             <div className="mt-1 h-1.5 sm:h-2 w-full bg-surface-2 rounded-full overflow-hidden border border-blood/40">
               <div
-                className="h-full bg-blood shadow-[0_0_8px_rgba(180,35,48,0.9)] transition-all duration-150"
+                className={`h-full transition-all duration-150 ${
+                  (hud.bossPhase ?? 1) >= 3
+                    ? "bg-gradient-to-r from-purple-600 via-fuchsia-500 to-red-500 shadow-[0_0_10px_rgba(192,132,252,0.95)]"
+                    : (hud.bossPhase ?? 1) >= 2
+                      ? "bg-gradient-to-r from-red-600 via-orange-500 to-amber-400 shadow-[0_0_10px_rgba(245,158,11,0.95)]"
+                      : "bg-blood shadow-[0_0_8px_rgba(180,35,48,0.9)]"
+                }`}
                 style={{ width: `${(hud.bossHp / Math.max(1, hud.bossMax)) * 100}%` }}
               />
             </div>
