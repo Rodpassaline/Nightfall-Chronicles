@@ -739,14 +739,51 @@ class SoundEngine {
   // BOSS VOICE LINES & SIGNATURE ATTACK SFX
   // -------------------------------------------------------------
 
-  public playBossVoice(stageNum: number) {
-    if (this.muted || typeof window === "undefined") return;
+  public getBossVoiceDuration(stageNum: number): number {
+    const buf = this.bossVoiceBuffers.get(stageNum);
+    if (buf && buf.duration && isFinite(buf.duration) && buf.duration > 0) {
+      return buf.duration;
+    }
+    const a = this.bossVoices[stageNum];
+    if (a && a.duration && isFinite(a.duration) && a.duration > 0) {
+      return a.duration;
+    }
+    const empirical: Record<number, number> = {
+      1: 5.3,
+      2: 4.2,
+      3: 5.6,
+      4: 4.2,
+      5: 5.5,
+      6: 4.8,
+      7: 5.5,
+    };
+    return empirical[stageNum] || 5.0;
+  }
+
+  public playBossVoice(stageNum: number, onEnded?: () => void): number {
+    const expectedDur = this.getBossVoiceDuration(stageNum);
+    if (this.muted || typeof window === "undefined") {
+      onEnded?.();
+      return expectedDur;
+    }
 
     // Halt any previous boss voice playback
     this.stopBossVoice();
 
     // Duck music immediately so the quote is prominent and clear
     this.duckMusic();
+
+    let finished = false;
+    const handleEnd = () => {
+      if (finished) return;
+      finished = true;
+      if (this.duckTimerId !== null) {
+        window.clearTimeout(this.duckTimerId);
+        this.duckTimerId = null;
+      }
+      this.unduckMusic();
+      onEnded?.();
+    };
 
     const actx = this.init();
     const buffer = this.bossVoiceBuffers.get(stageNum);
@@ -762,17 +799,17 @@ class SoundEngine {
         source.onended = () => {
           if (this.currentVoiceSource === source) {
             this.currentVoiceSource = null;
-            this.unduckMusic();
+            handleEnd();
           }
         };
 
         source.start();
 
-        const durationSec = (buffer.duration || 4.5) + 0.3;
+        const durationSec = (buffer.duration || expectedDur) + 0.35;
         this.duckTimerId = window.setTimeout(() => {
-          this.unduckMusic();
+          handleEnd();
         }, durationSec * 1000);
-        return;
+        return buffer.duration || expectedDur;
       } catch (err) {
         console.warn("[audio] Buffer voice failed, fallback to Audio element:", err);
       }
@@ -790,29 +827,36 @@ class SoundEngine {
       a.currentTime = 0;
       a.volume = 1.0;
 
-      const onEnded = () => {
-        a.removeEventListener("ended", onEnded);
-        this.unduckMusic();
+      const onEndedHandler = () => {
+        a.removeEventListener("ended", onEndedHandler);
+        handleEnd();
       };
-      a.addEventListener("ended", onEnded, { once: true });
+      a.addEventListener("ended", onEndedHandler, { once: true });
 
       const playPromise = a.play();
       if (playPromise) {
         playPromise.catch(() => {
-          this.unduckMusic();
+          handleEnd();
         });
       }
 
       this.duckTimerId = window.setTimeout(() => {
-        this.unduckMusic();
-      }, 5500);
+        handleEnd();
+      }, (expectedDur + 0.35) * 1000);
+      return expectedDur;
     } catch {
-      this.unduckMusic();
+      handleEnd();
+      return expectedDur;
     }
   }
 
   public stopBossVoice(stageNum?: number) {
     if (typeof window === "undefined") return;
+
+    if (this.duckTimerId !== null) {
+      window.clearTimeout(this.duckTimerId);
+      this.duckTimerId = null;
+    }
 
     if (this.currentVoiceSource) {
       try {

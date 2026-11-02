@@ -3,6 +3,64 @@ import { tuning as T } from "./tuning";
 import { sound } from "./audio";
 import stageLayersManifest from "./stage-layers.json";
 
+export type BossCinematicInfo = {
+  active: boolean;
+  phase: "speaking" | "roar_out";
+  stageId: number;
+  speaker: string;
+  title: string;
+  quote: string;
+  portrait: string;
+  timer: number;
+  duration: number;
+  charCount: number;
+};
+
+export const BOSS_METADATA: Record<number, { speaker: string; title: string; quote: string; portrait: string }> = {
+  1: {
+    speaker: "Petros",
+    title: "A Gárgula Colossal · Guardião dos Portões",
+    quote: "Nenhum mortal cruzará os portões do Mestre!",
+    portrait: "/art/stage-1.jpg",
+  },
+  2: {
+    speaker: "Valerius",
+    title: "O Cavaleiro Imortal · Sentinela de Mármore",
+    quote: "Sua jornada tola termina sob o fio desta lâmina!",
+    portrait: "/art/stage-2.jpg",
+  },
+  3: {
+    speaker: "Seraphine",
+    title: "Sacerdotisa de Sangue · Claustro Desconsagrado",
+    quote: "Seu sangue alimentará este santuário sagrado...",
+    portrait: "/art/stage-3.jpg",
+  },
+  4: {
+    speaker: "Nocturne",
+    title: "O Morcego-Rei · Soberano das Catacumbas",
+    quote: "Eu sinto o terror em sua carne nas trevas!",
+    portrait: "/art/stage-4.jpg",
+  },
+  5: {
+    speaker: "Lorde Veyne",
+    title: "Arquivista das Sombras · Biblioteca Proibida",
+    quote: "As sombras da biblioteca devorarão sua alma!",
+    portrait: "/art/stage-5.jpg",
+  },
+  6: {
+    speaker: "Calx",
+    title: "A Aberração de Vidro · Alquimia Proibida",
+    quote: "ROOOAAAR! O elixir eterno exige sacrifício!",
+    portrait: "/art/stage-6.jpg",
+  },
+  7: {
+    speaker: "Conde Drácula",
+    title: "O Senhor Supremo das Trevas",
+    quote: "O que é um homem senão uma miserável pilha de segredos?! Mas chega de conversa... Venha a mim!",
+    portrait: "/art/dracula.jpg",
+  },
+};
+
 export type GameHud = {
   hp: number;
   maxHp: number;
@@ -25,6 +83,7 @@ export type GameHud = {
   charge: number;
   sealsSolved?: number;
   sealsTotal?: number;
+  bossCinematic?: BossCinematicInfo | null;
 };
 
 type Action = "left" | "right" | "jump" | "aimUp" | "aimDown" | "attack" | "dash" | "spell" | "guard" | "special";
@@ -521,6 +580,137 @@ export function mountCampaign(
   let bossEnragedAnnounced = false;
   let ambushTimer = 4.0;
 
+  type BossCinematic = {
+    active: boolean;
+    phase: "speaking" | "roar_out" | "done";
+    stageId: number;
+    speaker: string;
+    title: string;
+    quote: string;
+    portrait: string;
+    timer: number;
+    duration: number;
+    charCount: number;
+    letterboxProgress: number;
+    targetCamX: number;
+    targetCamY: number;
+    bossObj: Enemy | null;
+  };
+
+  let bossCinematic: BossCinematic = {
+    active: false,
+    phase: "done",
+    stageId: level.id,
+    speaker: "",
+    title: "",
+    quote: "",
+    portrait: "",
+    timer: 0,
+    duration: 5.0,
+    charCount: 0,
+    letterboxProgress: 0,
+    targetCamX: 0,
+    targetCamY: 0,
+    bossObj: null,
+  };
+
+  function startBossCinematic(boss: Enemy) {
+    const meta = BOSS_METADATA[level.id] || {
+      speaker: boss.name.split(",")[0],
+      title: boss.name,
+      quote: "Sua jornada termina aqui nas trevas!",
+      portrait: `/art/stage-${level.id}.jpg`,
+    };
+
+    const dur = sound.getBossVoiceDuration(level.id);
+
+    bossCinematic = {
+      active: true,
+      phase: "speaking",
+      stageId: level.id,
+      speaker: meta.speaker,
+      title: meta.title,
+      quote: meta.quote,
+      portrait: meta.portrait,
+      timer: 0,
+      duration: dur,
+      charCount: 0,
+      letterboxProgress: 0,
+      targetCamX: clamp((player.x + boss.x) / 2 - T.viewW / 2, 0, Math.max(0, level.width - T.viewW)),
+      targetCamY: clamp((player.y + boss.y) / 2 - 170, -160, 115),
+      bossObj: boss,
+    };
+
+    // Freeze player in battle-ready stance facing boss
+    player.vx = 0;
+    player.attackT = 0;
+    player.attackLock = 0;
+    player.castT = 0;
+    player.specialT = 0;
+    player.dashT = 0;
+    player.facing = boss.x > player.x ? 1 : -1;
+
+    // Freeze boss facing player
+    boss.vx = 0;
+    boss.vy = 0;
+    boss.hurt = 0;
+    boss.wind = 0;
+    boss.cd = Math.max(boss.cd, dur + 1.5);
+    boss.state = "idle";
+    boss.facing = player.x > boss.x ? 1 : -1;
+
+    // Clear any active enemy projectiles so no unfair damage occurs
+    for (const sh of shots) {
+      if (!sh.friendly) sh.life = 0;
+    }
+
+    // Play voiced speech with ducked background music
+    sound.playBossVoice(level.id, () => {
+      if (bossCinematic.active && bossCinematic.phase === "speaking") {
+        advanceBossCinematicToRoar();
+      }
+    });
+  }
+
+  function advanceBossCinematicToRoar() {
+    if (!bossCinematic.active) return;
+    bossCinematic.phase = "roar_out";
+    bossCinematic.timer = 0;
+    sound.playSfx("thunder");
+    sound.playSfx("bossHurt");
+    shake = 18;
+
+    const b = bossCinematic.bossObj;
+    if (b) {
+      b.state = "idle";
+      b.cd = 0.85;
+
+      // Roar burst particles
+      for (let i = 0; i < 30; i++) {
+        const ang = (i / 30) * Math.PI * 2;
+        const spd = 45 + Math.random() * 95;
+        particles.push({
+          x: b.x + b.w / 2,
+          y: b.y + b.h / 2,
+          vx: Math.cos(ang) * spd,
+          vy: Math.sin(ang) * spd - 30,
+          size: 3 + Math.random() * 3,
+          alpha: 1,
+          maxAlpha: 1,
+          color: level.id === 6 ? "#4ade80" : level.id === 5 ? "#a855f7" : level.id === 7 ? "#ffd700" : "#ff1744",
+          depth: "fg",
+          pulse: Math.random() * Math.PI * 2,
+        });
+      }
+    }
+  }
+
+  function skipBossCinematic() {
+    if (!bossCinematic.active) return;
+    sound.stopBossVoice();
+    advanceBossCinematicToRoar();
+  }
+
   const STAND_H = 50;
   const CROUCH_H = 30;
 
@@ -943,6 +1133,22 @@ export function mountCampaign(
     clearedOnce = false;
     bossIntroPlayed = false;
     bossEnragedAnnounced = false;
+    bossCinematic = {
+      active: false,
+      phase: "done",
+      stageId: level.id,
+      speaker: "",
+      title: "",
+      quote: "",
+      portrait: "",
+      timer: 0,
+      duration: 5.0,
+      charCount: 0,
+      letterboxProgress: 0,
+      targetCamX: 0,
+      targetCamY: 0,
+      bossObj: null,
+    };
     ambushTimer = 24.0;
     sound.stopBossVoice();
     shots.length = 0;
@@ -1207,6 +1413,7 @@ export function mountCampaign(
       e.vy = 0; // ZERO vertical pop on fatal hit!
       if (e.kind !== "bat") e.grounded = true;
       sound.playSfx(e.boss ? "bossHurt" : "enemyDie");
+      if (e.boss) sound.stopBossVoice();
       shake = Math.max(shake, e.boss ? 8 : 4);
 
       // Increase special meter on enemy kill (4 to 5 kills fills the 100% Special bar!)
@@ -1341,6 +1548,117 @@ export function mountCampaign(
   }
 
   function step(dt: number, press: { jump: boolean; attack: boolean; dash: boolean; spell: boolean; special?: boolean }, held: Set<Action>) {
+    // =========================================================================
+    // CINEMATIC BOSS ENCOUNTER:
+    // Freeze battle while Boss speaks! Letterbox, camera tracking, and dialog.
+    // Combat only begins once the speech finishes or player presses Skip!
+    // =========================================================================
+    if (bossCinematic.active) {
+      time += dt;
+
+      // Check for user skip input (action buttons)
+      const wantsSkip = press.jump || press.attack || press.dash || press.spell || press.special;
+      if (wantsSkip && bossCinematic.phase === "speaking") {
+        skipBossCinematic();
+      }
+
+      // Update gates & crystals animation
+      for (const gate of sealGates) {
+        if (gate.open && gate.openProgress < 1) {
+          gate.openProgress = Math.min(1, gate.openProgress + dt * 1.4);
+        }
+      }
+      for (const c of sealCrystals) {
+        c.pulseT += dt * 3.5;
+      }
+
+      if (bossCinematic.phase === "speaking") {
+        bossCinematic.timer += dt;
+        bossCinematic.letterboxProgress = Math.min(1, bossCinematic.letterboxProgress + dt * 3.5);
+
+        // Smooth camera glide to confrontation frame
+        camX += (bossCinematic.targetCamX - camX) * Math.min(1, dt * 5.0);
+        camY += (bossCinematic.targetCamY - camY) * Math.min(1, dt * 5.0);
+
+        // Typewriter effect: reveal characters over duration
+        const textDur = Math.max(2.2, bossCinematic.duration - 0.7);
+        const charFraction = Math.min(1, bossCinematic.timer / textDur);
+        bossCinematic.charCount = Math.floor(charFraction * bossCinematic.quote.length);
+
+        // Keep player grounded and motionless
+        player.vx = 0;
+        if (!player.grounded) {
+          player.vy = Math.min(player.vy + T.gravDown * dt, T.terminal);
+          resolve(player, dt, false);
+        } else {
+          player.vy = 0;
+        }
+
+        const b = bossCinematic.bossObj;
+        if (b && !b.dead) {
+          b.vx = 0;
+          b.state = "idle";
+          b.facing = player.x > b.x ? 1 : -1;
+          player.facing = b.x > player.x ? 1 : -1;
+
+          // Menacing ambient aura particles during speech
+          if (Math.random() < 0.35) {
+            particles.push({
+              x: b.x + Math.random() * b.w,
+              y: b.y + b.h - 8,
+              vx: (Math.random() - 0.5) * 20,
+              vy: -20 - Math.random() * 30,
+              size: 2 + Math.random() * 2,
+              alpha: 0.8,
+              maxAlpha: 0.8,
+              color: level.id === 6 ? "#4ade80" : level.id === 5 ? "#a855f7" : "#ff1744",
+              depth: "fg",
+              pulse: Math.random() * Math.PI * 2,
+            });
+          }
+        }
+
+        // Freeze regular enemies in the arena
+        for (const e of enemies) {
+          if (!e.boss && !e.dead) {
+            e.vx = 0;
+            e.cd = Math.max(e.cd, 1.0);
+          }
+        }
+
+        if (bossCinematic.timer >= bossCinematic.duration) {
+          advanceBossCinematicToRoar();
+        }
+
+        return; // Suspend combat processing during speech!
+      } else if (bossCinematic.phase === "roar_out") {
+        bossCinematic.timer += dt;
+        bossCinematic.letterboxProgress = Math.max(0, bossCinematic.letterboxProgress - dt * 2.8);
+        shake = Math.max(shake, 14 * Math.max(0, 1 - bossCinematic.timer / 1.1));
+
+        if (bossCinematic.timer >= 1.1) {
+          bossCinematic.active = false;
+          bossCinematic.phase = "done";
+          bossCinematic.letterboxProgress = 0;
+          if (level.id === 7) {
+            sound.playStageBgm(7);
+          } else {
+            sound.playBgm("boss");
+          }
+          sound.unduckMusic();
+          player.toast = "⚔️ A BATALHA COMEÇOU! DERROTE O SENHOR DO SALÃO!";
+          player.toastT = 2.8;
+        }
+
+        const focus = player.x + player.w / 2 + player.facing * 28;
+        const center = camX + T.viewW / 2;
+        if (focus > center + 24) camX += (focus - center - 24) * Math.min(1, dt * 6);
+        else if (focus < center - 24) camX += (focus - center + 24) * Math.min(1, dt * 6);
+        camX = clamp(camX, 0, Math.max(0, level.width - T.viewW));
+        return; // Suspend until roar finishes!
+      }
+    }
+
     time += dt;
     player.toastT = Math.max(0, (player.toastT || 0) - dt);
     player.iframes = Math.max(0, (player.iframes || 0) - dt);
@@ -2070,6 +2388,7 @@ export function mountCampaign(
             e.vy = 0;
             if (e.kind !== "bat") e.grounded = true;
             sound.playSfx(e.boss ? "bossHurt" : "enemyDie");
+            if (e.boss) sound.stopBossVoice();
 
             const burstCount = e.boss ? 36 : 18;
             for (let b = 0; b < burstCount; b++) {
@@ -2353,7 +2672,6 @@ export function mountCampaign(
         hitstop = Math.max(hitstop, 0.06);
         sound.playSfx("thunder");
         sound.playSfx("bossHurt");
-        sound.playBossVoice(level.id);
 
         // Clear enemy projectiles and push Aldric back safely with a shockwave (no cheap damage!)
         for (const sh of shots) {
@@ -4697,6 +5015,45 @@ export function mountCampaign(
     g.fillStyle = edgeVig;
     g.fillRect(0, 0, T.viewW, T.viewH);
     g.setTransform(1, 0, 0, 1, 0, 0);
+
+    // =========================================================================
+    // CINEMATIC WIDESCREEN LETTERBOX BARS (Castlevania SOTN Boss Presentation)
+    // =========================================================================
+    if (bossCinematic.letterboxProgress > 0) {
+      const barH = Math.round(36 * bossCinematic.letterboxProgress);
+      g.save();
+      g.fillStyle = "#000000";
+      // Top anamorphic black bar
+      g.fillRect(0, 0, T.viewW, barH);
+      // Bottom anamorphic black bar
+      g.fillRect(0, T.viewH - barH, T.viewW, barH);
+
+      // Ornate Gold Trim filigree lines
+      g.fillStyle = "rgba(212, 175, 55, 0.85)";
+      g.fillRect(0, barH - 1, T.viewW, 1);
+      g.fillRect(0, T.viewH - barH, T.viewW, 1);
+
+      // Inner Crimson bloodline
+      g.fillStyle = "rgba(225, 29, 72, 0.65)";
+      g.fillRect(0, barH - 2, T.viewW, 1);
+      g.fillRect(0, T.viewH - barH + 1, T.viewW, 1);
+
+      // Dramatic "BATALHA INICIADA!" splash during roar_out
+      if (bossCinematic.phase === "roar_out") {
+        g.font = "bold 13px serif";
+        g.textAlign = "center";
+        g.textBaseline = "middle";
+        g.shadowColor = "#ff1744";
+        g.shadowBlur = 12;
+        g.fillStyle = "#ffd700";
+        g.fillText("⚔️ O SENHOR DO SALÃO DESPERTOU! ⚔️", T.viewW / 2, barH + 18);
+        g.font = "bold 8px monospace";
+        g.fillStyle = "#ffffff";
+        g.shadowBlur = 6;
+        g.fillText("PREPARE-SE PARA A BATALHA!", T.viewW / 2, barH + 32);
+      }
+      g.restore();
+    }
   }
 
   function publish() {
@@ -4704,20 +5061,9 @@ export function mountCampaign(
     const bossInSight = !!boss && (boss.x < camX + T.viewW + 24 && boss.x + boss.w > camX - 32);
     const bossOn = !!boss && (boss.boss && (bossInSight || player.x > boss.homeX - 460 || boss.hp < boss.max));
     if (bossOn && !player.dead && !player.won && boss && !boss.dead) {
-      if (!bossIntroPlayed) {
+      if (!bossIntroPlayed && !bossCinematic.active && bossCinematic.phase !== "done") {
         bossIntroPlayed = true;
-        sound.playBossVoice(level.id);
-        const quotes: Record<number, string> = {
-          1: "Petros: 'Nenhum mortal cruzará os portões do Mestre!'",
-          2: "Valerius: 'Sua jornada tola termina sob o fio desta lâmina!'",
-          3: "Seraphine: 'Seu sangue alimentará este santuário sagrado...'",
-          4: "Nocturne: 'Eu sinto o terror em sua carne nas trevas!'",
-          5: "Lorde Veyne: 'As sombras da biblioteca devorarão sua alma!'",
-          6: "Calx: 'ROOOAAAR! O elixir eterno exige sacrifício!'",
-          7: "Conde Drácula: 'O que é um homem senão uma miserável pilha de segredos?!'",
-        };
-        player.toast = quotes[level.id] || `${boss.name} ergue-se nas trevas!`;
-        player.toastT = 4.2;
+        startBossCinematic(boss);
       }
       if (bossIntroPlayed && !bossEnragedAnnounced && boss.hp / boss.max < 0.5) {
         bossEnragedAnnounced = true;
@@ -4726,12 +5072,14 @@ export function mountCampaign(
         player.toast = `⚠️ ${boss.name.split(',')[0]} ENTROU EM FÚRIA! Padrões letais acelerados!`;
         player.toastT = 3.0;
       }
-      if (level.id === 7) {
-        if (sound.getCurrentTrack() !== "stage7") {
-          sound.playStageBgm(7);
+      if (!bossCinematic.active) {
+        if (level.id === 7) {
+          if (sound.getCurrentTrack() !== "stage7") {
+            sound.playStageBgm(7);
+          }
+        } else if (sound.getCurrentTrack() !== "boss") {
+          sound.playBgm("boss");
         }
-      } else if (sound.getCurrentTrack() !== "boss") {
-        sound.playBgm("boss");
       }
     }
     const sealsSolved = sealCrystals.filter((c) => c.activated).length;
@@ -4747,7 +5095,7 @@ export function mountCampaign(
       bossName: boss?.name || "",
       bossHp: boss ? Math.max(0, boss.hp) : 0,
       bossMax: boss?.max || 1,
-      bossOn,
+      bossOn: bossOn && !bossCinematic.active,
       bossPhase: boss?.phase ?? 1,
       bossTransforming: (boss?.transformT ?? 0) > 0,
       toast: player.toastT > 0 ? player.toast : "",
@@ -4758,6 +5106,18 @@ export function mountCampaign(
       charge: Math.min(1, player.holdT / 0.55),
       sealsSolved,
       sealsTotal,
+      bossCinematic: bossCinematic.active ? {
+        active: true,
+        phase: bossCinematic.phase === "roar_out" ? "roar_out" : "speaking",
+        stageId: level.id,
+        speaker: bossCinematic.speaker,
+        title: bossCinematic.title,
+        quote: bossCinematic.quote,
+        portrait: bossCinematic.portrait,
+        timer: bossCinematic.timer,
+        duration: bossCinematic.duration,
+        charCount: bossCinematic.charCount,
+      } : null,
     });
   }
 
@@ -4805,7 +5165,7 @@ export function mountCampaign(
     draw();
     const bossObj = enemies.find((e) => e.boss && !e.dead);
     const wantsBossIntro = !!bossObj && !bossIntroPlayed && (bossObj.x < camX + T.viewW + 24 || player.x > bossObj.homeX - 460 || bossObj.hp < bossObj.max);
-    if (steps > 0 && (wantsBossIntro || Math.floor(time * 60) % 4 === 0)) publish();
+    if (steps > 0 && (wantsBossIntro || bossCinematic.active || Math.floor(time * 60) % 4 === 0)) publish();
     raf = requestAnimationFrame(frame);
   }
 
@@ -4824,6 +5184,10 @@ export function mountCampaign(
   zone.addEventListener("pointerenter", markHot);
   zone.addEventListener("pointerleave", markCold);
   const onDown = (e: KeyboardEvent) => {
+    if (bossCinematic.active && bossCinematic.phase === "speaking") {
+      skipBossCinematic();
+      return;
+    }
     if (e.code === "Escape") {
       keys.clear();
       hot = false;
@@ -4903,12 +5267,19 @@ export function mountCampaign(
       if (window.__controlsTest === probe) delete window.__controlsTest;
     },
     setHeld(action: Action, down: boolean) {
+      if (bossCinematic.active && bossCinematic.phase === "speaking" && down) {
+        skipBossCinematic();
+        return;
+      }
       if (down) {
         pointer.add(action);
         pointerDownThisFrame.add(action);
       } else {
         pointer.delete(action);
       }
+    },
+    skipBossIntro() {
+      skipBossCinematic();
     },
     reset() {
       sound.playStageBgm(level.id);

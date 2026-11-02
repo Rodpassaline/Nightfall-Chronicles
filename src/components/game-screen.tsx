@@ -17,6 +17,7 @@ import { levels } from "@/game/levels";
 import { sound } from "@/game/audio";
 import { PrologueScreen } from "./prologue-screen";
 import { StageIntroCard } from "./stage-intro-card";
+import { BossCinematicOverlay } from "./boss-cinematic-overlay";
 
 const empty: GameHud = {
   hp: 6,
@@ -36,6 +37,7 @@ const empty: GameHud = {
   title: "",
   dashReady: true,
   charge: 0,
+  bossCinematic: null,
 };
 
 type Mode = "title" | "intro" | "stages" | "play" | "ending";
@@ -684,7 +686,7 @@ export function GameScreen() {
       />
 
       {/* Left Half Touchscreen Movement Zone (Active across the entire left 50% of the screen) */}
-      {showTouchControls ? (
+      {showTouchControls && !hud.bossCinematic?.active ? (
         <div
           data-touch-left
           className="absolute inset-y-0 left-0 w-1/2 z-20 touch-none select-none cursor-crosshair"
@@ -696,7 +698,7 @@ export function GameScreen() {
       ) : null}
 
       {/* Free Fire Style Virtual Joystick on Left Half (Always visible when touch controls enabled) */}
-      {showTouchControls ? (
+      {showTouchControls && !hud.bossCinematic?.active ? (
         <div
           className={`absolute pointer-events-none z-30 select-none transition-opacity duration-75 ${
             joystick.active
@@ -763,7 +765,7 @@ export function GameScreen() {
       ) : null}
 
       {/* Right Half Touchscreen Action Buttons — Free Fire Ergonomic Radial Arc Layout */}
-      {showTouchControls ? (
+      {showTouchControls && !hud.bossCinematic?.active ? (
         <div className="absolute inset-0 z-30 pointer-events-none select-none overflow-hidden">
           {/* 1. PRIMARY ATTACK BUTTON (Large Fire/Sword Circle inset from bottom-right, Free Fire Main Fire position) */}
           <button
@@ -1149,6 +1151,14 @@ export function GameScreen() {
             setStageIntroId(null);
             apiRef.current?.setPaused(false);
           }}
+        />
+      ) : null}
+
+      {/* Cinematic Boss Monologue & Presentation Overlay */}
+      {hud.bossCinematic?.active ? (
+        <BossCinematicOverlay
+          cinematic={hud.bossCinematic}
+          onSkip={() => apiRef.current?.skipBossIntro?.()}
         />
       ) : null}
     </div>
