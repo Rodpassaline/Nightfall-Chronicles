@@ -49,39 +49,44 @@ export function BossCinematicOverlay({ cinematic, onSkip }: BossCinematicOverlay
       className="fixed inset-0 z-40 pointer-events-none select-none flex flex-col justify-between overflow-hidden"
     >
       {/* =========================================================================
-          1. CLEAN, NON-FLICKERING BOSS ARTWORK IN CINEMATIC FOCUS
-          Stable high-resolution portrait with smooth breathing animation (zero strobe!)
+          1. EPIC MASTERWORK BOSS ARTWORK IN CINEMATIC FOCUS (NO BORDERS, SEAMLESS FADE)
+          Dark gothic oil painting with radial feathering and breathing animation
       ========================================================================= */}
-      <div className="absolute inset-0 flex items-center justify-center pointer-events-none overflow-hidden pb-14 sm:pb-20">
-        {/* Soft atmospheric background glow matching boss element */}
+      <div className="absolute inset-0 flex items-center justify-center pointer-events-none overflow-hidden pb-12 sm:pb-16">
+        {/* Thematic atmospheric color glow behind the boss */}
         <div
-          className="absolute w-[280px] h-[280px] sm:w-[420px] sm:h-[420px] rounded-full blur-3xl opacity-25 pointer-events-none transition-opacity duration-1000"
+          className="absolute w-[320px] h-[320px] sm:w-[460px] sm:h-[460px] rounded-full blur-3xl opacity-25 pointer-events-none transition-opacity duration-1000"
           style={{ backgroundColor: themeColor }}
         />
 
         {/* Ambient Dark Gothic Vignette Backdrop */}
-        <div className="absolute inset-0 bg-radial-[ellipse_at_center,_transparent_30%,_rgba(0,0,0,0.88)_85%] pointer-events-none" />
+        <div className="absolute inset-0 bg-radial-[ellipse_at_center,_transparent_25%,_rgba(0,0,0,0.92)_85%] pointer-events-none" />
 
-        {/* Boss Bust Image */}
+        {/* Boss Bust Image Container with Soft Radial Edge Dissolve */}
         <div
           className={`relative flex items-center justify-center transition-all duration-500 ease-out ${
             cinematic.phase === "roar_out"
-              ? "scale-110 brightness-125 filter drop-shadow-[0_0_40px_rgba(255,23,68,0.9)]"
-              : "scale-100 brightness-100 filter drop-shadow-[0_0_24px_rgba(0,0,0,0.95)]"
+              ? "scale-110 brightness-125 filter drop-shadow-[0_0_45px_rgba(255,23,68,0.95)]"
+              : "scale-100 brightness-100 filter drop-shadow-[0_0_30px_rgba(0,0,0,0.95)]"
           }`}
           style={{
-            maxWidth: "94vw",
-            maxHeight: "72vh",
+            maxWidth: "96vw",
+            maxHeight: "75vh",
           }}
         >
           <img
             src={bustSrc}
             alt={cinematic.speaker}
-            className="w-auto h-[230px] xs:h-[270px] sm:h-[350px] md:h-[420px] max-w-none object-contain select-none pointer-events-none animate-boss-breathe"
+            className="w-auto h-[250px] xs:h-[290px] sm:h-[380px] md:h-[460px] max-w-none object-contain select-none pointer-events-none animate-boss-breathe"
+            style={{
+              // Radial mask dissolves all 4 rectangular borders seamlessly into the dark atmosphere
+              WebkitMaskImage: "radial-gradient(ellipse 70% 75% at 50% 45%, black 45%, transparent 92%)",
+              maskImage: "radial-gradient(ellipse 70% 75% at 50% 45%, black 45%, transparent 92%)",
+            }}
           />
 
-          {/* Smooth bottom gradient falloff so feet/torso blend into darkness & subtitle bar */}
-          <div className="absolute inset-x-0 bottom-0 h-28 sm:h-40 bg-gradient-to-t from-black via-black/75 to-transparent pointer-events-none" />
+          {/* Smooth bottom gradient falloff so lower torso softly blends with subtitle */}
+          <div className="absolute inset-x-0 bottom-0 h-24 sm:h-36 bg-gradient-to-t from-black via-black/70 to-transparent pointer-events-none" />
         </div>
       </div>
 
