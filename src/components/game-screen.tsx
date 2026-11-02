@@ -169,7 +169,7 @@ export function GameScreen() {
 
   // Left Half Dynamic Joystick Handlers (Anywhere on the left 50% of the screen)
   const handleLeftPointerDown = (e: React.PointerEvent<HTMLDivElement>) => {
-    if (joystickRef.current.active) return;
+    if (hud.bossCinematic?.active) return;
     try {
       e.currentTarget.setPointerCapture(e.pointerId);
     } catch {
@@ -193,6 +193,7 @@ export function GameScreen() {
   };
 
   const handleLeftPointerMove = (e: React.PointerEvent<HTMLDivElement>) => {
+    if (hud.bossCinematic?.active) return;
     const cur = joystickRef.current;
     if (!cur.active || cur.pointerId !== e.pointerId || !apiRef.current) return;
 
@@ -258,7 +259,7 @@ export function GameScreen() {
 
   const handleLeftPointerUp = (e: React.PointerEvent<HTMLDivElement>) => {
     const cur = joystickRef.current;
-    if (!cur.active || cur.pointerId !== e.pointerId) return;
+    if (cur.pointerId != null && cur.pointerId !== e.pointerId) return;
 
     setJoystick({
       active: false,
@@ -280,6 +281,33 @@ export function GameScreen() {
       apiRef.current.setHeld("aimUp", false);
     }
   };
+
+  // Reset joystick and all held controls whenever cinematic state changes (start OR finish)
+  useEffect(() => {
+    setJoystick({
+      active: false,
+      pointerId: null,
+      originX: 0,
+      originY: 0,
+      currentX: 0,
+      currentY: 0,
+      dx: 0,
+      dy: 0,
+      clampedDx: 0,
+      clampedDy: 0,
+    });
+    setHeldActions(new Set());
+    if (apiRef.current) {
+      apiRef.current.setHeld("left", false);
+      apiRef.current.setHeld("right", false);
+      apiRef.current.setHeld("aimDown", false);
+      apiRef.current.setHeld("aimUp", false);
+      apiRef.current.setHeld("jump", false);
+      apiRef.current.setHeld("attack", false);
+      apiRef.current.setHeld("dash", false);
+      apiRef.current.setHeld("spell", false);
+    }
+  }, [hud.bossCinematic?.active]);
 
   // Right Side Action Button Handlers (Attack, Jump, Dash, Spell, Guard, Special)
   // Supports both direct Touch events (zero-latency multi-touch on smartphones) and Pointer events without pointer-capture contention
@@ -686,22 +714,27 @@ export function GameScreen() {
       />
 
       {/* Left Half Touchscreen Movement Zone (Active across the entire left 50% of the screen) */}
-      {showTouchControls && !hud.bossCinematic?.active ? (
+      {showTouchControls ? (
         <div
           data-touch-left
-          className="absolute inset-y-0 left-0 w-1/2 z-20 touch-none select-none cursor-crosshair"
+          className={`absolute inset-y-0 left-0 w-1/2 z-20 touch-none select-none transition-opacity duration-150 ${
+            hud.bossCinematic?.active ? "pointer-events-none opacity-0" : "cursor-crosshair opacity-100"
+          }`}
           onPointerDown={handleLeftPointerDown}
           onPointerMove={handleLeftPointerMove}
           onPointerUp={handleLeftPointerUp}
           onPointerCancel={handleLeftPointerUp}
+          onLostPointerCapture={handleLeftPointerUp}
         />
       ) : null}
 
       {/* Free Fire Style Virtual Joystick on Left Half (Always visible when touch controls enabled) */}
-      {showTouchControls && !hud.bossCinematic?.active ? (
+      {showTouchControls ? (
         <div
-          className={`absolute pointer-events-none z-30 select-none transition-opacity duration-75 ${
-            joystick.active
+          className={`absolute pointer-events-none z-30 select-none transition-opacity duration-150 ${
+            hud.bossCinematic?.active
+              ? "opacity-0"
+              : joystick.active
               ? "-translate-x-1/2 -translate-y-1/2 opacity-95"
               : "bottom-7 left-8 sm:bottom-9 sm:left-12 opacity-75"
           }`}
@@ -765,8 +798,12 @@ export function GameScreen() {
       ) : null}
 
       {/* Right Half Touchscreen Action Buttons — Free Fire Ergonomic Radial Arc Layout */}
-      {showTouchControls && !hud.bossCinematic?.active ? (
-        <div className="absolute inset-0 z-30 pointer-events-none select-none overflow-hidden">
+      {showTouchControls ? (
+        <div
+          className={`absolute inset-0 z-30 pointer-events-none select-none overflow-hidden transition-opacity duration-150 ${
+            hud.bossCinematic?.active ? "opacity-0 pointer-events-none" : "opacity-100"
+          }`}
+        >
           {/* 1. PRIMARY ATTACK BUTTON (Large Fire/Sword Circle inset from bottom-right, Free Fire Main Fire position) */}
           <button
             type="button"

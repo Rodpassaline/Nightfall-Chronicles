@@ -11,53 +11,88 @@ export type BossCinematicInfo = {
   title: string;
   quote: string;
   portrait: string;
+  bustIdle?: string;
+  bustTalk?: string;
+  themeColor?: string;
   timer: number;
   duration: number;
   charCount: number;
 };
 
-export const BOSS_METADATA: Record<number, { speaker: string; title: string; quote: string; portrait: string }> = {
+export const BOSS_METADATA: Record<
+  number,
+  {
+    speaker: string;
+    title: string;
+    quote: string;
+    portrait: string;
+    bustIdle: string;
+    bustTalk: string;
+    themeColor: string;
+  }
+> = {
   1: {
     speaker: "Petros",
     title: "A Gárgula Colossal · Guardião dos Portões",
     quote: "Nenhum mortal cruzará os portões do Mestre!",
-    portrait: "/art/stage-1.jpg",
+    portrait: "/portraits/boss-1-idle.png",
+    bustIdle: "/portraits/boss-1-idle.png",
+    bustTalk: "/portraits/boss-1-talk.png",
+    themeColor: "#f59e0b",
   },
   2: {
     speaker: "Valerius",
     title: "O Cavaleiro Imortal · Sentinela de Mármore",
     quote: "Sua jornada tola termina sob o fio desta lâmina!",
-    portrait: "/art/stage-2.jpg",
+    portrait: "/portraits/boss-2-idle.png",
+    bustIdle: "/portraits/boss-2-idle.png",
+    bustTalk: "/portraits/boss-2-talk.png",
+    themeColor: "#ef4444",
   },
   3: {
     speaker: "Seraphine",
     title: "Sacerdotisa de Sangue · Claustro Desconsagrado",
     quote: "Seu sangue alimentará este santuário sagrado...",
-    portrait: "/art/stage-3.jpg",
+    portrait: "/portraits/boss-3-idle.png",
+    bustIdle: "/portraits/boss-3-idle.png",
+    bustTalk: "/portraits/boss-3-talk.png",
+    themeColor: "#e11d48",
   },
   4: {
     speaker: "Nocturne",
     title: "O Morcego-Rei · Soberano das Catacumbas",
     quote: "Eu sinto o terror em sua carne nas trevas!",
-    portrait: "/art/stage-4.jpg",
+    portrait: "/portraits/boss-4-idle.png",
+    bustIdle: "/portraits/boss-4-idle.png",
+    bustTalk: "/portraits/boss-4-talk.png",
+    themeColor: "#dc2626",
   },
   5: {
     speaker: "Lorde Veyne",
     title: "Arquivista das Sombras · Biblioteca Proibida",
     quote: "As sombras da biblioteca devorarão sua alma!",
-    portrait: "/art/stage-5.jpg",
+    portrait: "/portraits/boss-5-idle.png",
+    bustIdle: "/portraits/boss-5-idle.png",
+    bustTalk: "/portraits/boss-5-talk.png",
+    themeColor: "#a855f7",
   },
   6: {
     speaker: "Calx",
     title: "A Aberração de Vidro · Alquimia Proibida",
     quote: "ROOOAAAR! O elixir eterno exige sacrifício!",
-    portrait: "/art/stage-6.jpg",
+    portrait: "/portraits/boss-6-idle.png",
+    bustIdle: "/portraits/boss-6-idle.png",
+    bustTalk: "/portraits/boss-6-talk.png",
+    themeColor: "#22c55e",
   },
   7: {
     speaker: "Conde Drácula",
     title: "O Senhor Supremo das Trevas",
     quote: "O que é um homem senão uma miserável pilha de segredos?! Mas chega de conversa... Venha a mim!",
-    portrait: "/art/dracula.jpg",
+    portrait: "/portraits/boss-7-idle.png",
+    bustIdle: "/portraits/boss-7-idle.png",
+    bustTalk: "/portraits/boss-7-talk.png",
+    themeColor: "#ffd700",
   },
 };
 
@@ -588,6 +623,9 @@ export function mountCampaign(
     title: string;
     quote: string;
     portrait: string;
+    bustIdle: string;
+    bustTalk: string;
+    themeColor: string;
     timer: number;
     duration: number;
     charCount: number;
@@ -605,6 +643,9 @@ export function mountCampaign(
     title: "",
     quote: "",
     portrait: "",
+    bustIdle: "",
+    bustTalk: "",
+    themeColor: "#ffd700",
     timer: 0,
     duration: 5.0,
     charCount: 0,
@@ -625,7 +666,10 @@ export function mountCampaign(
       speaker: boss.name.split(",")[0],
       title: boss.name,
       quote: "Sua jornada termina aqui nas trevas!",
-      portrait: `/art/stage-${level.id}.jpg`,
+      portrait: `/portraits/boss-${level.id}-idle.png`,
+      bustIdle: `/portraits/boss-${level.id}-idle.png`,
+      bustTalk: `/portraits/boss-${level.id}-talk.png`,
+      themeColor: "#ffd700",
     };
 
     const dur = sound.getBossVoiceDuration(level.id);
@@ -638,6 +682,9 @@ export function mountCampaign(
       title: meta.title,
       quote: meta.quote,
       portrait: meta.portrait,
+      bustIdle: meta.bustIdle,
+      bustTalk: meta.bustTalk,
+      themeColor: meta.themeColor,
       timer: 0,
       duration: dur,
       charCount: 0,
@@ -1148,6 +1195,9 @@ export function mountCampaign(
       title: "",
       quote: "",
       portrait: "",
+      bustIdle: "",
+      bustTalk: "",
+      themeColor: "#ffd700",
       timer: 0,
       duration: 5.0,
       charCount: 0,
@@ -1649,6 +1699,16 @@ export function mountCampaign(
           sound.unduckMusic();
           player.toast = "⚔️ A BATALHA COMEÇOU! DERROTE O SENHOR DO SALÃO!";
           player.toastT = 2.8;
+          player.controlLock = 0;
+          player.attackLock = 0;
+          player.castT = 0;
+          player.dashT = 0;
+          player.specialT = 0;
+          player.vx = 0;
+          keys.clear();
+          pointer.clear();
+          injected.clear();
+          publish();
         }
 
         const focus = player.x + player.w / 2 + player.facing * 28;
@@ -5115,6 +5175,9 @@ export function mountCampaign(
         title: bossCinematic.title,
         quote: bossCinematic.quote,
         portrait: bossCinematic.portrait,
+        bustIdle: bossCinematic.bustIdle,
+        bustTalk: bossCinematic.bustTalk,
+        themeColor: bossCinematic.themeColor,
         timer: bossCinematic.timer,
         duration: bossCinematic.duration,
         charCount: bossCinematic.charCount,
@@ -5275,6 +5338,9 @@ export function mountCampaign(
     },
     setHeld(action: Action, down: boolean) {
       if (bossCinematic.active) {
+        if (!down) {
+          pointer.delete(action);
+        }
         return;
       }
       if (down) {
