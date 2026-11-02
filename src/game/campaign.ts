@@ -1115,9 +1115,15 @@ export function mountCampaign(
     maxAlpha: number;
     color: string;
     rgb?: [number, number, number];
-    depth: "mid" | "fg";
-    pulse: number;
-    isMistCloud?: boolean;
+    depth?: "mid" | "fg";
+    pulse?: number;
+    isAmbient?: boolean;
+    gravity?: number;
+    life?: number;
+    maxLife?: number;
+    rot?: number;
+    rotSpd?: number;
+    bounces?: number;
   };
 
   const particles: AmbientParticle[] = [];
@@ -1125,66 +1131,27 @@ export function mountCampaign(
     particles.length = 0;
     const stageWidth = stageW || level.width || 4800;
 
-    // 1. Luminescent Magical Mist Orbs (Safira, Ametista, Carmesim, Esmeralda, Âmbar, Celeste)
-    const orbPalette: { color: string; rgb: [number, number, number] }[] = [
-      { color: "rgba(60, 135, 255, 0.52)", rgb: [60, 135, 255] },   // Safira / Azul Luar
-      { color: "rgba(168, 85, 247, 0.52)", rgb: [168, 85, 247] },   // Ametista / Violeta Místico
-      { color: "rgba(244, 63, 94, 0.50)", rgb: [244, 63, 94] },    // Carmesim / Brasa de Sangue
-      { color: "rgba(52, 211, 153, 0.50)", rgb: [52, 211, 153] },  // Esmeralda Espectral
-      { color: "rgba(251, 191, 36, 0.46)", rgb: [251, 191, 36] },  // Âmbar Dourado
-      { color: "rgba(96, 165, 250, 0.52)", rgb: [96, 165, 250] },   // Azul Celeste Pálido
-    ];
-
-    const orbCount = 52;
-    for (let i = 0; i < orbCount; i++) {
+    // Partículas de ambiente super discretas (1.5px a 2.8px, alpha 0.15 a 0.32, micro-poeira e fagulhas)
+    const ambientCount = 32;
+    for (let i = 0; i < ambientCount; i++) {
       const isFg = i % 3 === 0;
-      const pal = orbPalette[i % orbPalette.length];
-      const vx = (Math.random() - 0.5) * 12; // slow organic horizontal drift
-      const vy = -3 - Math.random() * 6;     // gentle ascending rise
+      const isEmber = i % 4 === 0;
+      const color = isEmber ? "rgba(245, 158, 11, 0.30)" : "rgba(180, 195, 225, 0.22)";
+      const vx = (Math.random() - 0.5) * 6; // lenta deriva horizontal
+      const vy = -1.5 - Math.random() * 3.5; // suave ascensão
 
       particles.push({
         x: Math.random() * stageWidth,
-        y: Math.random() * 290,
+        y: Math.random() * 280,
         vx,
         vy,
-        size: isFg ? 3.0 + Math.random() * 1.5 : 2.2 + Math.random() * 1.2,
-        alpha: 0.45 + Math.random() * 0.15,
-        maxAlpha: 0.65,
-        color: pal.color,
-        rgb: pal.rgb,
+        size: isFg ? 2.2 + Math.random() * 0.6 : 1.5 + Math.random() * 0.7,
+        alpha: 0.18 + Math.random() * 0.14,
+        maxAlpha: 0.32,
+        color,
         depth: isFg ? "fg" : "mid",
         pulse: Math.random() * Math.PI * 2,
-      });
-    }
-
-    // 2. Rolling Ambient Mist Clouds (Raio 40px–80px, alpha muito baixo 0.04 a 0.08)
-    const mistPalette: { color: string; rgb: [number, number, number] }[] = [
-      { color: "rgba(110, 50, 155, 0.06)", rgb: [110, 50, 155] }, // Roxo noturno
-      { color: "rgba(35, 70, 145, 0.05)", rgb: [35, 70, 145] },   // Azul profundo
-      { color: "rgba(30, 100, 75, 0.05)", rgb: [30, 100, 75] },   // Esmeralda escuro
-    ];
-
-    const mistCloudCount = 14;
-    for (let i = 0; i < mistCloudCount; i++) {
-      const pal = mistPalette[i % mistPalette.length];
-      const isElevated = i % 3 === 0;
-      const cloudY = isElevated ? 90 + Math.random() * 80 : (GROUND_Y - 30) + (Math.random() - 0.5) * 35;
-      const vx = (Math.random() - 0.5) * 9; // very slow rolling glide
-      const vy = (Math.random() - 0.5) * 1.5;
-
-      particles.push({
-        x: Math.random() * stageWidth,
-        y: cloudY,
-        vx,
-        vy,
-        size: 45 + Math.random() * 35, // radius 45px to 80px
-        alpha: 0.04 + Math.random() * 0.04, // subtle 0.04 to 0.08
-        maxAlpha: 0.08,
-        color: pal.color,
-        rgb: pal.rgb,
-        depth: i % 2 === 0 ? "mid" : "fg",
-        pulse: Math.random() * Math.PI * 2,
-        isMistCloud: true,
+        isAmbient: true,
       });
     }
   }
@@ -3098,24 +3065,61 @@ export function mountCampaign(
       }
     }
 
-    for (const p of particles) {
-      p.x += p.vx * dt;
-      p.y += p.vy * dt;
-      p.pulse += dt * (p.isMistCloud ? 1.0 : 2.2);
-      if (p.isMistCloud) {
-        if (p.y < 40) p.y = GROUND_Y;
-        else if (p.y > GROUND_Y + 30) p.y = 80;
-      } else {
-        if (p.y < -20) {
+    for (let i = particles.length - 1; i >= 0; i--) {
+      const p = particles[i];
+      if (p.isAmbient) {
+        // Partícula ambiente: suave flutuação contínua
+        p.x += p.vx * dt;
+        p.y += p.vy * dt;
+        p.pulse = (p.pulse ?? 0) + dt * 2.0;
+        if (p.y < -15) {
           p.y = 310;
           p.x = Math.random() * stageW;
         } else if (p.y > 320) {
           p.y = 0;
           p.x = Math.random() * stageW;
         }
+        if (p.x < -20) p.x += stageW + 40;
+        else if (p.x > stageW + 20) p.x -= (stageW + 40);
+      } else {
+        // Destroços dos mortos e fragmentos de combate: física realista com gravidade, rotação e quique leve
+        const grav = p.gravity ?? 380;
+        p.vy += grav * dt;
+        p.x += p.vx * dt;
+        p.y += p.vy * dt;
+        p.vx *= Math.max(0, 1 - 0.85 * dt); // resistência do ar
+        p.rot = (p.rot ?? 0) + (p.rotSpd ?? 7) * dt;
+
+        // Colisão com o chão e quique leve
+        const floorY = findFloorFor(p.x, p.y);
+        if (p.y >= floorY - 1) {
+          p.y = floorY - 1;
+          const b = p.bounces ?? 1;
+          if (b > 0 && Math.abs(p.vy) > 30) {
+            p.vy = -p.vy * 0.35; // quique com perda de 65% da energia
+            p.vx *= 0.65;
+            p.bounces = b - 1;
+          } else {
+            p.vy = 0;
+            p.vx *= 0.4;
+          }
+        }
+
+        // Tempo de vida e atenuação suave de alpha
+        if (p.life === undefined) {
+          p.life = 0.85 + Math.random() * 0.35; // 0.85s a 1.2s de vida
+          p.maxLife = p.life;
+          p.rotSpd = (Math.random() - 0.5) * 14;
+          p.bounces = 1;
+        }
+        p.life -= dt;
+        const maxL = p.maxLife || 1.0;
+        p.alpha = Math.max(0, (p.life / maxL) * (p.maxAlpha ?? 1.0));
+
+        if (p.life <= 0 || p.alpha <= 0.02) {
+          particles.splice(i, 1);
+        }
       }
-      if (p.x < -80) p.x += stageW + 160;
-      else if (p.x > stageW + 80) p.x -= (stageW + 160);
     }
 
     const focus = player.x + player.w / 2 + player.facing * 28;
@@ -4833,51 +4837,52 @@ export function mountCampaign(
     g.restore();
   }
 
-  function drawParticleOrb(p: AmbientParticle, px: number, py: number) {
-    let rgb = p.rgb;
-    if (!rgb) {
-      if (p.color.startsWith("#")) {
-        const hex = p.color.slice(1);
-        if (hex.length === 3) {
-          rgb = [parseInt(hex[0] + hex[0], 16), parseInt(hex[1] + hex[1], 16), parseInt(hex[2] + hex[2], 16)];
-        } else {
-          rgb = [parseInt(hex.slice(0, 2), 16), parseInt(hex.slice(2, 4), 16), parseInt(hex.slice(4, 6), 16)];
-        }
-      } else if (p.color.startsWith("rgb")) {
-        const m = p.color.match(/\d+/g);
-        if (m && m.length >= 3) {
-          rgb = [parseInt(m[0], 10), parseInt(m[1], 10), parseInt(m[2], 10)];
-        } else {
-          rgb = [180, 160, 240];
-        }
-      } else {
-        rgb = [180, 160, 240];
-      }
-      p.rgb = rgb;
+  function drawParticle(p: AmbientParticle, px: number, py: number) {
+    if (p.alpha <= 0.01) return;
+
+    if (p.isAmbient) {
+      // Partícula de ambiente super discreta (micro-poeira ou fagulha distante, 1.5px a 2.8px)
+      const a = Math.min(0.32, Math.max(0.12, p.alpha * (0.65 + 0.35 * Math.sin(p.pulse ?? 0))));
+      const r = Math.max(1, Math.min(2.8, p.size));
+      g.save();
+      g.fillStyle = p.color;
+      g.globalAlpha = a;
+      g.beginPath();
+      g.arc(px, py, r, 0, Math.PI * 2);
+      g.fill();
+      g.restore();
+      return;
     }
 
-    const [r, gVal, b] = rgb;
-    const isCloud = !!p.isMistCloud;
-    const rad = isCloud ? p.size : Math.max(7, Math.round(p.size * 3.6));
-    const pulseFactor = isCloud ? (0.75 + 0.25 * Math.sin(p.pulse)) : (0.55 + 0.45 * Math.sin(p.pulse));
-    const curAlpha = Math.min(0.85, p.alpha * pulseFactor);
-
-    if (curAlpha <= 0.005) return;
-
-    const orbGrad = g.createRadialGradient(px, py, 1, px, py, rad);
-    const centerA = isCloud ? curAlpha : Math.min(0.65, curAlpha * 1.35);
-    const midA = centerA * 0.45;
-
-    orbGrad.addColorStop(0, `rgba(${r}, ${gVal}, ${b}, ${centerA.toFixed(3)})`);
-    orbGrad.addColorStop(0.45, `rgba(${r}, ${gVal}, ${b}, ${midA.toFixed(3)})`);
-    orbGrad.addColorStop(1, `rgba(${r}, ${gVal}, ${b}, 0)`);
+    // Destroços dos mortos e fragmentos de combate: pequenos estilhaços nítidos / losangos (2px a 4.5px)
+    const s = Math.max(1.8, Math.min(4.5, p.size));
+    const a = Math.min(0.85, Math.max(0.35, p.alpha));
+    const hs = s * 0.55;
 
     g.save();
-    g.globalCompositeOperation = "screen";
-    g.fillStyle = orbGrad;
+    g.translate(px, py);
+    if (p.rot !== undefined) {
+      g.rotate(p.rot);
+    } else {
+      g.rotate(0.785); // 45 graus
+    }
+    g.fillStyle = p.color;
+    g.globalAlpha = a;
+
+    // Losango nítido / fragmento irregular (sem borrões gigantes nem quadrados chapados)
     g.beginPath();
-    g.arc(px, py, rad, 0, Math.PI * 2);
+    g.moveTo(0, -s);
+    g.lineTo(hs, 0);
+    g.lineTo(0, s);
+    g.lineTo(-hs, 0);
+    g.closePath();
     g.fill();
+
+    // Micro-brilho especular central em faíscas maiores
+    if (s >= 2.5 && a > 0.45) {
+      g.fillStyle = "rgba(255, 255, 255, 0.4)";
+      g.fillRect(-0.5, -0.5, 1, 1);
+    }
     g.restore();
   }
 
@@ -4936,14 +4941,13 @@ export function mountCampaign(
       g.restore();
     }
 
-    // Midground Ambient Particles & Mist Clouds
+    // Midground Ambient Dust Particles (depth === "mid", scrolling at 0.7x)
     for (const p of particles) {
-      if (p.depth !== "mid") continue;
+      if (!p.isAmbient || p.depth !== "mid") continue;
       const px = Math.round(p.x - camX * 0.7);
       const py = Math.round(p.y - camY * 0.7);
-      const margin = p.isMistCloud ? p.size + 15 : 30;
-      if (px < -margin || px > T.viewW + margin || py < -margin || py > T.viewH + margin) continue;
-      drawParticleOrb(p, px, py);
+      if (px < -15 || px > T.viewW + 15 || py < -15 || py > T.viewH + 15) continue;
+      drawParticle(p, px, py);
     }
 
     // Background Architectural Props (Recessed Colossal Gladiator Statues, Arches, Stained Glass)
@@ -5707,6 +5711,15 @@ export function mountCampaign(
       g.restore();
     }
 
+    // Combat Debris & Enemy Shard Fragments (1:1 with camera world space)
+    for (const p of particles) {
+      if (p.isAmbient) continue;
+      const px = Math.round(p.x - camX);
+      const py = Math.round(p.y - camY);
+      if (px < -15 || px > T.viewW + 15 || py < -15 || py > T.viewH + 15) continue;
+      drawParticle(p, px, py);
+    }
+
     // 4. Foreground Atmospheric 2.5D Depth:
     // Stage Foreground Architectural Framing (gnarled branches, arches, vaulting, scrolling at 1.16x)
     if (plates.fg) {
@@ -5730,14 +5743,13 @@ export function mountCampaign(
     // Soft rolling floor mist
     drawStrip(plates.fog, 1.15, 0.2, 0.6, GROUND_Y - 22, 58, 0.35, 1.1);
 
-    // Foreground Ambient Particles & Mist Clouds (depth === "fg", scrolling at 1.25x)
+    // Foreground Ambient Dust (depth === "fg", scrolling at 1.25x)
     for (const p of particles) {
-      if (p.depth !== "fg") continue;
+      if (!p.isAmbient || p.depth !== "fg") continue;
       const px = Math.round(p.x - camX * 1.25);
       const py = Math.round(p.y - camY * 1.25);
-      const margin = p.isMistCloud ? p.size + 15 : 30;
-      if (px < -margin || px > T.viewW + margin || py < -margin || py > T.viewH + margin) continue;
-      drawParticleOrb(p, px, py);
+      if (px < -15 || px > T.viewW + 15 || py < -15 || py > T.viewH + 15) continue;
+      drawParticle(p, px, py);
     }
 
     // 4.5. Floating Damage Numbers ("Dano Flutuante")
