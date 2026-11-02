@@ -2871,6 +2871,24 @@ export function mountCampaign(
       s.x += s.vx * dt;
       s.y += s.vy * dt;
       s.drawCenterY += s.vy * dt;
+
+      // Fine magic trail emanating from origin towards front
+      if ((s.sprite === "spell" || s.sprite === "blood") && Math.random() < 0.45) {
+        const pColor = s.sprite === "blood" ? "#ff2a2a" : (s.friendly ? "#00e5ff" : "#b388ff");
+        particles.push({
+          x: s.x + (s.vx > 0 ? 0 : s.w),
+          y: s.y + s.h / 2 + (Math.random() - 0.5) * 6,
+          vx: -s.vx * 0.12 + (Math.random() - 0.5) * 20,
+          vy: (Math.random() - 0.5) * 20,
+          size: 1.5 + Math.random() * 1.5,
+          alpha: 0.85,
+          maxAlpha: 0.85,
+          color: pColor,
+          depth: "fg",
+          pulse: Math.random() * Math.PI * 2,
+        });
+      }
+
       if (s.friendly) {
         for (const c of sealCrystals) {
           if (!c.activated && overlap(s, c)) {
@@ -5619,15 +5637,52 @@ export function mountCampaign(
 
     for (const s of shots) {
       const img = art[s.sprite];
-      if (s.sprite === "slash" && s.frameLock >= 0) {
-        const root = SLASH_ROOT[s.frameLock];
+      if (s.sprite === "slash") {
+        const frameLock = s.frameLock >= 0 ? s.frameLock : 2;
+        const root = SLASH_ROOT[frameLock] || SLASH_ROOT[2];
         const facing = s.vx >= 0 ? 1 : -1;
-        blitRoot(img, s.frameLock, s.x + s.w / 2, s.drawCenterY, 60, facing, root.x, root.y);
+        blitRoot(img, frameLock, s.x + s.w / 2, s.drawCenterY, 60, facing, root.x, root.y);
       } else {
         const frame = Math.floor(time * 12) % 4;
-        const height = s.sprite === "slash" ? 42 : 28;
+        const height = 28;
         const facing = s.vx > 0 ? 1 : s.vx < 0 ? -1 : player.facing;
-        blit(img, frame, s.x + s.w / 2, s.y + s.h / 2 + height / 2, height, facing);
+        
+        // Aim angle tilt if shooting with vertical speed (e.g. aiming up)
+        if (Math.abs(s.vy) > 35) {
+          const angle = Math.atan2(s.vy, Math.abs(s.vx));
+          g.save();
+          g.translate(Math.round(s.x + s.w / 2 - camX), Math.round(s.y + s.h / 2 - camY));
+          g.scale(facing, 1);
+          g.rotate(angle);
+          if (img && img.complete && img.naturalWidth > 0) {
+            const sw = img.width / 2;
+            const sh = img.height / 2;
+            const col = frame % 2;
+            const row = Math.floor(frame / 2) % 2;
+            g.drawImage(img, col * sw, row * sh, sw, sh, -height / 2, -height / 2, height, height);
+          }
+          g.restore();
+        } else {
+          blit(img, frame, s.x + s.w / 2, s.y + s.h / 2 + height / 2, height, facing);
+        }
+
+        // Concentrated glow at the thick front of the magic projectile
+        const headX = Math.round(s.x + s.w / 2 + facing * 8 - camX);
+        const headY = Math.round(s.y + s.h / 2 - camY);
+        g.save();
+        g.globalAlpha = 0.42;
+        const glowR = s.sprite === "blood" ? 20 : 18;
+        const mGlow = g.createRadialGradient(headX, headY, 2, headX, headY, glowR);
+        if (s.sprite === "blood") {
+          mGlow.addColorStop(0, "rgba(255, 60, 60, 0.85)");
+          mGlow.addColorStop(1, "rgba(180, 0, 0, 0)");
+        } else {
+          mGlow.addColorStop(0, s.friendly ? "rgba(180, 225, 255, 0.85)" : "rgba(225, 90, 255, 0.85)");
+          mGlow.addColorStop(1, "rgba(100, 40, 240, 0)");
+        }
+        g.fillStyle = mGlow;
+        g.fillRect(headX - glowR, headY - glowR, glowR * 2, glowR * 2);
+        g.restore();
       }
     }
 
@@ -5915,14 +5970,14 @@ export function mountCampaign(
       const drawY = s.y + s.h;
       blit(art.crescentSlash, sFrame, drawX, drawY, s.h, s.facing, 2);
 
-      // Core radial light around the crescent
-      const cx = Math.round(drawX - camX);
+      // Core radial light around the leading crest of the crescent
+      const cx = Math.round(drawX + s.facing * 22 - camX);
       const cy = Math.round(s.y + s.h / 2 - camY);
       g.save();
-      g.globalAlpha = 0.55;
+      g.globalAlpha = 0.65;
       const cGlow = g.createRadialGradient(cx, cy, 6, cx, cy, 70);
-      cGlow.addColorStop(0, "rgba(255, 255, 255, 0.85)");
-      cGlow.addColorStop(0.4, "rgba(255, 23, 68, 0.65)");
+      cGlow.addColorStop(0, "rgba(255, 255, 255, 0.95)");
+      cGlow.addColorStop(0.4, "rgba(255, 23, 68, 0.7)");
       cGlow.addColorStop(1, "rgba(200, 0, 0, 0)");
       g.fillStyle = cGlow;
       g.fillRect(cx - 70, cy - 70, 140, 140);
