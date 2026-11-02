@@ -107,35 +107,39 @@ export interface DifficultyProfile {
   enemyCooldownMult: number;
   specialGaugeMult: number;
   hordeBudgetMult: number;
+  stageEnemyCountMult: number;
 }
 
 export const DIFFICULTY_PROFILES: Record<Difficulty, DifficultyProfile> = {
   easy: {
     name: "Caçador Iniciante",
-    tagline: "HP inimigo -20%, dano recebido -30%, recarga inimiga +35%, especial +25%",
-    enemyHpMult: 0.8,
-    enemyDamageMult: 0.7,
+    tagline: "HP 1.0x, dano recebido 0.85x, recarga inimiga +35%, especial +25%",
+    enemyHpMult: 1.0,
+    enemyDamageMult: 0.85,
     enemyCooldownMult: 1.35,
     specialGaugeMult: 1.25,
     hordeBudgetMult: 0.8,
+    stageEnemyCountMult: 1.0,
   },
   normal: {
     name: "Sangue Frio",
-    tagline: "Experiência equilibrada e desafiadora original",
-    enemyHpMult: 1.0,
-    enemyDamageMult: 1.0,
+    tagline: "HP 1.55x, dano recebido 1.3x, +35% inimigos por fase, combate tático",
+    enemyHpMult: 1.55,
+    enemyDamageMult: 1.3,
     enemyCooldownMult: 1.0,
     specialGaugeMult: 1.0,
     hordeBudgetMult: 1.0,
+    stageEnemyCountMult: 1.35,
   },
   hard: {
     name: "Pesadelo Noturno",
-    tagline: "HP inimigo +20%, dano recebido +35%, recarga inimiga -25%, especial -15%",
-    enemyHpMult: 1.2,
-    enemyDamageMult: 1.35,
+    tagline: "HP 2.2x, dano recebido 1.75x, +65% inimigos por fase, desafio implacável",
+    enemyHpMult: 2.2,
+    enemyDamageMult: 1.75,
     enemyCooldownMult: 0.75,
     specialGaugeMult: 0.85,
     hordeBudgetMult: 1.25,
+    stageEnemyCountMult: 1.65,
   },
 };
 
@@ -217,6 +221,12 @@ type Enemy = Body & {
   emergeDuration?: number;
   emergeY?: number;
   alertSoundPlayed?: boolean;
+  comboHits?: number;
+  superArmor?: number;
+  guardsSpawnedPhase2?: boolean;
+  guardsSpawnedPhase2Hard?: boolean;
+  phase2ShockwaveCd?: number;
+  phase2DashCd?: number;
 };
 
 type Shot = {
@@ -1111,40 +1121,23 @@ export function mountCampaign(
   const particles: AmbientParticle[] = [];
   function initParticles() {
     particles.length = 0;
-    const count = 52;
+    const count = 48;
     for (let i = 0; i < count; i++) {
       const isFg = i % 3 === 0;
-      let color = "#e2a23a";
-      let vy = -8;
-      const vx = (Math.random() - 0.5) * 12;
-      if (level.theme === "library") {
-        color = Math.random() > 0.4 ? "#f6d365" : "#fda085";
-        vy = -5 - Math.random() * 8;
-      } else if (level.theme === "catacombs") {
-        color = Math.random() > 0.5 ? "#00f5d4" : "#48cae4";
-        vy = Math.random() > 0.3 ? 20 + Math.random() * 30 : -6;
-      } else if (level.theme === "alchemy") {
-        color = Math.random() > 0.5 ? "#2ec4b6" : "#b5179e";
-        vy = -16 - Math.random() * 18;
-      } else if (level.theme === "chapel") {
-        color = Math.random() > 0.3 ? "#fff1c9" : "#e2a23a";
-        vy = -6 - Math.random() * 8;
-      } else if (level.theme === "throne") {
-        color = Math.random() > 0.3 ? "#ef233c" : "#ffb703";
-        vy = -10 - Math.random() * 12;
-      } else {
-        color = Math.random() > 0.5 ? "#ff7b00" : "#d00000";
-        vy = -10 - Math.random() * 12;
-      }
+      const isDust = i % 2 === 0;
+      // Exclusively subtle blue-gray dust or dark amber/crimson embers
+      const color = isDust ? "rgba(160, 170, 210, 0.25)" : "rgba(220, 80, 40, 0.4)";
+      const vx = (Math.random() - 0.5) * 6; // slow, gentle horizontal drift
+      const vy = isDust ? -2 - Math.random() * 3 : -4 - Math.random() * 5; // slow, gentle rise
 
       particles.push({
-        x: Math.random() * level.width,
+        x: Math.random() * (stageW || level.width),
         y: Math.random() * 300,
         vx,
         vy,
-        size: isFg ? 2 + Math.random() * 2 : 1 + Math.random() * 1.5,
-        alpha: 0.3 + Math.random() * 0.5,
-        maxAlpha: isFg ? 0.85 : 0.6,
+        size: isFg ? 1.5 + Math.random() * 1.5 : 1 + Math.random() * 1.0,
+        alpha: isDust ? 0.25 : 0.4,
+        maxAlpha: isDust ? 0.35 : 0.5,
         color,
         depth: isFg ? "fg" : "mid",
         pulse: Math.random() * Math.PI * 2,
@@ -1243,10 +1236,10 @@ export function mountCampaign(
     const finalY = spawn.kind === "bat" ? floor - (spawn.boss ? 56 : 74) : floor - h;
     const y = isEmerging ? floor : finalY;
 
-    // Balanced enemy & boss HP with difficulty profile scaling
+    // Balanced enemy & boss HP with difficulty profile scaling (+120% base HP for all Bosses)
     const stageFactor = 1 + (level.id - 1) * 0.04;
     const scaledHp = isBoss
-      ? Math.max(1, Math.round(spawn.hp * (1.55 + (level.id - 1) * 0.08) * diffProfile.enemyHpMult))
+      ? Math.max(1, Math.round(spawn.hp * (1.55 + (level.id - 1) * 0.08) * 2.2 * diffProfile.enemyHpMult))
       : spawn.kind === "bat"
         ? Math.max(1, Math.round(2 * diffProfile.enemyHpMult))
         : Math.max(1, Math.round(spawn.hp * stageFactor * diffProfile.enemyHpMult));
@@ -1293,6 +1286,12 @@ export function mountCampaign(
       emergeDuration: 0.58,
       emergeY: finalY,
       alertSoundPlayed: false,
+      comboHits: 0,
+      superArmor: 0,
+      guardsSpawnedPhase2: false,
+      guardsSpawnedPhase2Hard: false,
+      phase2ShockwaveCd: 3.0,
+      phase2DashCd: 4.0,
     };
   }
 
@@ -1428,6 +1427,28 @@ export function mountCampaign(
     }
   }
 
+  function spawnBossGuards(boss: Enemy) {
+    const arenaMinX = Math.max(80, level.width - 620);
+    const arenaMaxX = Math.min(level.width - 60, level.width - 40);
+
+    const guardKind: Kind =
+      level.id === 1 ? "skeleton" :
+      level.id === 2 ? "armoredSkeleton" :
+      level.id === 3 ? "redSkeleton" :
+      level.id === 4 ? "bat" :
+      level.id === 5 ? "redSkeleton" :
+      level.id === 6 ? "zombie" : "vampire";
+
+    const baseHp = guardKind === "bat" ? 2 : 6;
+    const g1 = makeEnemy({ kind: guardKind, x: arenaMinX + 30, y: GROUND_Y, hp: baseHp }, true);
+    const g2 = makeEnemy({ kind: guardKind, x: arenaMaxX - 30, y: GROUND_Y, hp: baseHp }, true);
+    g1.alertSoundPlayed = true;
+    g2.alertSoundPlayed = true;
+    enemies.push(g1, g2);
+    sound.playEnemyAlert(guardKind);
+    shake = Math.max(shake, 6);
+  }
+
   function spawn() {
     player.x = Math.round(T.viewW / 2 - player.w / 2); // Start exactly in the center of the screen
     player.h = STAND_H;
@@ -1503,7 +1524,25 @@ export function mountCampaign(
       void switchHordeStageTheme(1);
       startHordeWave(1);
     } else {
-      enemies = level.spawns.map((s) => makeEnemy(s));
+      const baseSpawns = level.spawns.filter((s) => !s.boss);
+      const mult = diffProfile.stageEnemyCountMult ?? 1.0;
+      const extraCount = Math.round(baseSpawns.length * Math.max(0, mult - 1.0));
+      const combinedSpawns = [...level.spawns];
+
+      if (extraCount > 0 && baseSpawns.length > 0) {
+        for (let i = 0; i < extraCount; i++) {
+          const sample = baseSpawns[i % baseSpawns.length];
+          const dir = i % 2 === 0 ? 1 : -1;
+          const offset = dir * (70 + (i * 29) % 75);
+          const newX = clamp(sample.x + offset, 140, level.width - 680);
+          combinedSpawns.push({
+            ...sample,
+            x: newX,
+          });
+        }
+      }
+
+      enemies = combinedSpawns.map((s) => makeEnemy(s));
       items = level.items.map((it) => ({
         id: it.id,
         kind: it.kind,
@@ -1764,6 +1803,11 @@ export function mountCampaign(
       }
     }
 
+    // Boss is completely invulnerable during Phase 2 transformation
+    if (e.boss && (e.transformT ?? 0) > 0) {
+      return;
+    }
+
     const effectiveDmg = hitSource === "slash" ? Math.max(1, Math.round(dmg * bladeDmgMultiplier)) : dmg;
     const isFatal = e.hp <= effectiveDmg;
     const knockDir = (e.x + e.w / 2) >= (player.x + player.w / 2) ? 1 : -1;
@@ -1850,17 +1894,54 @@ export function mountCampaign(
       return; // Do not apply non-fatal recoil or hitstun
     }
 
-    // Hitstun duration and recovery delay (responsive stagger when Aldric hits an enemy)
-    const isHeavy = player.combo === 2 || hitSource === "spell" || pogo || dmg >= 2;
-    e.hurt = e.boss ? (isHeavy ? 0.22 : 0.16) : (isHeavy ? 0.38 : 0.30);
-    e.cd = Math.max(e.cd, e.boss ? 0.32 : 0.48);
-    e.wind = 0; // Interrupt active windup on enemies
-    if (!e.boss && e.state === "slash") e.state = "idle";
+    // Stunlock prevention: After 3 consecutive basic hits, non-boss enemies gain Super Armor & counter-attack
+    if (!e.boss) {
+      if (!isCrit && !pogo) {
+        e.comboHits = (e.comboHits ?? 0) + 1;
+        if (e.comboHits >= 3) {
+          e.comboHits = 0;
+          e.superArmor = 1.2; // 1.2s super armor
+          e.wind = 0.35; // 350ms counter-attack windup with '!' telegraph
+          e.state = "slash";
+          e.cd = 0.85;
+          e.hurt = 0;
+          sound.playSfx("slashHeavy");
+        }
+      } else {
+        e.comboHits = 0;
+      }
+    }
 
-    // Dynamic recoil impulse (knocks the enemy back horizontally along the stone floor)
-    const baseKnock = e.boss ? 36 : (e.kind === "armoredSkeleton" || e.kind === "knight") ? 75 : 108;
-    const knockSpeed = isHeavy ? baseKnock * 1.3 : baseKnock;
-    e.vx = knockDir * knockSpeed;
+    const inSuperArmor = (e.superArmor ?? 0) > 0;
+
+    if (e.boss) {
+      // Boss Super Armor Permanente:
+      // Bosses never have their attacks or windup interrupted by basic attacks!
+      if (!isCharged && !isSpecial) {
+        e.hurt = 0; // No flinch!
+        e.vx = knockDir * 10;
+      } else {
+        // Only full charged attacks or special slashes cause minor stagger
+        e.hurt = 0.16;
+        e.cd = Math.max(e.cd, 0.32);
+        e.vx = knockDir * 30;
+      }
+    } else if (inSuperArmor) {
+      // Enemy in Super Armor: immune to interruption
+      e.hurt = 0;
+      e.vx = knockDir * 18;
+    } else {
+      // Regular hitstun and knockback
+      const isHeavy = player.combo === 2 || hitSource === "spell" || pogo || dmg >= 2;
+      e.hurt = isHeavy ? 0.38 : 0.30;
+      e.cd = Math.max(e.cd, 0.48);
+      e.wind = 0; // Interrupt active windup on enemies
+      if (e.state === "slash") e.state = "idle";
+
+      const baseKnock = (e.kind === "armoredSkeleton" || e.kind === "knight") ? 75 : 108;
+      const knockSpeed = isHeavy ? baseKnock * 1.3 : baseKnock;
+      e.vx = knockDir * knockSpeed;
+    }
     if (e.kind !== "bat" && !(e.kind === "gargoyle" && (e.state === "hover" || e.state === "dive"))) {
       e.vy = 0; // Pure horizontal recoil on the stone floor, never pop up into the air!
       e.grounded = true;
@@ -2782,9 +2863,10 @@ export function mountCampaign(
           s.hitEnemies.add(e.id);
           player.swingId++;
           e.lastSwing = player.swingId;
-          // INSTANT ONE-SHOT KILL (9999 DMG) against ALL regular enemies (clears the path completely!),
-          // and deals a heavy ~28% max HP chunk to Bosses!
-          const specialDmg = e.boss ? Math.max(12, Math.round(e.max * 0.28)) : 9999;
+          // INSTANT ONE-SHOT KILL (9999 DMG) against ALL regular enemies,
+          // capped at strictly 15% max HP against Bosses!
+          const maxBossSpecialDmg = Math.max(8, Math.round(e.max * 0.15));
+          const specialDmg = e.boss ? maxBossSpecialDmg : 9999;
           const isFatal = e.hp <= specialDmg;
           e.hp -= specialDmg;
           e.hurtFlash = 0.08;
@@ -3018,6 +3100,7 @@ export function mountCampaign(
     e.t += dt;
     e.hurt = Math.max(0, e.hurt - dt);
     e.hurtFlash = Math.max(0, (e.hurtFlash ?? 0) - dt);
+    e.superArmor = Math.max(0, (e.superArmor ?? 0) - dt);
     e.cd = Math.max(0, e.cd - dt / diffProfile.enemyCooldownMult);
     if (e.dead) return;
 
@@ -3183,25 +3266,38 @@ export function mountCampaign(
       let targetPhase = curPhase;
       if (isDracula) {
         if (hpRatio <= 0.38 && curPhase < 3) targetPhase = 3;
-        else if (hpRatio <= 0.68 && curPhase < 2) targetPhase = 2;
+        else if (hpRatio <= 0.50 && curPhase < 2) targetPhase = 2;
       } else {
-        if (hpRatio <= 0.55 && curPhase < 2) targetPhase = 2;
+        if (hpRatio <= 0.50 && curPhase < 2) targetPhase = 2;
+      }
+
+      // Reinforcements on Hard mode at <= 25% HP
+      if (difficulty === "hard" && hpRatio <= 0.25 && !e.guardsSpawnedPhase2Hard) {
+        e.guardsSpawnedPhase2Hard = true;
+        spawnBossGuards(e);
+        player.toast = "⚠️ REFORÇOS DAS TREVAS! O Chefe convocou seus guardas de elite!";
+        player.toastT = 2.8;
       }
 
       if (targetPhase > curPhase) {
         e.phase = targetPhase;
-        e.transformT = 1.15;
+        e.transformT = 1.0; // 1.0s invulnerability
         e.hurt = 0;
         e.wind = 0;
         e.vx = 0;
         e.vy = 0;
-        e.cd = 1.25;
+        e.cd = 1.1;
         e.state = "transform";
         bossEnragedAnnounced = true;
-        shake = Math.max(shake, 14);
+        shake = Math.max(shake, 16);
         hitstop = Math.max(hitstop, 0.06);
         sound.playSfx("thunder");
         sound.playSfx("bossHurt");
+
+        if (!e.guardsSpawnedPhase2) {
+          e.guardsSpawnedPhase2 = true;
+          spawnBossGuards(e);
+        }
 
         // Clear enemy projectiles and push Aldric back safely with a shockwave (no cheap damage!)
         for (const sh of shots) {
@@ -3420,6 +3516,82 @@ export function mountCampaign(
         e.y += (ty - e.y) * Math.min(1, dt * 2.5);
       }
       e.y = clamp(e.y, 16, GROUND_Y - 22);
+    }
+    // =========================================================================
+    // UNIVERSAL PHASE 2 BOSS MECHANICS (Ground Shockwave & Shadow Rush Combo)
+    // =========================================================================
+    else if (e.boss && (e.phase ?? 1) >= 2 && !e.dead && !e.dying && (e.transformT ?? 0) <= 0 && (e.attackVariant === 98 || e.attackVariant === 99 || ((e.phase2ShockwaveCd ?? 0) <= 0 && e.cd <= 0 && e.state === "idle" && dist > 50) || ((e.phase2DashCd ?? 0) <= 0 && e.cd <= 0 && e.state === "idle" && dist > 75 && dist < 320))) {
+      e.phase2ShockwaveCd = Math.max(0, (e.phase2ShockwaveCd ?? 3.0) - dt);
+      e.phase2DashCd = Math.max(0, (e.phase2DashCd ?? 4.0) - dt);
+
+      // 1. Ground Shockwave Attack (forces player to jump [W] or dodge [K])
+      if (e.cd <= 0 && (e.phase2ShockwaveCd ?? 0) <= 0 && e.state === "idle" && dist > 50) {
+        e.state = "slash";
+        e.wind = 0.40; // 400ms telegraph warning
+        e.cd = 1.35;
+        e.phase2ShockwaveCd = difficulty === "hard" ? 3.0 : 4.5;
+        e.attackVariant = 99;
+        sound.playSfx("slashHeavy");
+      }
+      // 2. Double Combo / Shadow Dash Rush across arena
+      else if (e.cd <= 0 && (e.phase2DashCd ?? 0) <= 0 && e.state === "idle" && dist > 75 && dist < 320) {
+        e.state = "slash";
+        e.wind = 0.40; // 400ms telegraph warning
+        e.cd = 1.5;
+        e.phase2DashCd = difficulty === "hard" ? 3.4 : 5.0;
+        e.attackVariant = 98;
+        sound.playSfx("dash");
+      }
+
+      if (e.attackVariant === 99) {
+        if (e.wind > 0) {
+          e.wind -= dt;
+          e.vx = 0;
+          if (e.wind <= 0) {
+            shake = Math.max(shake, 6);
+            sound.playSfx("thunder");
+            fire({
+              x: e.x + (e.facing > 0 ? e.w + 4 : -28),
+              y: GROUND_Y - 22,
+              w: 24,
+              h: 22,
+              vx: e.facing * 260,
+              vy: 0,
+              life: 1.6,
+              dmg: 1,
+              friendly: false,
+              sprite: "slash",
+            });
+            e.state = "idle";
+            e.attackVariant = 0;
+          }
+        }
+        e.vy = Math.min(e.vy + T.gravDown * dt, T.terminal);
+        resolve(e, dt, false);
+      } else if (e.attackVariant === 98) {
+        if (e.wind > 0) {
+          e.wind -= dt;
+          e.vx = e.facing * 300;
+          if (e.wind <= 0) {
+            const box = {
+              x: e.facing > 0 ? e.x + e.w - 4 : e.x - 48,
+              y: e.y + 6,
+              w: 52,
+              h: 46,
+            };
+            if (overlap(box, player)) {
+              hurtPlayer(2, e.x, "slash");
+            }
+            shake = Math.max(shake, 4);
+            sound.playSfx("slashHeavy");
+            e.state = "idle";
+            e.attackVariant = 0;
+            e.cd = 0.35;
+          }
+        }
+        e.vy = Math.min(e.vy + T.gravDown * dt, T.terminal);
+        resolve(e, dt, false);
+      }
     }
     // =========================================================================
     // 2. BOSS 1: Petros, Gárgula Colossal de Pedra -> Fase 2: Titã de Magma (Os Portões)
@@ -4553,16 +4725,29 @@ export function mountCampaign(
 
   function blitStill(img: HTMLImageElement | undefined, cx: number, feet: number, height: number, facing = 1) {
     const ready = !!img && img.complete && img.naturalWidth > 0;
+    const sx = Math.round(cx - camX);
+    const sy = Math.round(feet - camY);
+    const dw = ready ? height * (img.naturalWidth / img.naturalHeight) : height * 0.44;
+
+    // Contact shadow at the base
     g.save();
-    g.translate(Math.round(cx - camX), Math.round(feet - camY));
+    g.fillStyle = "rgba(0, 0, 0, 0.7)";
+    g.beginPath();
+    g.ellipse(sx, sy, Math.max(14, dw * 0.42), 4.5, 0, 0, Math.PI * 2);
+    g.fill();
+    g.restore();
+
+    // Night color grading on structures and props (removes artificial/pasted look)
+    g.save();
+    g.translate(sx, sy);
     g.scale(facing, 1);
+    g.filter = "brightness(0.6) contrast(1.15) saturate(0.75)";
     if (!ready || !img) {
-      g.fillStyle = "#3a2a32";
+      g.fillStyle = "#1e1b29";
       g.fillRect(-height * 0.22, -height, height * 0.44, height);
       g.restore();
       return;
     }
-    const dw = height * (img.naturalWidth / img.naturalHeight);
     g.drawImage(img, -dw / 2, -height, dw, height);
     g.restore();
   }
@@ -4750,64 +4935,21 @@ export function mountCampaign(
 
       if (s.oneWay) {
         const platH = 10;
-        const theme = level.theme;
-        // Gothic Castlevania SOTN Stone & Metal Palettes (Dark, atmospheric, zero neon)
-        let slabMain = "#1a1e28";
-        let slabDark = "#10131c";
-        let edgeHighlight = "rgba(180, 200, 220, 0.55)";
-        let edgeGroove = "#090c12";
-        let corbelColor = "#262e3d";
-        let corbelShadow = "#0a0d14";
-        let seamColor = "rgba(0, 0, 0, 0.45)";
-
-        if (theme === "chapel") {
-          slabMain = "#1c1726";
-          slabDark = "#120e1a";
-          edgeHighlight = "rgba(210, 195, 230, 0.55)";
-          edgeGroove = "#0a0711";
-          corbelColor = "#302640";
-          corbelShadow = "#090610";
-        } else if (theme === "throne") {
-          slabMain = "#1c0d16";
-          slabDark = "#11070e";
-          edgeHighlight = "rgba(230, 165, 185, 0.5)";
-          edgeGroove = "#0a0308";
-          corbelColor = "#38192b";
-          corbelShadow = "#090306";
-        } else if (theme === "library") {
-          slabMain = "#1e140e";
-          slabDark = "#130b08";
-          edgeHighlight = "rgba(215, 180, 150, 0.5)";
-          edgeGroove = "#0b0604";
-          corbelColor = "#362217";
-          corbelShadow = "#0a0503";
-        } else if (theme === "alchemy") {
-          slabMain = "#141a18";
-          slabDark = "#0c1210";
-          edgeHighlight = "rgba(170, 210, 195, 0.5)";
-          edgeGroove = "#070c0a";
-          corbelColor = "#22332c";
-          corbelShadow = "#050a08";
-        } else if (theme === "catacombs") {
-          slabMain = "#121922";
-          slabDark = "#0a1017";
-          edgeHighlight = "rgba(160, 190, 215, 0.5)";
-          edgeGroove = "#060a10";
-          corbelColor = "#1e2938";
-          corbelShadow = "#05090f";
-        } else if (theme === "gallery") {
-          slabMain = "#1f1c24";
-          slabDark = "#141118";
-          edgeHighlight = "rgba(215, 205, 225, 0.55)";
-          edgeGroove = "#0b0910";
-          corbelColor = "#322b3b";
-          corbelShadow = "#0a080f";
-        }
+        // Deep nocturnal gothic stone palette (replaces flat gray/bright edges)
+        const slabMain = "#14121d";
+        const slabDark = "#0e0c15";
+        const edgeHighlight = "rgba(45, 38, 64, 0.45)"; // worn dark purple/blue edge
+        const edgeGroove = "#08070d";
+        const corbelColor = "#1f1b2e";
+        const corbelShadow = "#08070d";
+        const seamColor = "#0d0b14";
 
         // 1. Soft Ambient Drop Shadow beneath the platform
-        const shadowGrad = g.createLinearGradient(0, sy + platH, 0, sy + platH + 12);
-        shadowGrad.addColorStop(0, "rgba(0, 0, 0, 0.65)");
+        const shadowGrad = g.createLinearGradient(0, sy + platH, 0, sy + platH + 16);
+        shadowGrad.addColorStop(0, "rgba(0, 0, 0, 0.85)");
         shadowGrad.addColorStop(1, "rgba(0, 0, 0, 0)");
+        g.fillStyle = shadowGrad;
+        g.fillRect(sx - 4, sy + platH, s.w + 8, 16);
         g.fillStyle = shadowGrad;
         g.fillRect(sx - 2, sy + platH, s.w + 4, 12);
 
@@ -4968,95 +5110,62 @@ export function mountCampaign(
         if (prop.kind === "sconceBlue") {
           const fx = sx;
           const fy = Math.round(sy - h + 18);
+          // Soft blue translucent halo around flames (rgba(40, 130, 255, 0.18))
           const glow = g.createRadialGradient(fx, fy, 2, fx, fy, 48);
-          glow.addColorStop(0, "rgba(59, 130, 246, 0.48)");
-          glow.addColorStop(0.5, "rgba(147, 197, 253, 0.2)");
+          glow.addColorStop(0, "rgba(40, 130, 255, 0.32)");
+          glow.addColorStop(0.45, "rgba(40, 130, 255, 0.18)");
           glow.addColorStop(1, "rgba(0, 0, 0, 0)");
           g.save();
           g.fillStyle = glow;
           g.fillRect(fx - 48, fy - 48, 96, 96);
-          for (let i = 0; i < 2; i++) {
-            const ox = Math.sin(time * 8 + i * 2) * 4;
-            const oy = Math.cos(time * 6 + i * 3) * 3;
-            g.fillStyle = i === 0 ? "#93c5fd" : "#38bdf8";
-            g.fillRect(fx + ox - 1, fy + oy - 1, 3, 3);
-          }
           g.restore();
         } else if (prop.kind === "candelabra") {
-          // Warm candlelight glow with 3 flickering candle flames
+          // Warm candlelight glow
           const fx = sx;
           const fy = Math.round(sy - h + 18);
           const glow = g.createRadialGradient(fx, fy, 2, fx, fy, 46);
-          glow.addColorStop(0, "rgba(251, 191, 36, 0.42)");
-          glow.addColorStop(0.5, "rgba(245, 158, 11, 0.18)");
+          glow.addColorStop(0, "rgba(251, 191, 36, 0.35)");
+          glow.addColorStop(0.5, "rgba(245, 158, 11, 0.14)");
           glow.addColorStop(1, "rgba(0, 0, 0, 0)");
           g.save();
           g.fillStyle = glow;
           g.fillRect(fx - 46, fy - 46, 92, 92);
-          for (let i = 0; i < 3; i++) {
-            const ox = (i - 1) * 9 + Math.sin(time * 9 + i * 2) * 1.5;
-            const oy = Math.cos(time * 7 + i * 3) * 1.5;
-            g.fillStyle = i === 1 ? "#fef08a" : "#f59e0b";
-            g.fillRect(fx + ox - 1, fy + oy - 1, 2.5, 2.5);
-          }
           g.restore();
         } else if (prop.kind === "cauldronGreen") {
-          // Acidic bubbling green vapor and bubbling droplets
+          // Translucent dark green chemical vapor (no bright lime squares)
           const fx = sx;
           const fy = Math.round(sy - h * 0.6);
-          const glow = g.createRadialGradient(fx, fy, 4, fx, fy, 52);
-          glow.addColorStop(0, "rgba(34, 197, 94, 0.48)");
-          glow.addColorStop(0.5, "rgba(74, 222, 128, 0.2)");
+          const glow = g.createRadialGradient(fx, fy, 4, fx, fy, 46);
+          glow.addColorStop(0, "rgba(22, 101, 52, 0.30)");
+          glow.addColorStop(0.5, "rgba(20, 83, 45, 0.10)");
           glow.addColorStop(1, "rgba(0, 0, 0, 0)");
           g.save();
           g.fillStyle = glow;
-          g.fillRect(fx - 52, fy - 52, 104, 104);
-          for (let i = 0; i < 4; i++) {
-            const bubbleT = (time * 2 + i * 0.7) % 2;
-            const bx = fx + Math.sin(i * 3 + time * 3) * 12;
-            const by = fy - bubbleT * 22;
-            g.fillStyle = "rgba(134, 239, 172, " + Math.max(0, 1 - bubbleT / 2) + ")";
-            g.fillRect(bx - 1.5, by - 1.5, 3, 3);
-          }
+          g.fillRect(fx - 46, fy - 46, 92, 92);
           g.restore();
         } else if (prop.kind === "cauldronPurple") {
-          // Mystical purple transmutation steam
+          // Translucent dark purple transmutation vapor (no bright purple squares)
           const fx = sx;
           const fy = Math.round(sy - h * 0.6);
-          const glow = g.createRadialGradient(fx, fy, 4, fx, fy, 48);
-          glow.addColorStop(0, "rgba(168, 85, 247, 0.45)");
-          glow.addColorStop(0.5, "rgba(192, 132, 252, 0.18)");
+          const glow = g.createRadialGradient(fx, fy, 4, fx, fy, 46);
+          glow.addColorStop(0, "rgba(88, 28, 135, 0.28)");
+          glow.addColorStop(0.5, "rgba(59, 7, 100, 0.08)");
           glow.addColorStop(1, "rgba(0, 0, 0, 0)");
           g.save();
           g.fillStyle = glow;
-          g.fillRect(fx - 48, fy - 48, 96, 96);
-          for (let i = 0; i < 3; i++) {
-            const bubbleT = (time * 2.2 + i * 0.8) % 2;
-            const bx = fx + Math.cos(i * 2 + time * 2.5) * 10;
-            const by = fy - bubbleT * 20;
-            g.fillStyle = "rgba(216, 180, 254, " + Math.max(0, 1 - bubbleT / 2) + ")";
-            g.fillRect(bx - 1.5, by - 1.5, 3, 3);
-          }
+          g.fillRect(fx - 46, fy - 46, 92, 92);
           g.restore();
         } else if (prop.kind === "crystals") {
-          // Pulsing arcane mana crystal illumination
+          // Subtle dark blue mana crystal radiance (no bright light squares)
           const fx = sx;
           const fy = Math.round(sy - h * 0.5);
-          const pulse = 0.7 + 0.3 * Math.sin(time * 4);
-          const glow = g.createRadialGradient(fx, fy, 2, fx, fy, 42 * pulse);
-          glow.addColorStop(0, "rgba(56, 189, 248, 0.55)");
-          glow.addColorStop(0.5, "rgba(147, 197, 253, 0.22)");
+          const glow = g.createRadialGradient(fx, fy, 2, fx, fy, 40);
+          glow.addColorStop(0, "rgba(30, 58, 138, 0.30)");
+          glow.addColorStop(0.5, "rgba(30, 58, 138, 0.10)");
           glow.addColorStop(1, "rgba(0, 0, 0, 0)");
           g.save();
           g.fillStyle = glow;
-          g.fillRect(fx - 42, fy - 42, 84, 84);
-          for (let i = 0; i < 2; i++) {
-            const ang = time * 2.5 + i * Math.PI;
-            const ox = Math.cos(ang) * 14;
-            const oy = Math.sin(ang) * 10;
-            g.fillStyle = "#e0f2fe";
-            g.fillRect(fx + ox - 1, fy + oy - 1, 2, 2);
-          }
+          g.fillRect(fx - 40, fy - 40, 80, 80);
           g.restore();
         } else if (prop.kind === "throne") {
           // Ominous royal crimson aura on Dracula's seat
@@ -5393,6 +5502,18 @@ export function mountCampaign(
         g.fillStyle = "#71717a";
         g.fillRect(sx - 10, sy - 3, 20, 2);
       } else {
+        // Elliptical contact shadow under grounded enemy
+        if (e.grounded && e.kind !== "bat" && e.state !== "emerge") {
+          const eCenterX = Math.round(e.x + e.w / 2 - camX);
+          const eFeetY = Math.round(feet - camY);
+          g.save();
+          g.fillStyle = "rgba(0, 0, 0, 0.7)";
+          g.beginPath();
+          g.ellipse(eCenterX, eFeetY, Math.max(12, e.w * 0.55), 3.5, 0, 0, Math.PI * 2);
+          g.fill();
+          g.restore();
+        }
+
         if ((e.hurtFlash ?? 0) > 0) {
           g.save();
           g.filter = "brightness(2.5) contrast(1.2)";
@@ -5502,6 +5623,18 @@ export function mountCampaign(
       sheet = "heroRun";
       frame = Math.floor(time * 10) % 4;
     }
+    // Elliptical contact shadow under Aldric
+    if (player.grounded) {
+      const pCenterX = Math.round(player.x + player.w / 2 - camX);
+      const pFeetY = Math.round(player.y + player.h - camY);
+      g.save();
+      g.fillStyle = "rgba(0, 0, 0, 0.7)";
+      g.beginPath();
+      g.ellipse(pCenterX, pFeetY, 15, 3.5, 0, 0, Math.PI * 2);
+      g.fill();
+      g.restore();
+    }
+
     // the 320px cells keep the boots 56px above the cell bottom
     const heroFeet = player.y + player.h + (56 / 320) * DRAW_H.hero;
     blit(art[sheet], frame, player.x + player.w / 2, heroFeet, DRAW_H.hero, player.facing, heroCols);
