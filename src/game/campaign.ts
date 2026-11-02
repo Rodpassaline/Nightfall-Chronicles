@@ -4777,74 +4777,21 @@ export function mountCampaign(
     cx: number,
     feet: number,
     height: number,
-    facing = 1,
-    isWallOrCeiling = false
+    facing = 1
   ) {
-    const ready = !!img && img.complete && img.naturalWidth > 0;
+    if (!img || !img.complete || img.naturalWidth <= 0) return;
     const sx = Math.round(cx - camX);
     const sy = Math.round(feet - camY);
-    const dw = ready ? height * (img.naturalWidth / img.naturalHeight) : height * 0.44;
+    const dw = height * (img.naturalWidth / img.naturalHeight);
 
-    // Contact shadow at the base (only for ground-standing props, never for wall sconces or hanging props)
-    if (!isWallOrCeiling) {
-      g.save();
-      g.fillStyle = "rgba(0, 0, 0, 0.75)";
-      g.beginPath();
-      g.ellipse(sx, sy, Math.max(16, dw * 0.46), 5, 0, 0, Math.PI * 2);
-      g.fill();
-      g.restore();
-    }
-
-    // Night color grading on structures and props (removes artificial/pasted look)
     g.save();
     g.translate(sx, sy);
-    g.scale(facing, 1);
-    g.filter = "brightness(0.65) contrast(1.12) saturate(0.8)";
-    if (!ready || !img) {
-      g.fillStyle = "#1e1b29";
-      g.fillRect(-height * 0.22, -height, height * 0.44, height);
-      g.restore();
-      return;
+    if (facing !== 1) {
+      g.scale(facing, 1);
     }
+    g.filter = "brightness(0.65) contrast(1.12) saturate(0.75)";
     g.drawImage(img, -dw / 2, -height, dw, height);
-
-    // Harmonização de Cores Noturnas com source-atop (não afeta partes transparentes do PNG)
-    g.save();
-    g.globalCompositeOperation = "source-atop";
-
-    // Overlay azul-noite/violeta profundo para casar perfeitamente com a iluminação gótica
-    g.fillStyle = "rgba(25, 20, 45, 0.35)";
-    g.fillRect(-dw / 2, -height, dw, height);
-
-    if (!isWallOrCeiling) {
-      // Edge Blending / Vignette na base: funde a base da pedra com as sombras do piso
-      const baseH = Math.min(36, height * 0.32);
-      const baseGrad = g.createLinearGradient(0, 0, 0, -baseH);
-      baseGrad.addColorStop(0, "rgba(8, 6, 16, 0.88)");
-      baseGrad.addColorStop(0.55, "rgba(8, 6, 16, 0.45)");
-      baseGrad.addColorStop(1, "rgba(8, 6, 16, 0.0)");
-      g.fillStyle = baseGrad;
-      g.fillRect(-dw / 2, -baseH, dw, baseH);
-    }
-
-    // Vinhetas laterais suaves (suaviza as bordas recortadas retangulares nos lados da coluna)
-    const sideW = Math.min(14, dw * 0.22);
-    if (sideW > 2) {
-      const leftGrad = g.createLinearGradient(-dw / 2, 0, -dw / 2 + sideW, 0);
-      leftGrad.addColorStop(0, "rgba(8, 6, 16, 0.72)");
-      leftGrad.addColorStop(1, "rgba(8, 6, 16, 0.0)");
-      g.fillStyle = leftGrad;
-      g.fillRect(-dw / 2, -height, sideW, height);
-
-      const rightGrad = g.createLinearGradient(dw / 2, 0, dw / 2 - sideW, 0);
-      rightGrad.addColorStop(0, "rgba(8, 6, 16, 0.72)");
-      rightGrad.addColorStop(1, "rgba(8, 6, 16, 0.0)");
-      g.fillStyle = rightGrad;
-      g.fillRect(dw / 2 - sideW, -height, sideW, height);
-    }
-
-    g.restore(); // restores source-atop
-    g.restore(); // restores translate & filter
+    g.restore();
   }
 
   function drawStrip(
@@ -5003,84 +4950,12 @@ export function mountCampaign(
     for (const prop of getActiveProps()) {
       if (prop.layer === "bg") {
         const h = PROP_H[prop.kind] ?? 120;
-        const isWallOrCeiling = (
-          prop.kind === "sconceBlue" ||
-          prop.kind === "chains" ||
-          prop.kind === "hangingColumn" ||
-          prop.kind === "stainedGlass" ||
-          prop.kind === "banner" ||
-          prop.kind === "shield"
-        );
         let feetY = prop.y;
-        if (!isWallOrCeiling) {
-          const ground = findFloorFor(prop.x, prop.y);
-          if (Math.abs(prop.y - ground) <= 24 || prop.y >= GROUND_Y - 10) {
-            feetY = ground;
-          }
+        const ground = findFloorFor(prop.x, prop.y);
+        if (Math.abs(prop.y - ground) <= 24 || prop.y >= GROUND_Y - 10) {
+          feetY = ground;
         }
-        const sx = Math.round(prop.x - camX);
-        const sy = Math.round(feetY - camY);
-
-        if (prop.kind === "gladiatorStatue") {
-          g.save();
-          g.fillStyle = "rgba(8, 6, 12, 0.55)";
-          g.beginPath();
-          g.arc(sx, sy - h * 0.65, h * 0.44, Math.PI, 0);
-          g.lineTo(sx + h * 0.44, sy);
-          g.lineTo(sx - h * 0.44, sy);
-          g.closePath();
-          g.fill();
-          g.strokeStyle = "#382933";
-          g.lineWidth = 3;
-          g.stroke();
-          g.restore();
-        } else if (prop.kind === "stainedGlass") {
-          // Cathedral stained glass lancet arch niche with divine light glow
-          g.save();
-          g.fillStyle = "rgba(5, 4, 10, 0.65)";
-          g.beginPath();
-          g.arc(sx, sy - h * 0.68, h * 0.4, Math.PI, 0);
-          g.lineTo(sx + h * 0.4, sy);
-          g.lineTo(sx - h * 0.4, sy);
-          g.closePath();
-          g.fill();
-          g.strokeStyle = "#4a3c46";
-          g.lineWidth = 4;
-          g.stroke();
-
-          // Soft radiant light beam through stained glass
-          const glassGlow = g.createRadialGradient(sx, sy - h * 0.5, 10, sx, sy - h * 0.5, h * 0.7);
-          glassGlow.addColorStop(0, "rgba(59, 130, 246, 0.22)");
-          glassGlow.addColorStop(0.5, "rgba(217, 70, 239, 0.12)");
-          glassGlow.addColorStop(1, "rgba(0, 0, 0, 0)");
-          g.fillStyle = glassGlow;
-          g.fillRect(sx - h * 0.7, sy - h * 0.9, h * 1.4, h * 1.2);
-          g.restore();
-        } else if (prop.kind === "cell") {
-          // Dark recessed dungeon cell chamber in background
-          g.save();
-          g.fillStyle = "rgba(4, 3, 6, 0.75)";
-          g.fillRect(sx - 48, sy - h + 10, 96, h - 8);
-          g.strokeStyle = "#27272a";
-          g.lineWidth = 2;
-          g.strokeRect(sx - 48, sy - h + 10, 96, h - 8);
-          g.restore();
-        } else if (prop.kind === "angel" || prop.kind === "angelTall") {
-          // Cathedral wall niche arch
-          g.save();
-          g.fillStyle = "rgba(6, 4, 8, 0.6)";
-          g.beginPath();
-          g.arc(sx, sy - h * 0.68, h * 0.35, Math.PI, 0);
-          g.lineTo(sx + h * 0.35, sy);
-          g.lineTo(sx - h * 0.35, sy);
-          g.closePath();
-          g.fill();
-          g.strokeStyle = "#3f303a";
-          g.lineWidth = 2;
-          g.stroke();
-          g.restore();
-        }
-        blitStill(propsArt[prop.kind], prop.x, feetY, h, 1, isWallOrCeiling);
+        blitStill(propsArt[prop.kind], prop.x, feetY, h);
       }
     }
 
@@ -5316,99 +5191,12 @@ export function mountCampaign(
     for (const prop of getActiveProps()) {
       if (!prop.layer || prop.layer === "main") {
         const h = PROP_H[prop.kind] ?? 120;
-        const isWallOrCeiling = (
-          prop.kind === "sconceBlue" ||
-          prop.kind === "chains" ||
-          prop.kind === "hangingColumn" ||
-          prop.kind === "stainedGlass" ||
-          prop.kind === "banner" ||
-          prop.kind === "shield"
-        );
         let feetY = prop.y;
-        if (!isWallOrCeiling) {
-          const ground = findFloorFor(prop.x, prop.y);
-          if (Math.abs(prop.y - ground) <= 24 || prop.y >= GROUND_Y - 10) {
-            feetY = ground;
-          }
+        const ground = findFloorFor(prop.x, prop.y);
+        if (Math.abs(prop.y - ground) <= 24 || prop.y >= GROUND_Y - 10) {
+          feetY = ground;
         }
-        blitStill(propsArt[prop.kind], prop.x, feetY, h, 1, isWallOrCeiling);
-
-        const sx = Math.round(prop.x - camX);
-        const sy = Math.round(feetY - camY);
-
-        if (prop.kind === "sconceBlue") {
-          const fx = sx;
-          const fy = Math.round(sy - h + 18);
-          // Soft blue translucent halo around flames (rgba(40, 130, 255, 0.18))
-          const glow = g.createRadialGradient(fx, fy, 2, fx, fy, 48);
-          glow.addColorStop(0, "rgba(40, 130, 255, 0.32)");
-          glow.addColorStop(0.45, "rgba(40, 130, 255, 0.18)");
-          glow.addColorStop(1, "rgba(0, 0, 0, 0)");
-          g.save();
-          g.fillStyle = glow;
-          g.fillRect(fx - 48, fy - 48, 96, 96);
-          g.restore();
-        } else if (prop.kind === "candelabra") {
-          // Warm candlelight glow
-          const fx = sx;
-          const fy = Math.round(sy - h + 18);
-          const glow = g.createRadialGradient(fx, fy, 2, fx, fy, 46);
-          glow.addColorStop(0, "rgba(251, 191, 36, 0.35)");
-          glow.addColorStop(0.5, "rgba(245, 158, 11, 0.14)");
-          glow.addColorStop(1, "rgba(0, 0, 0, 0)");
-          g.save();
-          g.fillStyle = glow;
-          g.fillRect(fx - 46, fy - 46, 92, 92);
-          g.restore();
-        } else if (prop.kind === "cauldronGreen") {
-          // Translucent dark green chemical vapor (no bright lime squares)
-          const fx = sx;
-          const fy = Math.round(sy - h * 0.6);
-          const glow = g.createRadialGradient(fx, fy, 4, fx, fy, 46);
-          glow.addColorStop(0, "rgba(22, 101, 52, 0.30)");
-          glow.addColorStop(0.5, "rgba(20, 83, 45, 0.10)");
-          glow.addColorStop(1, "rgba(0, 0, 0, 0)");
-          g.save();
-          g.fillStyle = glow;
-          g.fillRect(fx - 46, fy - 46, 92, 92);
-          g.restore();
-        } else if (prop.kind === "cauldronPurple") {
-          // Translucent dark purple transmutation vapor (no bright purple squares)
-          const fx = sx;
-          const fy = Math.round(sy - h * 0.6);
-          const glow = g.createRadialGradient(fx, fy, 4, fx, fy, 46);
-          glow.addColorStop(0, "rgba(88, 28, 135, 0.28)");
-          glow.addColorStop(0.5, "rgba(59, 7, 100, 0.08)");
-          glow.addColorStop(1, "rgba(0, 0, 0, 0)");
-          g.save();
-          g.fillStyle = glow;
-          g.fillRect(fx - 46, fy - 46, 92, 92);
-          g.restore();
-        } else if (prop.kind === "crystals") {
-          // Subtle dark blue mana crystal radiance (no bright light squares)
-          const fx = sx;
-          const fy = Math.round(sy - h * 0.5);
-          const glow = g.createRadialGradient(fx, fy, 2, fx, fy, 40);
-          glow.addColorStop(0, "rgba(30, 58, 138, 0.30)");
-          glow.addColorStop(0.5, "rgba(30, 58, 138, 0.10)");
-          glow.addColorStop(1, "rgba(0, 0, 0, 0)");
-          g.save();
-          g.fillStyle = glow;
-          g.fillRect(fx - 40, fy - 40, 80, 80);
-          g.restore();
-        } else if (prop.kind === "throne") {
-          // Ominous royal crimson aura on Dracula's seat
-          const fx = sx;
-          const fy = Math.round(sy - h * 0.5);
-          const glow = g.createRadialGradient(fx, fy, 4, fx, fy, 64);
-          glow.addColorStop(0, "rgba(225, 29, 72, 0.35)");
-          glow.addColorStop(0.6, "rgba(136, 19, 55, 0.15)");
-          glow.addColorStop(1, "rgba(0, 0, 0, 0)");
-          g.save();
-          g.fillStyle = glow;
-          g.fillRect(fx - 64, fy - 64, 128, 128);
-          g.restore();
-        }
+        blitStill(propsArt[prop.kind], prop.x, feetY, h);
       }
     }
 
@@ -5933,10 +5721,9 @@ export function mountCampaign(
         if ((prop.kind === "hangingColumn" || prop.kind === "chains") && prop.y <= 60) {
           feet = prop.y + h;
         }
-        const isWallOrCeiling = prop.kind === "hangingColumn" || prop.kind === "chains";
         // Foreground 2.5D parallax (slightly faster scroll than main plane)
         const fgX = prop.x - (camX * 0.12);
-        blitStill(propsArt[prop.kind], fgX, feet, h, 1, isWallOrCeiling);
+        blitStill(propsArt[prop.kind], fgX, feet, h);
       }
     }
 
