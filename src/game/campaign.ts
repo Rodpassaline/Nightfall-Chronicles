@@ -1,4 +1,4 @@
-import { GROUND_Y, levels, type ItemKind, type ItemSpawn, type Kind, type LevelDef, type PropKind } from "./levels";
+import { GROUND_Y, levels, hordeArenaDef, getGroundYForLevel, type ItemKind, type ItemSpawn, type Kind, type LevelDef, type PropKind } from "./levels";
 import { tuning as T } from "./tuning";
 import { sound } from "./audio";
 import stageLayersManifest from "./stage-layers.json";
@@ -382,6 +382,13 @@ const PROP_SRC: Record<PropKind, string> = {
   banner: "/sprites/prop-banner.png",
   stainedGlass: "/sprites/prop-stained-glass.png",
   chains: "/sprites/prop-chains.png",
+  chamberArch: "/art/props/chamber-arch.png",
+  gothicStairsUp: "/art/props/gothic-stairs-up.png",
+  gothicStairsDown: "/art/props/gothic-stairs-down.png",
+  stonePlatform: "/art/props/stone-platform.png",
+  stainedGlassWindow: "/art/props/stained-glass.png",
+  gargoyleStatue: "/art/props/gargoyle-statue.png",
+  chandelier: "/art/props/chandelier.png",
 };
 
 const PROP_H: Record<PropKind, number> = {
@@ -424,6 +431,13 @@ const PROP_H: Record<PropKind, number> = {
   banner: 150,
   stainedGlass: 175,
   chains: 140,
+  chamberArch: 165,
+  gothicStairsUp: 120,
+  gothicStairsDown: 120,
+  stonePlatform: 26,
+  stainedGlassWindow: 145,
+  gargoyleStatue: 85,
+  chandelier: 95,
 };
 
 const FG_SRC = {
@@ -594,7 +608,7 @@ export function mountCampaign(
   const difficulty: Difficulty = options?.difficulty ?? "normal";
   const diffProfile = DIFFICULTY_PROFILES[difficulty] ?? DIFFICULTY_PROFILES.normal;
 
-  let level = levels.find((item) => item.id === (gameMode === "horde" ? 1 : levelId)) ?? levels[0];
+  let level = (gameMode === "horde" ? hordeArenaDef : (levels.find((item) => item.id === levelId) ?? levels[0]));
   let stageW = level.width;
   const ctx =
     canvas.getContext("2d", { alpha: false, desynchronized: true }) ||
@@ -612,19 +626,20 @@ export function mountCampaign(
   const fgArt: Partial<Record<FgKey, HTMLImageElement>> = {};
   let bg: HTMLImageElement | null = null;
   const plates: Partial<Record<"sky" | "far" | "back" | "mid" | "floor" | "fog" | "fg", HTMLImageElement>> = {};
-  const stageCfg = (stageLayersManifest as Record<string, { mid?: boolean; fg?: boolean }>)[String(level.id)] || {};
+  const stageThemeId = gameMode === "horde" ? 1 : level.id;
+  const stageCfg = (stageLayersManifest as Record<string, { mid?: boolean; fg?: boolean }>)[String(stageThemeId)] || {};
   const plateSrc: Record<string, string> = {
     sky: "/art/parallax/sky.jpg",
     far: "/art/parallax/far.jpg",
-    back: `/art/stages/s${level.id}/back.jpg`,
-    floor: `/art/stages/s${level.id}/floor.jpg`,
+    back: `/art/stages/s${stageThemeId}/back.jpg`,
+    floor: `/art/stages/s${stageThemeId}/floor.jpg`,
     fog: "/art/parallax/fog.png",
   };
   if (stageCfg.mid) {
-    plateSrc.mid = `/art/stages/s${level.id}/mid.png`;
+    plateSrc.mid = `/art/stages/s${stageThemeId}/mid.png`;
   }
   if (stageCfg.fg) {
-    plateSrc.fg = `/art/stages/s${level.id}/fg.png`;
+    plateSrc.fg = `/art/stages/s${stageThemeId}/fg.png`;
   }
 
   let readyToRender = false;
@@ -716,6 +731,12 @@ export function mountCampaign(
   let bossEnragedAnnounced = false;
   let ambushTimer = 4.0;
 
+  // Chamber Transitions & Gothic Typography Banner
+  let currentChamberId = -1;
+  let chamberTransitionTimer = 0;
+  let chamberNameBanner = "";
+  let chamberNameTimer = 0;
+
   // Horde Mode State & Progression
   let hordeWave = 1;
   let hordeQueue: Kind[] = [];
@@ -749,10 +770,15 @@ export function mountCampaign(
   async function switchHordeStageTheme(targetStage: number) {
     currentHordeStageId = targetStage;
     const nextLevel = levels.find((item) => item.id === targetStage) ?? levels[0];
-    level = nextLevel;
-    stageW = level.width;
+    if (gameMode === "horde") {
+      level = hordeArenaDef;
+      stageW = level.width;
+    } else {
+      level = nextLevel;
+      stageW = level.width;
+    }
 
-    bg = await preloadImage(level.bg);
+    bg = await preloadImage(nextLevel.bg);
     plates.back = await preloadImage(`/art/stages/s${targetStage}/back.jpg`);
     plates.floor = await preloadImage(`/art/stages/s${targetStage}/floor.jpg`);
 
@@ -820,24 +846,20 @@ export function mountCampaign(
   }
 
   function spawnHordeEnemy(kind: Kind) {
-    const minX = 40;
-    const maxX = Math.max(minX + 80, stageW - 40);
-    const spawnLeft = clamp(camX + 80, minX, maxX);
-    const spawnRight = clamp(camX + T.viewW - 80, minX, maxX);
-
     const fromLeft = Math.random() < 0.5;
-    let sx = fromLeft ? spawnLeft : spawnRight;
+    // Spawn from the Gothic Arch Portals on the elevated landings
+    let sx = fromLeft ? 100 + Math.random() * 40 : 2460 - Math.random() * 40;
 
-    if (Math.abs(player.x - sx) < 60) {
-      sx = sx === spawnLeft ? spawnRight : spawnLeft;
+    // Avoid spawning directly on top of Aldric if he is on that landing
+    if (Math.abs(player.x - sx) < 80) {
+      sx = fromLeft ? 2460 - Math.random() * 40 : 100 + Math.random() * 40;
     }
 
-    const playerFeet = player.y + player.h;
-    const groundFloor = findFloorFor(sx, playerFeet > 0 ? playerFeet : GROUND_Y);
+    const groundFloor = getGroundY(sx);
     let sy = groundFloor;
 
     if (kind === "bat") {
-      sy = groundFloor - 60 - Math.random() * 30;
+      sy = groundFloor - 55 - Math.random() * 30;
     }
 
     const baseHpMap: Record<string, number> = {
@@ -1178,9 +1200,13 @@ export function mountCampaign(
     o.stop(actx.currentTime + dur);
   }
 
+  function getGroundY(x: number): number {
+    return getGroundYForLevel(level, x);
+  }
+
   function findFloorFor(x: number, fallbackY: number): number {
-    let best = fallbackY;
-    let bestDist = Infinity;
+    let best = getGroundY(x);
+    let bestDist = Math.abs(best - fallbackY);
     for (const s of getActiveSolids()) {
       if (x >= s.x && x <= s.x + s.w) {
         const dist = Math.abs(s.y - fallbackY);
@@ -1464,13 +1490,22 @@ export function mountCampaign(
   }
 
   function spawn() {
-    player.x = Math.round(T.viewW / 2 - player.w / 2); // Start exactly in the center of the screen
+    if (gameMode === "horde") {
+      level = hordeArenaDef;
+      stageW = level.width;
+      player.x = 1300;
+      player.y = getGroundY(1300) - STAND_H;
+      camX = clamp(player.x - T.viewW / 2, 0, Math.max(0, stageW - T.viewW));
+      camY = clamp(player.y + player.h - 180, -180, 140);
+    } else {
+      player.x = 60;
+      player.y = getGroundY(60) - STAND_H;
+      camX = 0;
+      camY = clamp(player.y + player.h - 180, -180, 140);
+    }
     player.h = STAND_H;
-    player.y = GROUND_Y - STAND_H;
     player.vx = 0;
     player.vy = 0;
-    camX = 0;
-    camY = 0;
     player.facing = 1;
     player.crouching = false;
     player.hp = T.maxHp;
@@ -1498,6 +1533,10 @@ export function mountCampaign(
     clearedOnce = false;
     bossIntroPlayed = false;
     bossEnragedAnnounced = false;
+    currentChamberId = -1;
+    chamberTransitionTimer = 0;
+    chamberNameBanner = "";
+    chamberNameTimer = 0;
     bossCinematic = {
       active: false,
       phase: "idle",
@@ -1526,15 +1565,12 @@ export function mountCampaign(
     dashAfterimageTimer = 0;
 
     if (gameMode === "horde") {
-      player.x = Math.round(T.viewW / 2 - player.w / 2);
       player.toast = "Sobreviva à Horda Noturna!";
       player.toastT = 3.0;
       enemies = [];
       items = [];
       initParticles();
       currentHordeStageId = 1;
-      level = levels.find((item) => item.id === 1) ?? levels[0];
-      stageW = level.width;
       void switchHordeStageTheme(1);
       startHordeWave(1);
     } else {
@@ -1585,8 +1621,19 @@ export function mountCampaign(
 
   function resolve(body: Body, dt: number, drop: boolean) {
     body.wall = 0;
+    const wasGrounded = body.grounded;
     body.grounded = false;
     body.x += body.vx * dt;
+
+    if (body.x < 10) {
+      body.x = 10;
+      body.wall = -1;
+      body.vx = 0;
+    } else if (body.x + body.w > stageW - 10) {
+      body.x = stageW - 10 - body.w;
+      body.wall = 1;
+      body.vx = 0;
+    }
 
     // Collide with locked Gothic Seal Gates (blocks both player and enemies so foes behind a gate cannot phase through)
     for (const gate of sealGates) {
@@ -1612,58 +1659,43 @@ export function mountCampaign(
         }
       }
     }
-    for (const s of getActiveSolids()) {
-      if (s.oneWay || !overlap(body, s)) continue;
-      const feet = body.y + body.h;
-      const rise = feet - s.y;
-      if (rise > 0 && rise <= 16 && body.vy >= 0) {
-        body.y -= rise;
-        body.vy = 0;
-        body.grounded = true;
-        continue;
-      }
-      if (body.vx > 0) {
-        body.x = s.x - body.w;
-        body.wall = 1;
-      } else if (body.vx < 0) {
-        body.x = s.x + s.w;
-        body.wall = -1;
-      }
-      body.vx = 0;
+
+    // Smooth slope/stairs tracking when already grounded on terrain
+    const curGroundY = getGroundY(body.x + body.w / 2);
+    const feetY = body.y + body.h;
+
+    if (wasGrounded && Math.abs(feetY - curGroundY) <= 24) {
+      body.y = curGroundY - body.h;
+      body.vy = 0;
+      body.grounded = true;
     }
+
+    // Vertical displacement
     const prevBottom = body.y + body.h;
-    const prevTop = body.y;
     body.y += body.vy * dt;
+
+    // One-way jump-through platforms
     for (const s of getActiveSolids()) {
-      if (!overlap(body, s)) continue;
-      if (s.oneWay) {
-        if (drop || body.vy < 0 || prevBottom > s.y + 1) continue;
-        body.y = s.y - body.h;
-        body.vy = 0;
-        body.grounded = true;
-        continue;
-      }
-      if (body.vy >= 0 && prevBottom <= s.y + 1) {
-        body.y = s.y - body.h;
-        body.vy = 0;
-        body.grounded = true;
-      } else if (body.vy < 0 && prevTop >= s.y + s.h - 1) {
-        body.y = s.y + s.h;
-        body.vy = 0;
-      } else if (body.y + body.h / 2 < s.y + s.h / 2) {
-        body.y = s.y - body.h;
-        body.vy = 0;
-        body.grounded = true;
-      } else {
-        body.y = s.y + s.h;
-        body.vy = 0;
-      }
+      if (!s.oneWay || !overlap(body, s)) continue;
+      if (drop || body.vy < 0 || prevBottom > s.y + 12) continue;
+      body.y = s.y - body.h;
+      body.vy = 0;
+      body.grounded = true;
     }
-    // Ground resting check: if resting directly on top of a solid surface, maintain grounded
+
+    // Landing on continuous terrain ground (slopes, stairs, upper hall, crypt, flat)
+    const newGroundY = getGroundY(body.x + body.w / 2);
+    if (body.vy >= 0 && body.y + body.h >= newGroundY) {
+      body.y = newGroundY - body.h;
+      body.vy = 0;
+      body.grounded = true;
+    }
+
+    // Ground resting check on one-way platforms
     if (!body.grounded && body.vy >= 0) {
       for (const s of getActiveSolids()) {
-        if (body.x + body.w > s.x && body.x < s.x + s.w) {
-          if (Math.abs(body.y + body.h - s.y) <= 2.5) {
+        if (s.oneWay && body.x + body.w > s.x && body.x < s.x + s.w) {
+          if (Math.abs(body.y + body.h - s.y) <= 3) {
             body.y = s.y - body.h;
             body.vy = 0;
             body.grounded = true;
@@ -2153,6 +2185,23 @@ export function mountCampaign(
     }
 
     time += dt;
+
+    // Chamber Detection & Elegant Gothic Typography Banner
+    if (level.chambers && level.chambers.length > 0) {
+      const pMidX = player.x + player.w / 2;
+      const activeChamber = level.chambers.find((c) => pMidX >= c.xStart && pMidX <= c.xEnd) || level.chambers[0];
+      if (activeChamber && activeChamber.id !== currentChamberId) {
+        if (currentChamberId !== -1) {
+          chamberTransitionTimer = 0.22;
+          sound.playSfx("gateOpen");
+        }
+        currentChamberId = activeChamber.id;
+        chamberNameBanner = activeChamber.name;
+        chamberNameTimer = 2.4;
+      }
+    }
+    if (chamberTransitionTimer > 0) chamberTransitionTimer = Math.max(0, chamberTransitionTimer - dt);
+    if (chamberNameTimer > 0) chamberNameTimer = Math.max(0, chamberNameTimer - dt);
     player.toastT = Math.max(0, (player.toastT || 0) - dt);
     player.iframes = Math.max(0, (player.iframes || 0) - dt);
     player.hurtT = Math.max(0, (player.hurtT || 0) - dt);
@@ -3130,7 +3179,7 @@ export function mountCampaign(
     if (focus > center + 24) camX += (focus - center - 24) * Math.min(1, dt * 8);
     else if (focus < center - 24) camX += (focus - center + 24) * Math.min(1, dt * 8);
     camX = clamp(camX, 0, Math.max(0, stageW - T.viewW));
-    const aimY = clamp(player.y + player.h - 180, -160, 115);
+    const aimY = clamp(player.y + player.h - 180, -180, 140);
     camY += (aimY - camY) * Math.min(1, dt * 5.5);
     shake = Math.max(0, shake - dt * 14);
   }
@@ -4984,6 +5033,7 @@ export function mountCampaign(
 
     // Background Architectural Props (Recessed Colossal Gladiator Statues, Arches, Stained Glass)
     for (const prop of getActiveProps()) {
+      if (prop.kind === "gothicStairsUp" || prop.kind === "gothicStairsDown") continue;
       if (prop.layer === "bg") {
         const h = PROP_H[prop.kind] ?? 120;
         let feetY = prop.y;
@@ -4995,13 +5045,184 @@ export function mountCampaign(
       }
     }
 
+    // Terrain Segments (Gothic Stairs & Continuous Elevated Foundations)
+    if (level.terrainSegments && level.terrainSegments.length > 0) {
+      for (const seg of level.terrainSegments) {
+        const sx = Math.round(seg.xStart - camX);
+        const sw = seg.xEnd - seg.xStart;
+        if (sx + sw < -20 || sx > T.viewW + 20) continue;
+
+        const syStart = Math.round(seg.yStart - camY);
+        const syEnd = Math.round(seg.yEnd - camY);
+        const syTop = Math.min(syStart, syEnd);
+        const syBottom = Math.max(syStart, syEnd);
+
+        if (seg.type === "stairs_up") {
+          // Foundation masonry fill below stair slope down to screen bottom
+          g.fillStyle = "#100e18";
+          g.beginPath();
+          g.moveTo(sx, syStart);
+          g.lineTo(sx + sw, syEnd);
+          g.lineTo(sx + sw, T.viewH + 40);
+          g.lineTo(sx, T.viewH + 40);
+          g.closePath();
+          g.fill();
+
+          // Subtle horizontal mortar grooves in foundation
+          g.fillStyle = "rgba(22, 18, 32, 0.6)";
+          for (let yLine = syBottom + 12; yLine < T.viewH + 40; yLine += 14) {
+            g.fillRect(sx, yLine, sw, 1);
+          }
+
+          // Gothic Stairs Up Sprite
+          const stairsImg = propsArt.gothicStairsUp;
+          if (stairsImg && stairsImg.complete && stairsImg.naturalWidth > 0) {
+            const source = getFilteredProp(stairsImg);
+            g.drawImage(source, sx, syTop - 6, sw, (syBottom - syTop) + 26);
+          } else {
+            // Procedural stepped stones fallback
+            const numSteps = Math.max(4, Math.round(sw / 22));
+            const stepW = sw / numSteps;
+            const stepH = (syBottom - syTop) / numSteps;
+            for (let i = 0; i < numSteps; i++) {
+              const stepX = sx + i * stepW;
+              const stepY = syStart - i * stepH;
+              g.fillStyle = "#221d30";
+              g.fillRect(stepX, stepY, stepW + 1, stepH + 40);
+              g.fillStyle = "rgba(180, 195, 235, 0.35)";
+              g.fillRect(stepX, stepY, stepW, 1);
+            }
+          }
+        } else if (seg.type === "stairs_down") {
+          // Foundation masonry fill below slope
+          g.fillStyle = "#100e18";
+          g.beginPath();
+          g.moveTo(sx, syStart);
+          g.lineTo(sx + sw, syEnd);
+          g.lineTo(sx + sw, T.viewH + 40);
+          g.lineTo(sx, T.viewH + 40);
+          g.closePath();
+          g.fill();
+
+          // Horizontal mortar lines
+          g.fillStyle = "rgba(22, 18, 32, 0.6)";
+          for (let yLine = syBottom + 12; yLine < T.viewH + 40; yLine += 14) {
+            g.fillRect(sx, yLine, sw, 1);
+          }
+
+          // Gothic Stairs Down Sprite
+          const stairsImg = propsArt.gothicStairsDown;
+          if (stairsImg && stairsImg.complete && stairsImg.naturalWidth > 0) {
+            const source = getFilteredProp(stairsImg);
+            g.drawImage(source, sx, syTop - 6, sw, (syBottom - syTop) + 26);
+          } else {
+            // Procedural stepped stones fallback
+            const numSteps = Math.max(4, Math.round(sw / 22));
+            const stepW = sw / numSteps;
+            const stepH = (syBottom - syTop) / numSteps;
+            for (let i = 0; i < numSteps; i++) {
+              const stepX = sx + i * stepW;
+              const stepY = syStart + i * stepH;
+              g.fillStyle = "#221d30";
+              g.fillRect(stepX, stepY, stepW + 1, stepH + 40);
+              g.fillStyle = "rgba(180, 195, 235, 0.35)";
+              g.fillRect(stepX, stepY, stepW, 1);
+            }
+          }
+        } else if (seg.type === "upper_hall") {
+          // Elevated Upper Hall foundation masonry down to screen bottom
+          g.fillStyle = "#100e18";
+          g.fillRect(sx, syStart + 16, sw, T.viewH + 40 - (syStart + 16));
+
+          // Upper Hall Floor surface
+          g.save();
+          g.beginPath();
+          g.rect(sx, syStart, sw, 20);
+          g.clip();
+          if (plates.floor && plates.floor.complete && plates.floor.naturalWidth > 0) {
+            const floorH = plates.floor.naturalHeight || 112;
+            const dw = plates.floor.naturalWidth;
+            const fx0 = -(((camX) % dw + dw) % dw);
+            let fx = fx0;
+            while (fx < sx + sw + 10) {
+              if (fx + dw > sx - 10) {
+                g.drawImage(plates.floor, Math.round(fx), syStart, dw, floorH);
+              }
+              fx += dw;
+            }
+          } else {
+            g.fillStyle = "#241f32";
+            g.fillRect(sx, syStart, sw, 20);
+          }
+          g.restore();
+
+          // Top flagstone edge highlight & shadow
+          g.fillStyle = "rgba(200, 215, 255, 0.35)";
+          g.fillRect(sx, syStart, sw, 1);
+          g.fillStyle = "rgba(0, 0, 0, 0.65)";
+          g.fillRect(sx, syStart + 1, sw, 1);
+          g.fillStyle = "rgba(20, 16, 28, 0.7)";
+          for (let yLine = syStart + 18; yLine < T.viewH + 40; yLine += 14) {
+            g.fillRect(sx, yLine, sw, 1);
+          }
+        } else if (seg.type === "crypt") {
+          // Sunken Crypt foundation down to screen bottom
+          g.fillStyle = "#0c0a14";
+          g.fillRect(sx, syStart + 16, sw, T.viewH + 40 - (syStart + 16));
+
+          g.save();
+          g.beginPath();
+          g.rect(sx, syStart, sw, 24);
+          g.clip();
+          if (plates.floor && plates.floor.complete && plates.floor.naturalWidth > 0) {
+            const floorH = plates.floor.naturalHeight || 112;
+            const dw = plates.floor.naturalWidth;
+            const fx0 = -(((camX) % dw + dw) % dw);
+            let fx = fx0;
+            while (fx < sx + sw + 10) {
+              if (fx + dw > sx - 10) {
+                g.drawImage(plates.floor, Math.round(fx), syStart, dw, floorH);
+              }
+              fx += dw;
+            }
+            g.fillStyle = "rgba(8, 6, 14, 0.52)";
+            g.fillRect(sx, syStart, sw, 24);
+          } else {
+            g.fillStyle = "#181420";
+            g.fillRect(sx, syStart, sw, 24);
+          }
+          g.restore();
+
+          g.fillStyle = "rgba(160, 175, 215, 0.22)";
+          g.fillRect(sx, syStart, sw, 1);
+          g.fillStyle = "rgba(0, 0, 0, 0.7)";
+          g.fillRect(sx, syStart + 1, sw, 1);
+        }
+      }
+    }
+
     for (const s of getActiveSolids()) {
       const sx = Math.round(s.x - camX);
       const sy = Math.round(s.y - camY);
       if (sx > T.viewW + 12 || sx + s.w < -12 || sy > T.viewH + 12 || sy + s.h < -12) continue;
 
       if (s.oneWay) {
-        const platH = 12;
+        // Render with stone-platform.png if loaded, otherwise fallback to procedural stone blocks
+        const platImg = propsArt.stonePlatform;
+        const platH = 26;
+        if (platImg && platImg.complete && platImg.naturalWidth > 0) {
+          // 1. Soft Ambient Drop Shadow beneath the platform
+          const shadowGrad = g.createLinearGradient(0, sy + 12, 0, sy + 28);
+          shadowGrad.addColorStop(0, "rgba(0, 0, 0, 0.7)");
+          shadowGrad.addColorStop(1, "rgba(0, 0, 0, 0)");
+          g.fillStyle = shadowGrad;
+          g.fillRect(sx - 3, sy + 12, s.w + 6, 16);
+
+          // 2. Stone Platform Sprite
+          const source = getFilteredProp(platImg);
+          g.drawImage(source, sx, sy - 2, s.w, platH);
+          continue;
+        }
 
         // 1. Soft Ambient Drop Shadow beneath the platform
         const shadowGrad = g.createLinearGradient(0, sy + platH, 0, sy + platH + 18);
@@ -5225,6 +5446,7 @@ export function mountCampaign(
 
     // Main Gameplay Plane Props (Columns, broken pillars, sconces, altars, cauldrons)
     for (const prop of getActiveProps()) {
+      if (prop.kind === "gothicStairsUp" || prop.kind === "gothicStairsDown") continue;
       if (!prop.layer || prop.layer === "main") {
         const h = PROP_H[prop.kind] ?? 120;
         let feetY = prop.y;
@@ -5845,6 +6067,65 @@ export function mountCampaign(
     g.fillStyle = edgeVig;
     g.fillRect(0, 0, T.viewW, T.viewH);
     g.setTransform(1, 0, 0, 1, 0, 0);
+
+    // Chamber Transition Vignette Curtain (200ms transition)
+    if (chamberTransitionTimer > 0) {
+      const p = chamberTransitionTimer / 0.22;
+      const a = Math.sin(p * Math.PI) * 0.55;
+      g.save();
+      g.fillStyle = `rgba(6, 4, 12, ${a})`;
+      g.fillRect(0, 0, T.viewW, T.viewH);
+      g.restore();
+    }
+
+    // Elegant Gothic Typography Chamber Banner (Classic Symphony of the Night style)
+    if (chamberNameTimer > 0 && chamberNameBanner) {
+      const fadeIn = Math.min(1, (2.4 - chamberNameTimer) / 0.4);
+      const fadeOut = Math.min(1, chamberNameTimer / 0.5);
+      const bAlpha = Math.min(fadeIn, fadeOut);
+      if (bAlpha > 0.02) {
+        g.save();
+        g.globalAlpha = bAlpha;
+        const cx = T.viewW / 2;
+        const cy = 46;
+
+        // Elegant ribbon backing
+        const grad = g.createLinearGradient(cx - 170, cy, cx + 170, cy);
+        grad.addColorStop(0, "rgba(8, 6, 16, 0)");
+        grad.addColorStop(0.2, "rgba(12, 10, 24, 0.85)");
+        grad.addColorStop(0.5, "rgba(16, 14, 30, 0.95)");
+        grad.addColorStop(0.8, "rgba(12, 10, 24, 0.85)");
+        grad.addColorStop(1, "rgba(8, 6, 16, 0)");
+        g.fillStyle = grad;
+        g.fillRect(cx - 170, cy - 20, 340, 40);
+
+        // Moonlight filigree lines above and below
+        const lineGrad = g.createLinearGradient(cx - 130, cy, cx + 130, cy);
+        lineGrad.addColorStop(0, "rgba(150, 170, 220, 0)");
+        lineGrad.addColorStop(0.5, "rgba(210, 190, 255, 0.7)");
+        lineGrad.addColorStop(1, "rgba(150, 170, 220, 0)");
+        g.strokeStyle = lineGrad;
+        g.lineWidth = 1;
+        g.beginPath();
+        g.moveTo(cx - 130, cy - 18);
+        g.lineTo(cx + 130, cy - 18);
+        g.moveTo(cx - 130, cy + 18);
+        g.lineTo(cx + 130, cy + 18);
+        g.stroke();
+
+        // Chamber Name Text
+        g.textAlign = "center";
+        g.textBaseline = "middle";
+        g.font = "bold 13px 'Cinzel', serif, 'Georgia', serif";
+        // Drop shadow
+        g.fillStyle = "rgba(0, 0, 0, 0.95)";
+        g.fillText(chamberNameBanner, cx + 1, cy + 1);
+        // Silver/Moonlight typography
+        g.fillStyle = "#e6e0f8";
+        g.fillText(chamberNameBanner, cx, cy);
+        g.restore();
+      }
+    }
 
     // =========================================================================
     // CINEMATIC WIDESCREEN LETTERBOX BARS (Castlevania SOTN Boss Presentation)

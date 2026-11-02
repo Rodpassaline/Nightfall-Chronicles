@@ -66,7 +66,15 @@ export type PropKind =
   | "shield"
   | "banner"
   | "stainedGlass"
-  | "chains";
+  | "chains"
+  // Castlevania: Symphony of the Night SOTN Expansion Props:
+  | "chamberArch"
+  | "gothicStairsUp"
+  | "gothicStairsDown"
+  | "stonePlatform"
+  | "stainedGlassWindow"
+  | "gargoyleStatue"
+  | "chandelier";
 
 export type Prop = {
   kind: PropKind;
@@ -84,6 +92,24 @@ export type ItemSpawn = {
   y: number;
 };
 
+export type TerrainSegmentType = "flat" | "stairs_up" | "upper_hall" | "stairs_down" | "crypt";
+
+export type TerrainSegment = {
+  type: TerrainSegmentType;
+  xStart: number;
+  xEnd: number;
+  yStart: number;
+  yEnd: number;
+};
+
+export type ChamberDef = {
+  id: number;
+  name: string;
+  xStart: number;
+  xEnd: number;
+  theme?: string;
+};
+
 export type LevelDef = {
   id: number;
   title: string;
@@ -99,11 +125,26 @@ export type LevelDef = {
   items: ItemSpawn[];
   door: { x: number; y: number };
   theme: "gates" | "gallery" | "chapel" | "catacombs" | "library" | "alchemy" | "throne";
+  chambers?: ChamberDef[];
+  terrainSegments?: TerrainSegment[];
 };
 
 export const GROUND_Y = 200;
 const G = GROUND_Y;
 const DEEP = 320;
+
+export function getGroundYForLevel(level: LevelDef, x: number): number {
+  if (!level.terrainSegments || level.terrainSegments.length === 0) return GROUND_Y;
+  for (const seg of level.terrainSegments) {
+    if (x >= seg.xStart && x <= seg.xEnd) {
+      if (seg.yStart === seg.yEnd) return seg.yStart;
+      const t = Math.max(0, Math.min(1, (x - seg.xStart) / (seg.xEnd - seg.xStart)));
+      return Math.round(seg.yStart + (seg.yEnd - seg.yStart) * t);
+    }
+  }
+  if (x < level.terrainSegments[0].xStart) return level.terrainSegments[0].yStart;
+  return level.terrainSegments[level.terrainSegments.length - 1].yEnd;
+}
 
 // Continuous solid floor without deadly inescapable pit traps
 function hallFloor(width: number): Solid[] {
@@ -1072,6 +1113,8 @@ function stage(
   theme: LevelDef["theme"],
   customBg?: string,
   customMusic?: string,
+  chambers?: ChamberDef[],
+  terrainSegments?: TerrainSegment[],
 ): LevelDef {
   return {
     id,
@@ -1088,15 +1131,376 @@ function stage(
     items,
     door,
     theme,
+    chambers,
+    terrainSegments,
   };
 }
 
+// =========================================================================
+// CASTLEVANIA: SYMPHONY OF THE NIGHT EXPANSION BUILDER
+// Builds 3-Chamber connected layouts (+75% width expansion) with stairs,
+// elevated halls, sunken crypts, arches, stained glass, chandeliers, and gargoyles.
+// =========================================================================
+export function buildSotnStage(
+  id: number,
+  title: string,
+  place: string,
+  theme: LevelDef["theme"],
+  chamberNames: [string, string, string, string],
+  baseSolids: Solid[],
+  baseProps: Prop[],
+  baseSpawns: Spawn[],
+  baseItems: ItemSpawn[],
+  bossSpawn: Spawn,
+  customBg?: string,
+  customMusic?: string,
+): LevelDef {
+  const width = id === 7 ? 9200 : 9600;
+
+  const chambers: ChamberDef[] = [
+    { id: 1, name: chamberNames[0], xStart: 0, xEnd: 2400, theme: "courtyard" },
+    { id: 2, name: chamberNames[1], xStart: 2400, xEnd: 5400, theme: "gallery" },
+    { id: 3, name: chamberNames[2], xStart: 5400, xEnd: 8400, theme: "crypt" },
+    { id: 4, name: chamberNames[3], xStart: 8400, xEnd: width, theme: "throne" },
+  ];
+
+  const terrainSegments: TerrainSegment[] = [
+    { type: "flat", xStart: 0, xEnd: 2400, yStart: 200, yEnd: 200 },
+    { type: "stairs_up", xStart: 2400, xEnd: 2750, yStart: 200, yEnd: 90 },
+    { type: "upper_hall", xStart: 2750, xEnd: 5400, yStart: 90, yEnd: 90 },
+    { type: "stairs_down", xStart: 5400, xEnd: 5800, yStart: 90, yEnd: 230 },
+    { type: "crypt", xStart: 5800, xEnd: 8400, yStart: 230, yEnd: 230 },
+    { type: "stairs_up", xStart: 8400, xEnd: 8700, yStart: 230, yEnd: 200 },
+    { type: "flat", xStart: 8700, xEnd: width, yStart: 200, yEnd: 200 },
+  ];
+
+  // Foundation Floor Solids
+  const solids: Solid[] = [
+    { x: 0, y: 200, w: 2400, h: DEEP },
+    { x: 2750, y: 90, w: 2650, h: DEEP + 110 },
+    { x: 5800, y: 230, w: 2600, h: DEEP },
+    { x: 8700, y: 200, w: width - 8700, h: DEEP },
+
+    // Chamber 1 aerial platforms
+    platform(380, 145, 180),
+    platform(660, 110, 180),
+    platform(940, 145, 160),
+    platform(1380, 145, 180),
+    platform(1660, 105, 180),
+    platform(1940, 145, 160),
+
+    // Chamber 2: Elevated Upper Hall aerial platforms (y = 90 floor)
+    platform(3000, 35, 180),
+    platform(3350, 45, 160),
+    platform(3750, 25, 200),
+    platform(4150, 45, 160),
+    platform(4550, 35, 180),
+    platform(4950, 45, 160),
+
+    // Chamber 3: Sunken Crypt aerial platforms (y = 230 floor)
+    platform(6050, 175, 180),
+    platform(6380, 140, 180),
+    platform(6720, 175, 180),
+    platform(7100, 135, 200),
+    platform(7480, 175, 180),
+    platform(7850, 140, 180),
+    platform(8180, 175, 160),
+
+    // Chamber 4: Boss Arena platforms
+    platform(id === 7 ? 8550 : 8950, 135, 180),
+    platform(id === 7 ? 8850 : 9250, 135, 180),
+  ];
+
+  // Architectural Props
+  const props: Prop[] = [
+    // Chamber 1 Props
+    ...baseProps.filter((p) => p.x < 2350),
+
+    // Portals & Staircases connecting the chambers
+    { kind: "chamberArch", x: 2360, y: 200, layer: "main" },
+    { kind: "gothicStairsUp", x: 2400, y: 200, layer: "main" },
+
+    // Chamber 2 (Elevated Upper Gallery: stained glass & chandeliers)
+    { kind: "stainedGlassWindow", x: 3050, y: 80, layer: "bg" },
+    { kind: "chandelier", x: 3400, y: 20, layer: "bg" },
+    { kind: "stainedGlassWindow", x: 3800, y: 80, layer: "bg" },
+    { kind: "chandelier", x: 4200, y: 20, layer: "bg" },
+    { kind: "stainedGlassWindow", x: 4600, y: 80, layer: "bg" },
+    { kind: "chandelier", x: 5000, y: 20, layer: "bg" },
+    { kind: "column", x: 2900, y: 90, layer: "main" },
+    { kind: "column", x: 3600, y: 90, layer: "main" },
+    { kind: "column", x: 4400, y: 90, layer: "main" },
+    { kind: "column", x: 5200, y: 90, layer: "main" },
+
+    // Exit of Chamber 2 into stairs down
+    { kind: "chamberArch", x: 5360, y: 90, layer: "main" },
+    { kind: "gothicStairsDown", x: 5400, y: 90, layer: "main" },
+
+    // Chamber 3 (Sunken Crypt: gargoyle statues, coffins, sconces)
+    { kind: "gargoyleStatue", x: 6050, y: 230, layer: "main" },
+    { kind: "tomb", x: 6250, y: 230, layer: "main" },
+    { kind: "candelabra", x: 6450, y: 230, layer: "main" },
+    { kind: "gargoyleStatue", x: 6750, y: 230, layer: "main" },
+    { kind: "coffin", x: 6950, y: 230, layer: "main" },
+    { kind: "gargoyleStatue", x: 7450, y: 230, layer: "main" },
+    { kind: "tomb", x: 7750, y: 230, layer: "main" },
+    { kind: "candelabra", x: 7950, y: 230, layer: "main" },
+    { kind: "gargoyleStatue", x: 8150, y: 230, layer: "main" },
+
+    // Exit of Chamber 3 into Boss Arena
+    { kind: "chamberArch", x: 8360, y: 230, layer: "main" },
+    { kind: "gothicStairsUp", x: 8400, y: 230, layer: "main" },
+
+    // Chamber 4 (Boss Arena)
+    { kind: "column", x: 8850, y: 200, layer: "main" },
+    { kind: "gargoyleStatue", x: 9050, y: 200, layer: "main" },
+    { kind: "chandelier", x: 9150, y: 30, layer: "bg" },
+    { kind: "column", x: 9350, y: 200, layer: "main" },
+    { kind: "chamberArch", x: width - 120, y: 200, layer: "main" },
+  ];
+
+  // Enemies Spawning Across the 3 Chambers & Arena
+  const spawns: Spawn[] = [
+    // Chamber 1 Spawns
+    ...baseSpawns.filter((s) => !s.boss && s.x < 2350),
+
+    // Chamber 2 Spawns (Elevated y = 90)
+    { kind: "knight", x: 2950, y: 90, hp: 8 },
+    { kind: "bat", x: 3100, y: 25, hp: 2 },
+    { kind: "armoredSkeleton", x: 3300, y: 90, hp: 8 },
+    { kind: "skeleton", x: 3500, y: 45, hp: 5 },
+    { kind: "redSkeleton", x: 3750, y: 25, hp: 6 },
+    { kind: "vampire", x: 4050, y: 90, hp: 8 },
+    { kind: "bat", x: 4250, y: 20, hp: 2 },
+    { kind: "knight", x: 4450, y: 90, hp: 8 },
+    { kind: "armoredSkeleton", x: 4750, y: 90, hp: 8 },
+    { kind: "skeleton", x: 4950, y: 45, hp: 5 },
+    { kind: "knight", x: 5200, y: 90, hp: 9 },
+
+    // Chamber 3 Spawns (Sunken Crypt y = 230)
+    { kind: "zombie", x: 5950, y: 230, hp: 5 },
+    { kind: "gargoyle", x: 6150, y: 230, hp: 7 },
+    { kind: "bat", x: 6300, y: 150, hp: 2 },
+    { kind: "skeleton", x: 6480, y: 140, hp: 5 },
+    { kind: "redSkeleton", x: 6680, y: 230, hp: 6 },
+    { kind: "vampire", x: 6950, y: 230, hp: 8 },
+    { kind: "armoredSkeleton", x: 7250, y: 230, hp: 8 },
+    { kind: "zombie", x: 7450, y: 230, hp: 5 },
+    { kind: "gargoyle", x: 7700, y: 230, hp: 7 },
+    { kind: "skeleton", x: 7950, y: 140, hp: 5 },
+    { kind: "knight", x: 8250, y: 230, hp: 9 },
+
+    // Chamber 4: Boss!
+    {
+      ...bossSpawn,
+      x: id === 7 ? 8680 : 9200,
+      y: 200,
+    },
+  ];
+
+  // Items distributed across the expanded stages
+  const items: ItemSpawn[] = [
+    { id: id * 100 + 1, kind: "mana", x: 880, y: 80 },
+    { id: id * 100 + 2, kind: "life", x: 3750, y: 10 }, // Secret life high on Chamber 2 chandelier
+    { id: id * 100 + 3, kind: "heal", x: 6720, y: 145 }, // Heal elixir in Chamber 3 crypt
+    { id: id * 100 + 4, kind: "mana", x: 8180, y: 145 },
+  ];
+
+  return {
+    id,
+    title,
+    place,
+    bg: customBg || `/art/stage-${id}.jpg`,
+    mid: `/art/parallax/mid-${id}.jpg`,
+    music: customMusic || `/audio/stage-${id}.mp3`,
+    width,
+    solids,
+    pits: [],
+    props,
+    spawns,
+    items,
+    door: { x: width - 140, y: G - 64 },
+    theme,
+    chambers,
+    terrainSegments,
+  };
+}
+
+// =========================================================================
+// SYMMETRICAL GRAND BATTLE HALL FOR "LUAR CONTRA HORDAS"
+// Wide central courtyard, two short gothic stairs, lateral landings,
+// and chamber arches where horde waves emerge.
+// =========================================================================
+export const hordeArenaDef: LevelDef = {
+  id: 0,
+  title: "Luar Contra Hordas",
+  place: "Grande Salão de Batalha Simétrico",
+  bg: "/art/stage-1.jpg",
+  mid: "/art/parallax/mid-1.jpg",
+  width: 2600,
+  solids: [
+    // Left elevated landing floor
+    { x: 0, y: 110, w: 400, h: 320 },
+    platform(80, 65, 140),
+    // Center courtyard floor
+    { x: 700, y: 200, w: 1200, h: 320 },
+    platform(1050, 140, 150),
+    platform(1400, 140, 150),
+    // Right elevated landing floor
+    { x: 2200, y: 110, w: 400, h: 320 },
+    platform(2380, 65, 140),
+  ],
+  pits: [],
+  props: [
+    // Left elevated spawn arch & gargoyle
+    { kind: "chamberArch", x: 100, y: 110, layer: "main" },
+    { kind: "gargoyleStatue", x: 280, y: 110, layer: "main" },
+    { kind: "gothicStairsDown", x: 400, y: 110, layer: "main" },
+    // Center battle hall decorations
+    { kind: "chandelier", x: 1150, y: 30, layer: "bg" },
+    { kind: "chandelier", x: 1450, y: 30, layer: "bg" },
+    { kind: "column", x: 800, y: 200, layer: "main" },
+    { kind: "column", x: 1800, y: 200, layer: "main" },
+    // Right stairs & elevated spawn arch
+    { kind: "gothicStairsUp", x: 1900, y: 200, layer: "main" },
+    { kind: "gargoyleStatue", x: 2320, y: 110, layer: "main" },
+    { kind: "chamberArch", x: 2460, y: 110, layer: "main" },
+  ],
+  spawns: [],
+  items: [],
+  door: { x: 2500, y: 110 },
+  theme: "gates",
+  chambers: [
+    { id: 1, name: "Grande Salão de Batalha Simétrico", xStart: 0, xEnd: 2600 }
+  ],
+  terrainSegments: [
+    { type: "upper_hall", xStart: 0, xEnd: 400, yStart: 110, yEnd: 110 },
+    { type: "stairs_down", xStart: 400, xEnd: 700, yStart: 110, yEnd: 200 },
+    { type: "flat", xStart: 700, xEnd: 1900, yStart: 200, yEnd: 200 },
+    { type: "stairs_up", xStart: 1900, xEnd: 2200, yStart: 200, yEnd: 110 },
+    { type: "upper_hall", xStart: 2200, xEnd: 2600, yStart: 110, yEnd: 110 },
+  ]
+};
+
 export const levels: LevelDef[] = [
-  stage(1, "Os Portões", "Pátio dos Portões & Muralhas", 5400, level1_solids, level1_props, level1_spawns, level1_items, { x: 5260, y: G - 64 }, "gates"),
-  stage(2, "Galeria de Mármore", "Coliseu Imperial & Galeria de Mármore", 5600, level2_solids, level2_props, level2_spawns, level2_items, { x: 5460, y: G - 64 }, "gallery", "/art/parallax/colosseum-bg.jpg"),
-  stage(3, "Capela", "Claustro dos Vitrais & Altar Sagrado", 5500, level3_solids, level3_props, level3_spawns, level3_items, { x: 5360, y: G - 64 }, "chapel"),
-  stage(4, "Catacumbas", "Masmorras Subterrâneas & Criptas", 5800, level4_solids, level4_props, level4_spawns, level4_items, { x: 5640, y: G - 64 }, "catacombs"),
-  stage(5, "Biblioteca", "Torre dos Tomos & Arquivos Proibidos", 5600, level5_solids, level5_props, level5_spawns, level5_items, { x: 5460, y: G - 64 }, "library"),
-  stage(6, "Alquimia", "Câmara das Transmutações & Caldeirões", 5700, level6_solids, level6_props, level6_spawns, level6_items, { x: 5560, y: G - 64 }, "alchemy"),
-  stage(7, "Sala do Trono", "O Santuário do Último Mestre", 5200, level7_solids, level7_props, level7_spawns, level7_items, { x: 5060, y: G - 64 }, "throne"),
+  buildSotnStage(
+    1,
+    "Os Portões",
+    "Pátio dos Portões & Muralhas",
+    "gates",
+    [
+      "I. Pátio dos Portões & Mausoléu",
+      "II. Galeria Elevada das Muralhas",
+      "III. Cripta Subterrânea das Catacumbas",
+      "IV. Baluarte Guardião de Petros",
+    ],
+    level1_solids,
+    level1_props,
+    level1_spawns,
+    level1_items,
+    { kind: "bossPetros", x: 9200, y: G, hp: 26, boss: true, name: "Petros, Guardião de Pedra" }
+  ),
+  buildSotnStage(
+    2,
+    "Galeria de Mármore",
+    "Coliseu Imperial & Galeria de Mármore",
+    "gallery",
+    [
+      "I. Peristilo Imperial & Atrium",
+      "II. Balcão Superior dos Centuriões",
+      "III. Fosso Rebaixado dos Gladiadores",
+      "IV. Coliseu de Honra de Valerius",
+    ],
+    level2_solids,
+    level2_props,
+    level2_spawns,
+    level2_items,
+    { kind: "bossValerius", x: 9200, y: G, hp: 32, boss: true, name: "Valerius, Cavaleiro Imortal" },
+    "/art/parallax/colosseum-bg.jpg"
+  ),
+  buildSotnStage(
+    3,
+    "Capela",
+    "Claustro dos Vitrais & Altar Sagrado",
+    "chapel",
+    [
+      "I. Nártex Sombrio dos Penitentes",
+      "II. Claustro Elevado dos Vitrais",
+      "III. Cripta dos Mártires Caídos",
+      "IV. Altar Desconsagrado de Seraphine",
+    ],
+    level3_solids,
+    level3_props,
+    level3_spawns,
+    level3_items,
+    { kind: "bossSeraphine", x: 9200, y: G, hp: 34, boss: true, name: "Seraphine, Sacerdotisa de Sangue" }
+  ),
+  buildSotnStage(
+    4,
+    "Catacumbas",
+    "Masmorras Subterrâneas & Criptas",
+    "catacombs",
+    [
+      "I. Corredor das Ossadas Antigas",
+      "II. Galeria Superior dos Abismos",
+      "III. Cripta Fúnebre das Trevas",
+      "IV. Covil Soberano de Nocturne",
+    ],
+    level4_solids,
+    level4_props,
+    level4_spawns,
+    level4_items,
+    { kind: "bossNocturne", x: 9200, y: G, hp: 38, boss: true, name: "Nocturne, O Morcego-Rei" }
+  ),
+  buildSotnStage(
+    5,
+    "Biblioteca",
+    "Torre dos Tomos & Arquivos Proibidos",
+    "library",
+    [
+      "I. Arquivo Proibido dos Manuscritos",
+      "II. Mezanino Elevado dos Tomos",
+      "III. Galeria Secreta dos Grimórios",
+      "IV. Observatório Oculto de Lorde Veyne",
+    ],
+    level5_solids,
+    level5_props,
+    level5_spawns,
+    level5_items,
+    { kind: "bossVeyne", x: 9200, y: G, hp: 42, boss: true, name: "Lorde Veyne, O Arquivista" }
+  ),
+  buildSotnStage(
+    6,
+    "Alquimia",
+    "Câmara das Transmutações & Caldeirões",
+    "alchemy",
+    [
+      "I. Câmara das Transmutações",
+      "II. Destilaria Elevada dos Elixires",
+      "III. Fosso Tóxico dos Caldeirões",
+      "IV. Fornalha Eterna de Calx",
+    ],
+    level6_solids,
+    level6_props,
+    level6_spawns,
+    level6_items,
+    { kind: "bossCalx", x: 9200, y: G, hp: 46, boss: true, name: "Calx, Aberração de Vidro" }
+  ),
+  buildSotnStage(
+    7,
+    "Sala do Trono",
+    "O Santuário do Último Mestre",
+    "throne",
+    [
+      "I. Grande Galeria dos Retratos",
+      "II. Salão Imperial dos Banquetes",
+      "III. Antecâmara da Guarda Carmesim",
+      "IV. Santuário do Trono de Drácula",
+    ],
+    level7_solids,
+    level7_props,
+    level7_spawns,
+    level7_items,
+    { kind: "bossDracula", x: 8680, y: G, hp: 55, boss: true, name: "Conde Drácula, Senhor das Trevas" }
+  ),
 ];
