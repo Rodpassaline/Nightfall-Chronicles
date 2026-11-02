@@ -204,6 +204,7 @@ type Enemy = Body & {
   wind: number;
   state: string;
   hurt: number;
+  hurtFlash?: number;
   dead: boolean;
   lastSwing: number;
   dying?: boolean;
@@ -670,6 +671,31 @@ export function mountCampaign(
     hitEnemies: Set<number>;
   };
   const specialSlashes: SpecialSlash[] = [];
+  type DamageNumber = {
+    id: number;
+    text: string;
+    x: number;
+    y: number;
+    vy: number;
+    life: number;
+    maxLife: number;
+    isCrit: boolean;
+    color: string;
+  };
+  const damageNumbers: DamageNumber[] = [];
+
+  type Afterimage = {
+    sheet: ArtKey;
+    frame: number;
+    x: number;
+    feet: number;
+    facing: 1 | -1;
+    life: number;
+    maxLife: number;
+    cols: number;
+  };
+  const afterimages: Afterimage[] = [];
+  let dashAfterimageTimer = 0;
   let enemies: Enemy[] = [];
   let items: ActiveItem[] = [];
   let clearedOnce = false;
@@ -1254,6 +1280,7 @@ export function mountCampaign(
           ? "perch"
           : "idle",
       hurt: 0,
+      hurtFlash: 0,
       dead: false,
       dying: false,
       deathT: 0,
@@ -1459,6 +1486,9 @@ export function mountCampaign(
     sound.stopBossVoice();
     shots.length = 0;
     specialSlashes.length = 0;
+    damageNumbers.length = 0;
+    afterimages.length = 0;
+    dashAfterimageTimer = 0;
 
     if (gameMode === "horde") {
       player.x = Math.round(T.viewW / 2 - player.w / 2);
@@ -1739,6 +1769,28 @@ export function mountCampaign(
     const knockDir = (e.x + e.w / 2) >= (player.x + player.w / 2) ? 1 : -1;
     e.lastSwing = player.swingId;
     e.hp -= effectiveDmg;
+    e.hurtFlash = 0.08;
+
+    const isCharged = dmg >= T.chargeDamage;
+    const isSpecial = player.specialT > 0;
+    const isCrit = isCharged || isSpecial;
+
+    if (isCrit) {
+      hitstop = Math.max(hitstop, 0.055);
+      shake = Math.max(shake, 4);
+    }
+
+    damageNumbers.push({
+      id: nextId++,
+      text: isCrit ? `-${effectiveDmg}!` : `-${effectiveDmg}`,
+      x: e.x + e.w / 2 + (Math.random() - 0.5) * 8,
+      y: e.y + 2,
+      vy: -35,
+      life: 0.6,
+      maxLife: 0.6,
+      isCrit,
+      color: isCrit ? "#fde047" : "#ef4444",
+    });
 
     if (isFatal) {
       if (gameMode === "horde") {
@@ -2318,6 +2370,22 @@ export function mountCampaign(
       player.dashT -= dt;
       player.vx = player.dashDir * T.dashSpeed;
       player.vy = 0;
+      dashAfterimageTimer -= dt;
+      if (dashAfterimageTimer <= 0) {
+        dashAfterimageTimer = 0.045; // 45ms
+        const frame = Math.min(2, Math.floor(((T.dashTime - player.dashT) / T.dashTime) * 3));
+        const heroFeet = player.y + player.h + (56 / 320) * DRAW_H.hero;
+        afterimages.push({
+          sheet: "heroDash",
+          frame,
+          x: player.x + player.w / 2,
+          feet: heroFeet,
+          facing: player.facing,
+          life: 0.20,
+          maxLife: 0.20,
+          cols: 3,
+        });
+      }
     } else {
       if (player.castT > 0) {
         if (player.grounded) {
@@ -2719,9 +2787,22 @@ export function mountCampaign(
           const specialDmg = e.boss ? Math.max(12, Math.round(e.max * 0.28)) : 9999;
           const isFatal = e.hp <= specialDmg;
           e.hp -= specialDmg;
-          shake = Math.max(shake, 9);
-          hitstop = Math.max(hitstop, 0.04);
+          e.hurtFlash = 0.08;
+          shake = Math.max(shake, 5);
+          hitstop = Math.max(hitstop, 0.055);
           sound.playSfx(e.boss ? "bossHurt" : "slice");
+
+          damageNumbers.push({
+            id: nextId++,
+            text: e.boss ? `-${specialDmg}!` : `CRÍTICO!`,
+            x: e.x + e.w / 2,
+            y: e.y + 2,
+            vy: -40,
+            life: 0.6,
+            maxLife: 0.6,
+            isCrit: true,
+            color: "#fde047",
+          });
 
           if (isFatal) {
             e.hp = 0;
@@ -2872,6 +2953,25 @@ export function mountCampaign(
       enemies = enemies.filter((e) => !e.dead || e.boss);
     }
 
+    // Update dash afterimages ("Rastro Fantasma")
+    for (let i = afterimages.length - 1; i >= 0; i--) {
+      afterimages[i].life -= dt;
+      if (afterimages[i].life <= 0) {
+        afterimages.splice(i, 1);
+      }
+    }
+
+    // Update floating damage numbers
+    for (let i = damageNumbers.length - 1; i >= 0; i--) {
+      const dn = damageNumbers[i];
+      dn.life -= dt;
+      dn.y += dn.vy * dt;
+      dn.vy *= Math.max(0, 1 - 2.5 * dt);
+      if (dn.life <= 0) {
+        damageNumbers.splice(i, 1);
+      }
+    }
+
     for (const p of particles) {
       p.x += p.vx * dt;
       p.y += p.vy * dt;
@@ -2897,11 +2997,44 @@ export function mountCampaign(
     shake = Math.max(0, shake - dt * 14);
   }
 
+  function getSimultaneousAttackersCount(): number {
+    let count = 0;
+    for (const other of enemies) {
+      if (other.dead || other.dying || other.boss) continue;
+      if (other.wind > 0 || other.state === "slash" || other.state === "charge" || other.state === "dive") {
+        count++;
+      }
+    }
+    return count;
+  }
+
+  function canEnemyAttack(e: Enemy): boolean {
+    if (e.boss) return true;
+    const maxAttackers = difficulty === "easy" ? 1 : difficulty === "hard" ? 3 : 2;
+    return getSimultaneousAttackersCount() < maxAttackers;
+  }
+
   function updateEnemy(e: Enemy, dt: number) {
     e.t += dt;
     e.hurt = Math.max(0, e.hurt - dt);
+    e.hurtFlash = Math.max(0, (e.hurtFlash ?? 0) - dt);
     e.cd = Math.max(0, e.cd - dt / diffProfile.enemyCooldownMult);
     if (e.dead) return;
+
+    // Anti-stacking horizontal separation between nearby living ground enemies (25px - 35px)
+    if (!e.boss && e.kind !== "bat" && !e.dead && !e.dying && e.hurt <= 0) {
+      for (const other of enemies) {
+        if (other === e || other.dead || other.dying || other.boss || other.kind === "bat") continue;
+        const edx = (e.x + e.w / 2) - (other.x + other.w / 2);
+        const distBetween = Math.abs(edx);
+        const minSep = 30;
+        if (distBetween < minSep) {
+          const pushDir = edx === 0 ? (e.id > other.id ? 1 : -1) : Math.sign(edx);
+          const sepForce = (minSep - distBetween) * 45;
+          e.vx += pushDir * sepForce * dt;
+        }
+      }
+    }
 
     if (e.state === "emerge") {
       e.emergeT = (e.emergeT ?? 0) + dt;
@@ -3830,14 +3963,18 @@ export function mountCampaign(
       // -----------------------------------------------------------------------
       if (e.kind === "armoredSkeleton") {
         if (dist <= 54 && e.cd <= 0) {
-          e.wind = 0.15;
-          e.cd = 0.52;
-          e.state = "slash";
+          if (!canEnemyAttack(e)) {
+            e.cd = 0.3 + Math.random() * 0.2;
+          } else {
+            e.wind = 0.35; // 350ms telegraphed windup
+            e.cd = 0.72;
+            e.state = "slash";
+          }
         }
 
         if (e.wind > 0) {
           e.wind -= dt;
-          e.vx = e.facing * 60; // Gladius lunge forward!
+          e.vx = e.facing * 40; // Gladius lunge forward!
           if (e.wind <= 0) {
             // Forward gladius lunge (reach 46px, 2 damage)
             const box = {
@@ -3860,122 +3997,102 @@ export function mountCampaign(
       // -----------------------------------------------------------------------
       else if (e.kind === "redSkeleton") {
         if (dist <= 56) {
-          // Close quarters: Cursed blood cleave lunge!
           if (e.cd <= 0) {
-            e.state = "slash";
-            e.wind = 0.14;
-            e.cd = 0.45;
+            if (!canEnemyAttack(e)) {
+              e.cd = 0.3 + Math.random() * 0.2;
+            } else {
+              e.state = "slash";
+              e.attackVariant = 0;
+              e.wind = 0.35; // 350ms telegraphed windup
+              e.cd = 0.65;
+            }
           }
         } else if (dist <= 400) {
-          // Cursed double bone volley: fires two cursed bones (high artillery arc + direct shot)
           if (e.cd <= 0) {
-            e.cd = 0.92;
-            e.state = "slash";
-            e.wind = 0.14;
-            // Bone 1: High artillery lob
-            fire({
-              x: e.x + (e.facing > 0 ? e.w : -12),
-              y: e.y + 10,
-              w: 14,
-              h: 14,
-              vx: e.facing * (120 + Math.random() * 20),
-              vy: -175,
-              gravity: 370,
-              life: 2.2,
-              dmg: 1,
-              friendly: false,
-              sprite: "spell",
-            });
-            // Bone 2: Direct blood bone dart
-            fire({
-              x: e.x + (e.facing > 0 ? e.w : -12),
-              y: e.y + 16,
-              w: 14,
-              h: 14,
-              vx: e.facing * (155 + Math.random() * 25),
-              vy: -75,
-              gravity: 200,
-              life: 2.0,
-              dmg: 1,
-              friendly: false,
-              sprite: "spell",
-            });
+            if (!canEnemyAttack(e)) {
+              e.cd = 0.3 + Math.random() * 0.2;
+            } else {
+              e.cd = 1.15;
+              e.state = "slash";
+              e.attackVariant = 1;
+              e.wind = 0.35; // 350ms telegraphed windup
+            }
           }
         }
 
         if (e.wind > 0) {
           e.wind -= dt;
-          e.vx = e.facing * 75; // Blood cleave lunge
+          e.vx = e.attackVariant === 0 ? e.facing * 45 : 0;
           if (e.wind <= 0) {
-            if (dist <= 58) {
+            if (e.attackVariant === 0 && dist <= 58) {
               const box = {
                 x: e.facing > 0 ? e.x + e.w - 4 : e.x - 46,
                 y: e.y + 8,
                 w: 48,
                 h: 36,
               };
-              if (overlap(box, player)) hurtPlayer(2, e.x, "slash"); // Cleave deals 2 DMG!
+              if (overlap(box, player)) hurtPlayer(2, e.x, "slash");
+            } else if (e.attackVariant === 1 && dist <= 400) {
+              fire({
+                x: e.x + (e.facing > 0 ? e.w : -12),
+                y: e.y + 10,
+                w: 14,
+                h: 14,
+                vx: e.facing * (120 + Math.random() * 20),
+                vy: -175,
+                gravity: 370,
+                life: 2.2,
+                dmg: 1,
+                friendly: false,
+                sprite: "spell",
+              });
+              fire({
+                x: e.x + (e.facing > 0 ? e.w : -12),
+                y: e.y + 16,
+                w: 14,
+                h: 14,
+                vx: e.facing * (155 + Math.random() * 25),
+                vy: -75,
+                gravity: 200,
+                life: 2.0,
+                dmg: 1,
+                friendly: false,
+                sprite: "spell",
+              });
             }
             e.state = "idle";
           }
         } else {
           e.state = "idle";
-          e.vx = e.facing * 68; // Relentless cursed sprint
+          e.vx = e.facing * 68;
         }
       }
       // -----------------------------------------------------------------------
       // C. SKELETON: Tactical Sniper Recoil & Alternating Artillery/Skimming Bone Volley
       // -----------------------------------------------------------------------
       else if (e.kind === "skeleton") {
-        // Tactical Evasive Hop: Hops backward if Aldric approaches within melee reach!
         if (dist < 88 && e.grounded && e.cd <= 0.25 && e.state !== "slash") {
           e.state = "retreat";
           e.vy = -130;
           e.vx = -e.facing * 95;
           e.cd = 0.55;
         } else if (dist <= 48 && e.cd <= 0) {
-          // Close quarters emergency bone dagger stab
-          e.state = "slash";
-          e.wind = 0.12;
-          e.cd = 0.48;
-        } else if (dist <= 390 && e.cd <= 0) {
-          // Alternating tactical bone volleys
-          e.attackVariant = ((e.attackVariant ?? 0) + 1) % 2;
-          e.state = "slash";
-          e.wind = 0.12;
-
-          if (e.attackVariant === 0) {
-            // Variant 0: High parabolic lobbed artillery bone
-            e.cd = 0.85;
-            fire({
-              x: e.x + (e.facing > 0 ? e.w : -12),
-              y: e.y + 10,
-              w: 14,
-              h: 14,
-              vx: e.facing * (100 + Math.random() * 25),
-              vy: -175,
-              gravity: 360,
-              life: 2.1,
-              dmg: 1,
-              friendly: false,
-              sprite: "spell",
-            });
+          if (!canEnemyAttack(e)) {
+            e.cd = 0.3 + Math.random() * 0.2;
           } else {
-            // Variant 1: Fast skimming horizontal bone spear
-            e.cd = 0.75;
-            fire({
-              x: e.x + (e.facing > 0 ? e.w : -12),
-              y: e.y + 14,
-              w: 14,
-              h: 14,
-              vx: e.facing * 175,
-              vy: -35,
-              gravity: 110,
-              life: 1.8,
-              dmg: 1,
-              friendly: false,
-              sprite: "spell",
-            });
+            e.state = "slash";
+            e.attackVariant = 2; // melee stab
+            e.wind = 0.35; // 350ms telegraphed windup
+            e.cd = 0.68;
+          }
+        } else if (dist <= 390 && e.cd <= 0) {
+          if (!canEnemyAttack(e)) {
+            e.cd = 0.3 + Math.random() * 0.2;
+          } else {
+            e.attackVariant = ((e.attackVariant ?? 0) + 1) % 2;
+            e.state = "slash";
+            e.wind = 0.35; // 350ms telegraphed windup
+            e.cd = e.attackVariant === 0 ? 0.95 : 0.85;
           }
         }
 
@@ -3986,9 +4103,9 @@ export function mountCampaign(
           }
         } else if (e.wind > 0) {
           e.wind -= dt;
-          e.vx = e.facing * 40;
+          e.vx = e.attackVariant === 2 ? e.facing * 35 : 0;
           if (e.wind <= 0) {
-            if (dist <= 52) {
+            if (e.attackVariant === 2 && dist <= 52) {
               const box = {
                 x: e.facing > 0 ? e.x + e.w - 4 : e.x - 40,
                 y: e.y + 10,
@@ -3996,35 +4113,70 @@ export function mountCampaign(
                 h: 34,
               };
               if (overlap(box, player)) hurtPlayer(1, e.x, "slash");
+            } else if (dist <= 390) {
+              if (e.attackVariant === 0) {
+                fire({
+                  x: e.x + (e.facing > 0 ? e.w : -12),
+                  y: e.y + 10,
+                  w: 14,
+                  h: 14,
+                  vx: e.facing * (100 + Math.random() * 25),
+                  vy: -175,
+                  gravity: 360,
+                  life: 2.1,
+                  dmg: 1,
+                  friendly: false,
+                  sprite: "spell",
+                });
+              } else if (e.attackVariant === 1) {
+                fire({
+                  x: e.x + (e.facing > 0 ? e.w : -12),
+                  y: e.y + 14,
+                  w: 14,
+                  h: 14,
+                  vx: e.facing * 175,
+                  vy: -35,
+                  gravity: 110,
+                  life: 1.8,
+                  dmg: 1,
+                  friendly: false,
+                  sprite: "spell",
+                });
+              }
             }
             e.state = "idle";
           }
         } else {
           e.state = "idle";
-          e.vx = e.facing * 52; // Pursues Aldric
+          e.vx = e.facing * 52;
         }
       }
       // -----------------------------------------------------------------------
       // D. KNIGHT: Tower Shield Deflection, Heavy Halberd Cleave & Armored Halberd Charge
       // -----------------------------------------------------------------------
       else if (e.kind === "knight") {
-        // Armored Charge: Initiates a thunderous forward rush when at medium range!
         if (dist > 80 && dist < 260 && e.cd <= 0 && e.grounded && e.state !== "charge") {
-          e.state = "charge";
-          e.wind = 0.75; // Charge duration
-          e.cd = 1.75;
-          sound.playEnemyAlert("knight"); // Authentic heavy plate armor clank!
+          if (!canEnemyAttack(e)) {
+            e.cd = 0.3 + Math.random() * 0.2;
+          } else {
+            e.state = "charge";
+            e.wind = 0.75; // Charge duration
+            e.cd = 1.85;
+            sound.playEnemyAlert("knight");
+          }
         } else if (dist <= 62 && e.cd <= 0 && e.state !== "charge") {
-          // Close-quarters heavy halberd cleave
-          e.wind = 0.20;
-          e.cd = 0.60;
-          e.state = "slash";
+          if (!canEnemyAttack(e)) {
+            e.cd = 0.3 + Math.random() * 0.2;
+          } else {
+            e.wind = 0.35; // 350ms telegraphed windup
+            e.cd = 0.75;
+            e.state = "slash";
+          }
         }
 
         if (e.state === "charge") {
           e.wind -= dt;
-          e.vx = e.facing * 155; // Thunderous charge forward!
-          // Check collision with player during charge
+          e.vx = e.facing * 155;
           const chargeBox = {
             x: e.facing > 0 ? e.x + e.w - 6 : e.x - 36,
             y: e.y + 6,
@@ -4039,9 +4191,8 @@ export function mountCampaign(
           }
         } else if (e.wind > 0) {
           e.wind -= dt;
-          e.vx = e.facing * 65; // Halberd thrust rush
+          e.vx = e.facing * 45;
           if (e.wind <= 0) {
-            // Extended halberd thrust (reach 54px, 2 damage)
             const box = {
               x: e.facing > 0 ? e.x + e.w - 4 : e.x - 54,
               y: e.y + 8,
@@ -4052,7 +4203,6 @@ export function mountCampaign(
             e.state = "shield";
           }
         } else {
-          // Armored march with tower shield raised
           e.state = "shield";
           const minStop = (e.w + player.w) / 2 + 8;
           e.vx = dist > minStop ? e.facing * 50 : 0;
@@ -4062,22 +4212,29 @@ export function mountCampaign(
       // E. ZOMBIE: GnG Hungry Ghoul Sprint & Sudden Leaping Claw Strike
       // -----------------------------------------------------------------------
       else if (e.kind === "zombie") {
-        // Sudden feral leap when approaching Aldric
         if (dist >= 65 && dist <= 140 && e.cd <= 0 && e.grounded && e.state !== "leap") {
-          e.state = "leap";
-          e.vy = -140;
-          e.vx = e.facing * 135;
-          e.cd = 1.15;
-          sound.playEnemyAlert("zombie");
+          if (!canEnemyAttack(e)) {
+            e.cd = 0.3 + Math.random() * 0.2;
+          } else {
+            e.state = "leap";
+            e.vy = -140;
+            e.vx = e.facing * 135;
+            e.wind = 0.35;
+            e.cd = 1.25;
+            sound.playEnemyAlert("zombie");
+          }
         } else if (dist <= 48 && e.cd <= 0 && e.state !== "leap") {
-          e.wind = 0.12;
-          e.cd = 0.44;
-          e.state = "slash";
+          if (!canEnemyAttack(e)) {
+            e.cd = 0.3 + Math.random() * 0.2;
+          } else {
+            e.wind = 0.35; // 350ms telegraphed windup
+            e.cd = 0.65;
+            e.state = "slash";
+          }
         }
 
         if (e.state === "leap") {
           e.vx = e.facing * 130;
-          // Claw attack while airborne
           const clawBox = {
             x: e.facing > 0 ? e.x + e.w - 4 : e.x - 34,
             y: e.y + 8,
@@ -4093,7 +4250,7 @@ export function mountCampaign(
         } else if (e.wind > 0) {
           e.wind -= dt;
           const minStop = (e.w + player.w) / 2 + 2;
-          e.vx = dist > minStop ? e.facing * 55 : 0;
+          e.vx = dist > minStop ? e.facing * 45 : 0;
           if (e.wind <= 0) {
             const box = {
               x: e.facing > 0 ? e.x + e.w - 4 : e.x - 38,
@@ -4107,7 +4264,6 @@ export function mountCampaign(
         } else {
           e.state = "idle";
           const minStop = (e.w + player.w) / 2 + 4;
-          // GnG fast sprint when Aldric is near, slow shamble when far
           const sprintSpeed = dist < 220 ? 95 : 48;
           e.vx = dist > minStop ? e.facing * sprintSpeed : 0;
         }
@@ -4117,39 +4273,52 @@ export function mountCampaign(
       // -----------------------------------------------------------------------
       else if (e.kind === "vampire") {
         if (dist <= 56 && e.cd <= 0) {
-          e.wind = 0.12;
-          e.cd = 0.45;
-          e.state = "slash";
-          sound.playEnemyAlert("vampire");
+          if (!canEnemyAttack(e)) {
+            e.cd = 0.3 + Math.random() * 0.2;
+          } else {
+            e.wind = 0.35; // 350ms telegraphed windup
+            e.cd = 0.65;
+            e.state = "slash";
+            sound.playEnemyAlert("vampire");
+          }
         } else if (dist > 70 && dist <= 390 && e.cd <= 0) {
-          e.cd = 0.90;
-          fire({
-            x: e.x,
-            y: e.y + e.h - 60,
-            w: 16,
-            h: 28,
-            vx: e.facing * 155,
-            vy: 4,
-            life: 1.6,
-            dmg: 1,
-            friendly: false,
-            sprite: "blood",
-            drawCenterY: e.y + e.h - 54,
-          });
+          if (!canEnemyAttack(e)) {
+            e.cd = 0.3 + Math.random() * 0.2;
+          } else {
+            e.state = "slash";
+            e.wind = 0.35; // 350ms telegraphed windup
+            e.cd = 1.10;
+          }
         }
 
         if (e.wind > 0) {
           e.wind -= dt;
           const minStop = (e.w + player.w) / 2 + 3;
-          e.vx = dist > minStop ? e.facing * 120 : 0;
+          e.vx = dist <= 56 && dist > minStop ? e.facing * 75 : 0;
           if (e.wind <= 0) {
-            const box = {
-              x: e.facing > 0 ? e.x + e.w - 4 : e.x - 46,
-              y: e.y + 8,
-              w: 48,
-              h: 36,
-            };
-            if (overlap(box, player)) hurtPlayer(2, e.x, "slash");
+            if (dist <= 58) {
+              const box = {
+                x: e.facing > 0 ? e.x + e.w - 4 : e.x - 46,
+                y: e.y + 8,
+                w: 48,
+                h: 36,
+              };
+              if (overlap(box, player)) hurtPlayer(2, e.x, "slash");
+            } else if (dist > 70 && dist <= 390) {
+              fire({
+                x: e.x,
+                y: e.y + e.h - 60,
+                w: 16,
+                h: 28,
+                vx: e.facing * 155,
+                vy: 4,
+                life: 1.6,
+                dmg: 1,
+                friendly: false,
+                sprite: "blood",
+                drawCenterY: e.y + e.h - 54,
+              });
+            }
             e.state = "idle";
           }
         } else {
@@ -4171,9 +4340,13 @@ export function mountCampaign(
           e.cd = 0.3;
           sound.playSfx("jump");
         } else if (dist <= 52 && e.cd <= 0 && e.state === "idle") {
-          e.wind = 0.16;
-          e.cd = 0.52;
-          e.state = "slash";
+          if (!canEnemyAttack(e)) {
+            e.cd = 0.3 + Math.random() * 0.2;
+          } else {
+            e.wind = 0.35; // 350ms telegraphed windup
+            e.cd = 0.70;
+            e.state = "slash";
+          }
         }
 
         if (e.state === "leap") {
@@ -5203,6 +5376,9 @@ export function mountCampaign(
         const floorY = (e.emergeY ?? (e.y - e.h)) + e.h;
         const groundScreenY = Math.round(floorY - camY);
         g.save();
+        if ((e.hurtFlash ?? 0) > 0) {
+          g.filter = "brightness(2.5) contrast(1.2)";
+        }
         g.beginPath();
         g.rect(Math.round(e.x - camX - 40), 0, e.w + 80, groundScreenY);
         g.clip();
@@ -5217,8 +5393,46 @@ export function mountCampaign(
         g.fillStyle = "#71717a";
         g.fillRect(sx - 10, sy - 3, 20, 2);
       } else {
-        blit(art[spriteKey], frame, e.x + e.w / 2, feet, tall, e.facing);
+        if ((e.hurtFlash ?? 0) > 0) {
+          g.save();
+          g.filter = "brightness(2.5) contrast(1.2)";
+          blit(art[spriteKey], frame, e.x + e.w / 2, feet, tall, e.facing);
+          g.restore();
+        } else {
+          blit(art[spriteKey], frame, e.x + e.w / 2, feet, tall, e.facing);
+        }
       }
+
+      // Attack telegraph warning indicator (! above head with crimson pulse aura)
+      if (e.wind > 0 && !e.dead && !e.dying) {
+        const ex = Math.round(e.x + e.w / 2 - camX);
+        const ey = Math.round(e.y - camY - 14);
+        g.save();
+        const pulse = 0.65 + Math.sin(time * 24) * 0.35;
+        g.fillStyle = `rgba(225, 29, 72, ${pulse * 0.55})`;
+        g.beginPath();
+        g.arc(ex, ey, 9, 0, Math.PI * 2);
+        g.fill();
+        g.font = "bold 13px 'Cinzel', serif, monospace";
+        g.textAlign = "center";
+        g.textBaseline = "middle";
+        g.shadowColor = "#ff1744";
+        g.shadowBlur = 8;
+        g.fillStyle = "#ffffff";
+        g.fillText("!", ex, ey);
+        g.restore();
+      }
+    }
+
+    // Render Dash Afterimages ("Rastro Fantasma / Afterimages")
+    for (const ai of afterimages) {
+      const alpha = Math.max(0, ai.life / ai.maxLife) * 0.45;
+      if (alpha <= 0.02) continue;
+      g.save();
+      g.globalAlpha = alpha;
+      g.filter = "hue-rotate(220deg) brightness(1.25)";
+      blit(art[ai.sheet], ai.frame, ai.x, ai.feet, DRAW_H.hero, ai.facing, ai.cols);
+      g.restore();
     }
 
     const isInvulnerable = player.iframes > 0;
@@ -5379,6 +5593,31 @@ export function mountCampaign(
       g.shadowColor = p.color;
       g.shadowBlur = 4;
       g.fillRect(px, py, p.size, p.size);
+      g.restore();
+    }
+
+    // 4.5. Floating Damage Numbers ("Dano Flutuante")
+    for (const dn of damageNumbers) {
+      const alpha = Math.min(1, dn.life / (dn.maxLife * 0.35));
+      if (alpha <= 0.02) continue;
+      const sx = Math.round(dn.x - camX);
+      const sy = Math.round(dn.y - camY);
+      g.save();
+      g.globalAlpha = alpha;
+      if (dn.isCrit) {
+        g.font = "bold 13px 'Cinzel', serif, monospace";
+        g.fillStyle = dn.color;
+        g.shadowColor = "#ff0044";
+        g.shadowBlur = 10;
+      } else {
+        g.font = "bold 10px monospace";
+        g.fillStyle = dn.color;
+        g.shadowColor = "rgba(0, 0, 0, 0.9)";
+        g.shadowBlur = 4;
+      }
+      g.textAlign = "center";
+      g.textBaseline = "middle";
+      g.fillText(dn.text, sx, sy);
       g.restore();
     }
 

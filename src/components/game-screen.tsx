@@ -883,6 +883,19 @@ export function GameScreen() {
       data-arena
       className="fixed inset-0 z-50 w-screen h-screen bg-black flex items-center justify-center overflow-hidden select-none"
     >
+      {/* Gothic Atmosphere & Low HP Blood Pulse Overlay */}
+      <div
+        className={`pointer-events-none fixed inset-0 z-10 transition-all duration-300 ${
+          hud.hp > 0 && hud.hp / hud.maxHp <= 0.3 ? "animate-pulse" : ""
+        }`}
+        style={{
+          background:
+            hud.hp > 0 && hud.hp / hud.maxHp <= 0.3
+              ? "radial-gradient(circle at center, transparent 55%, rgba(140, 10, 20, 0.45) 100%)"
+              : "radial-gradient(circle at center, transparent 60%, rgba(5, 2, 10, 0.75) 100%)",
+        }}
+      />
+
       {/* Pure Fullscreen Responsive Canvas */}
       <canvas
         ref={canvasRef}
