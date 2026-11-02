@@ -582,10 +582,9 @@ export function mountCampaign(
   const gameMode: GameMode = options?.gameMode ?? "campaign";
   const difficulty: Difficulty = options?.difficulty ?? "normal";
   const diffProfile = DIFFICULTY_PROFILES[difficulty] ?? DIFFICULTY_PROFILES.normal;
-  const hordeArenaWidth = 720;
 
-  const level = levels.find((item) => item.id === levelId) ?? levels[0];
-  const stageW = gameMode === "horde" ? hordeArenaWidth : level.width;
+  let level = levels.find((item) => item.id === (gameMode === "horde" ? 1 : levelId)) ?? levels[0];
+  let stageW = level.width;
   const ctx = canvas.getContext("2d");
   if (!ctx) throw new Error("Canvas 2D indisponível");
   const g: CanvasRenderingContext2D = ctx;
@@ -700,43 +699,39 @@ export function mountCampaign(
     hordeBestWave = 0;
   }
 
-  const hordeSolids = [
-    { x: 0, y: GROUND_Y, w: hordeArenaWidth, h: 80, oneWay: false },
-    { x: 120, y: GROUND_Y - 55, w: 100, h: 12, oneWay: true },
-    { x: 500, y: GROUND_Y - 55, w: 100, h: 12, oneWay: true },
-    { x: 310, y: GROUND_Y - 95, w: 100, h: 12, oneWay: true },
-  ];
-
   function getActiveSolids() {
-    return gameMode === "horde" ? hordeSolids : level.solids;
+    return level.solids;
   }
 
   function getActiveProps() {
-    if (gameMode === "horde") {
-      return [
-        { kind: "column" as PropKind, x: 80, y: GROUND_Y, layer: "main" as const },
-        { kind: "sconceBlue" as PropKind, x: 120, y: GROUND_Y - 80, layer: "main" as const },
-        { kind: "candelabra" as PropKind, x: 260, y: GROUND_Y, layer: "main" as const },
-        { kind: "statue" as PropKind, x: 360, y: GROUND_Y, layer: "bg" as const },
-        { kind: "candelabra" as PropKind, x: 460, y: GROUND_Y, layer: "main" as const },
-        { kind: "sconceBlue" as PropKind, x: 600, y: GROUND_Y - 80, layer: "main" as const },
-        { kind: "column" as PropKind, x: 640, y: GROUND_Y, layer: "main" as const },
-      ];
-    }
     return level.props;
   }
 
   async function switchHordeStageTheme(targetStage: number) {
     currentHordeStageId = targetStage;
-    bg = await preloadImage(`/art/stage-${targetStage}.jpg`);
+    const nextLevel = levels.find((item) => item.id === targetStage) ?? levels[0];
+    level = nextLevel;
+    stageW = level.width;
+
+    bg = await preloadImage(level.bg);
     plates.back = await preloadImage(`/art/stages/s${targetStage}/back.jpg`);
     plates.floor = await preloadImage(`/art/stages/s${targetStage}/floor.jpg`);
-    plates.fg = await preloadImage(`/art/stages/s${targetStage}/fg.png`);
-    if (targetStage === 1) {
-      plates.mid = await preloadImage(`/art/stages/s1/mid.png`);
+
+    const stageCfg = (stageLayersManifest as Record<string, { mid?: boolean; fg?: boolean }>)[String(targetStage)] || {};
+    if (stageCfg.mid) {
+      plates.mid = await preloadImage(`/art/stages/s${targetStage}/mid.png`);
     } else {
       delete plates.mid;
     }
+    if (stageCfg.fg) {
+      plates.fg = await preloadImage(`/art/stages/s${targetStage}/fg.png`);
+    } else {
+      delete plates.fg;
+    }
+
+    player.x = clamp(player.x, 60, stageW - 60);
+    player.y = findFloorFor(player.x, player.y + player.h) - player.h;
+
     sound.playStageBgm(targetStage);
   }
 
@@ -786,13 +781,24 @@ export function mountCampaign(
   }
 
   function spawnHordeEnemy(kind: Kind) {
+    const minX = 40;
+    const maxX = Math.max(minX + 80, stageW - 40);
+    const spawnLeft = clamp(camX + 80, minX, maxX);
+    const spawnRight = clamp(camX + T.viewW - 80, minX, maxX);
+
     const fromLeft = Math.random() < 0.5;
-    const sx = fromLeft ? 45 + Math.random() * 35 : hordeArenaWidth - 75 - Math.random() * 35;
-    let sy = GROUND_Y;
-    const isEmerging = kind === "zombie" || kind === "skeleton" || kind === "armoredSkeleton" || kind === "redSkeleton";
+    let sx = fromLeft ? spawnLeft : spawnRight;
+
+    if (Math.abs(player.x - sx) < 60) {
+      sx = sx === spawnLeft ? spawnRight : spawnLeft;
+    }
+
+    const playerFeet = player.y + player.h;
+    const groundFloor = findFloorFor(sx, playerFeet > 0 ? playerFeet : GROUND_Y);
+    let sy = groundFloor;
 
     if (kind === "bat") {
-      sy = GROUND_Y - 75 - Math.random() * 45;
+      sy = groundFloor - 60 - Math.random() * 30;
     }
 
     const baseHpMap: Record<string, number> = {
@@ -809,12 +815,31 @@ export function mountCampaign(
     const waveFactor = 1 + (hordeWave - 1) * 0.03;
     const finalHp = Math.max(1, Math.round(baseHp * waveFactor * diffProfile.enemyHpMult));
 
-    const e = makeEnemy({ kind, x: sx, y: sy, hp: finalHp }, isEmerging);
-    e.facing = sx < player.x ? 1 : -1;
+    const e = makeEnemy({ kind, x: sx, y: sy, hp: finalHp }, false);
+    e.facing = sx < (player.x + player.w / 2) ? 1 : -1;
+    e.state = "idle";
+    e.cd = 0;
+    e.alertSoundPlayed = true;
+
     if (kind === "bat") {
       e.vx = e.facing * 110;
+    } else if (kind === "armoredSkeleton") {
+      e.state = "shield";
+      e.vx = e.facing * 52;
+    } else if (kind === "redSkeleton") {
+      e.vx = e.facing * 68;
+    } else if (kind === "knight") {
+      e.vx = e.facing * 55;
+    } else if (kind === "zombie") {
+      e.vx = e.facing * 50;
+    } else if (kind === "vampire") {
+      e.vx = e.facing * 92;
+    } else if (kind === "gargoyle") {
+      e.vx = e.facing * 68;
+    } else {
+      e.vx = e.facing * 52;
     }
-    e.alertSoundPlayed = true;
+
     enemies.push(e);
     sound.playEnemyAlert(kind);
   }
@@ -834,7 +859,7 @@ export function mountCampaign(
       void switchHordeStageTheme(targetStage);
     }
 
-    player.toast = `Onda ${wave} — Sobreviva à Lua de Sangue!`;
+    player.toast = `Onda ${wave} — Sobreviva à Horda Noturna!`;
     player.toastT = 2.4;
   }
 
@@ -1436,13 +1461,15 @@ export function mountCampaign(
     specialSlashes.length = 0;
 
     if (gameMode === "horde") {
-      player.x = Math.round(hordeArenaWidth / 2 - player.w / 2);
-      player.toast = "Sobreviva à Lua de Sangue!";
+      player.x = Math.round(T.viewW / 2 - player.w / 2);
+      player.toast = "Sobreviva à Horda Noturna!";
       player.toastT = 3.0;
       enemies = [];
       items = [];
       initParticles();
       currentHordeStageId = 1;
+      level = levels.find((item) => item.id === 1) ?? levels[0];
+      stageW = level.width;
       void switchHordeStageTheme(1);
       startHordeWave(1);
     } else {
@@ -1477,18 +1504,6 @@ export function mountCampaign(
     body.wall = 0;
     body.grounded = false;
     body.x += body.vx * dt;
-
-    if (gameMode === "horde") {
-      if (body.x < 15) {
-        body.x = 15;
-        body.wall = -1;
-        body.vx = Math.max(0, body.vx);
-      } else if (body.x + body.w > hordeArenaWidth - 15) {
-        body.x = hordeArenaWidth - 15 - body.w;
-        body.wall = 1;
-        body.vx = Math.min(0, body.vx);
-      }
-    }
 
     // Collide with locked Gothic Seal Gates (blocks both player and enemies so foes behind a gate cannot phase through)
     for (const gate of sealGates) {
@@ -2387,7 +2402,7 @@ export function mountCampaign(
       player.jumps = 1;
     } else player.coyote = Math.max(0, player.coyote - dt);
     if (player.dashT > 0 && player.wall !== 0) player.dashT = 0;
-    player.x = clamp(player.x, gameMode === "horde" ? 15 : 0, stageW - player.w - (gameMode === "horde" ? 15 : 0));
+    player.x = clamp(player.x, 0, stageW - player.w);
     if (player.y > 420) {
       hurtPlayer(2, player.x);
       player.y = GROUND_Y - STAND_H;
@@ -2826,8 +2841,8 @@ export function mountCampaign(
             items.push({
               id: nextId++,
               kind: Math.random() < 0.65 ? "heal" : "mana",
-              x: hordeArenaWidth / 2 + (Math.random() - 0.5) * 140,
-              y: GROUND_Y - 24,
+              x: clamp(player.x + (Math.random() - 0.5) * 80, 40, stageW - 40),
+              y: player.y,
               w: 24,
               h: 24,
               collected: false,
@@ -3157,8 +3172,9 @@ export function mountCampaign(
     // PROXIMITY ACTIVATION & CROWD CONTROL (Anti-Swarm):
     // Regular enemies only wake up when visibly on-screen (~215px), never rushing
     // from off-screen or ganging up in huge packs!
+    // In Horde Mode, aggro is infinite (Infinity) - enemies continuously chase Aldric!
     // =========================================================================
-    const maxActiveDist = e.boss ? 620 : 215;
+    const maxActiveDist = gameMode === "horde" ? Infinity : (e.boss ? 620 : 215);
     if (dist > maxActiveDist) {
       e.vx = 0;
       if (e.kind !== "bat") {
@@ -3169,8 +3185,9 @@ export function mountCampaign(
     }
 
     // Territorial Leash & Simultaneous Attacker Cap for regular ground enemies:
-    // Prevents more than 2 ground enemies from dogpiling Aldric at the exact same time!
-    if (!e.boss && e.kind !== "bat" && e.hurt <= 0 && e.wind <= 0) {
+    // Only applied in Campaign mode so enemies guard their areas.
+    // In Horde mode, enemies are relentless and all attack Aldric!
+    if (gameMode !== "horde" && !e.boss && e.kind !== "bat" && e.hurt <= 0 && e.wind <= 0) {
       const distFromHome = e.x - e.homeX;
       if (Math.abs(distFromHome) > 250 && dist > 115) {
         e.facing = distFromHome > 0 ? -1 : 1;
@@ -3240,7 +3257,7 @@ export function mountCampaign(
         e.y += (cruiseY - e.y) * Math.min(1, dt * 6.0);
         e.vx = -e.facing * 75;
         e.x += e.vx * dt;
-      } else if (dist < 400) {
+      } else if (dist < (gameMode === "horde" ? Infinity : 400)) {
         if (dist > 160) {
           // Approach at cruising altitude with undulating sinusoidal wave trajectory
           const wave = Math.sin(e.t * 5.2) * 22;
@@ -4429,40 +4446,13 @@ export function mountCampaign(
     g.fillStyle = "#100814";
     g.fillRect(-4, -4, T.viewW + 8, T.viewH + 8);
     // 1. Deep Parallax Background Planes:
-    const isOutdoor = gameMode === "horde" || level.theme === "gates" || level.theme === "gallery";
+    const isOutdoor = level.theme === "gates" || level.theme === "gallery";
 
     if (isOutdoor) {
       // Distant nocturnal sky & moon (almost stationary)
       drawStrip(plates.sky, 0.03, 0, 1, -20, T.viewH + 40, 1, 0.02);
       // Distant castle spires / mountain silhouette
       drawStrip(plates.far, 0.08, 0, 1, -20, T.viewH + 40, 0.85, 0.05);
-
-      if (gameMode === "horde") {
-        // Blood Moon glowing in the nocturnal sky
-        const moonX = Math.round(380 - camX * 0.05);
-        const moonY = 46;
-        const rad = 26;
-        const grad = g.createRadialGradient(moonX, moonY, rad * 0.2, moonX, moonY, rad * 2.5);
-        grad.addColorStop(0, "rgba(239, 68, 68, 0.95)");
-        grad.addColorStop(0.35, "rgba(220, 38, 38, 0.75)");
-        grad.addColorStop(0.7, "rgba(185, 28, 28, 0.3)");
-        grad.addColorStop(1, "rgba(127, 29, 29, 0)");
-        g.fillStyle = grad;
-        g.beginPath();
-        g.arc(moonX, moonY, rad * 2.5, 0, Math.PI * 2);
-        g.fill();
-
-        g.fillStyle = "#ef4444";
-        g.beginPath();
-        g.arc(moonX, moonY, rad, 0, Math.PI * 2);
-        g.fill();
-
-        // Moon surface crater shadow
-        g.fillStyle = "rgba(127, 29, 29, 0.65)";
-        g.beginPath();
-        g.arc(moonX + 5, moonY - 3, rad * 0.45, 0, Math.PI * 2);
-        g.fill();
-      }
     } else {
       // Atmospheric dark gothic foundation for interior stages
       g.fillStyle = "#08050c";
@@ -5585,7 +5575,7 @@ export function mountCampaign(
     }
     draw();
     const bossObj = enemies.find((e) => e.boss && !e.dead);
-    const wantsBossIntro = !!bossObj && !bossIntroPlayed && (bossObj.x < camX + T.viewW + 24 || player.x > bossObj.homeX - 460 || bossObj.hp < bossObj.max);
+    const wantsBossIntro = gameMode === "campaign" && !!bossObj && !bossIntroPlayed && (bossObj.x < camX + T.viewW + 24 || player.x > bossObj.homeX - 460 || bossObj.hp < bossObj.max);
     if (wantsBossIntro && !bossCinematic.active && !player.dead && !player.won) {
       bossIntroPlayed = true;
       startBossCinematic(bossObj);
