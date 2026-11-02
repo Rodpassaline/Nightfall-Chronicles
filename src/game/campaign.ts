@@ -596,7 +596,10 @@ export function mountCampaign(
 
   let level = levels.find((item) => item.id === (gameMode === "horde" ? 1 : levelId)) ?? levels[0];
   let stageW = level.width;
-  const ctx = canvas.getContext("2d");
+  const ctx =
+    canvas.getContext("2d", { alpha: false, desynchronized: true }) ||
+    canvas.getContext("2d", { alpha: false }) ||
+    canvas.getContext("2d");
   if (!ctx) throw new Error("Canvas 2D indisponível");
   const g: CanvasRenderingContext2D = ctx;
   g.imageSmoothingEnabled = false;
@@ -4776,6 +4779,31 @@ export function mountCampaign(
     g.restore();
   }
 
+  const filteredPropCache = new Map<string, HTMLCanvasElement>();
+
+  function getFilteredProp(img: HTMLImageElement): HTMLCanvasElement | HTMLImageElement {
+    if (!img || !img.complete || img.naturalWidth <= 0) return img;
+    const key = img.src || img.currentSrc;
+    if (key && filteredPropCache.has(key)) {
+      return filteredPropCache.get(key)!;
+    }
+    try {
+      const off = document.createElement("canvas");
+      off.width = img.naturalWidth;
+      off.height = img.naturalHeight;
+      const offCtx = off.getContext("2d");
+      if (offCtx) {
+        offCtx.filter = "brightness(0.65) contrast(1.12) saturate(0.75)";
+        offCtx.drawImage(img, 0, 0);
+        if (key) filteredPropCache.set(key, off);
+        return off;
+      }
+    } catch {
+      // fallback
+    }
+    return img;
+  }
+
   function blitStill(
     img: HTMLImageElement | undefined,
     cx: number,
@@ -4785,16 +4813,20 @@ export function mountCampaign(
   ) {
     if (!img || !img.complete || img.naturalWidth <= 0) return;
     const sx = Math.round(cx - camX);
-    const sy = Math.round(feet - camY);
     const dw = height * (img.naturalWidth / img.naturalHeight);
+    // Viewport Frustum Culling
+    if (sx + dw / 2 < -32 || sx - dw / 2 > T.viewW + 32) return;
+    const sy = Math.round(feet - camY);
+    if (sy - height > T.viewH + 32 || sy < -32) return;
+
+    const source = getFilteredProp(img);
 
     g.save();
     g.translate(sx, sy);
     if (facing !== 1) {
       g.scale(facing, 1);
     }
-    g.filter = "brightness(0.65) contrast(1.12) saturate(0.75)";
-    g.drawImage(img, -dw / 2, -height, dw, height);
+    g.drawImage(source, -dw / 2, -height, dw, height);
     g.restore();
   }
 
@@ -5507,7 +5539,7 @@ export function mountCampaign(
         const groundScreenY = Math.round(floorY - camY);
         g.save();
         if ((e.hurtFlash ?? 0) > 0) {
-          g.filter = "brightness(2.5) contrast(1.2)";
+          g.globalCompositeOperation = "lighter";
         }
         g.beginPath();
         g.rect(Math.round(e.x - camX - 40), 0, e.w + 80, groundScreenY);
@@ -5537,7 +5569,7 @@ export function mountCampaign(
 
         if ((e.hurtFlash ?? 0) > 0) {
           g.save();
-          g.filter = "brightness(2.5) contrast(1.2)";
+          g.globalCompositeOperation = "lighter";
           blit(art[spriteKey], frame, e.x + e.w / 2, feet, tall, e.facing);
           g.restore();
         } else {
@@ -5558,8 +5590,9 @@ export function mountCampaign(
         g.font = "bold 13px 'Cinzel', serif, monospace";
         g.textAlign = "center";
         g.textBaseline = "middle";
-        g.shadowColor = "#ff1744";
-        g.shadowBlur = 8;
+        // Crisp drop-shadow without costly Gaussian blur
+        g.fillStyle = "rgba(0, 0, 0, 0.9)";
+        g.fillText("!", ex + 1, ey + 1);
         g.fillStyle = "#ffffff";
         g.fillText("!", ex, ey);
         g.restore();
@@ -5572,7 +5605,7 @@ export function mountCampaign(
       if (alpha <= 0.02) continue;
       g.save();
       g.globalAlpha = alpha;
-      g.filter = "hue-rotate(220deg) brightness(1.25)";
+      g.globalCompositeOperation = "screen";
       blit(art[ai.sheet], ai.frame, ai.x, ai.feet, DRAW_H.hero, ai.facing, ai.cols);
       g.restore();
     }
@@ -5760,20 +5793,23 @@ export function mountCampaign(
       const sy = Math.round(dn.y - camY);
       g.save();
       g.globalAlpha = alpha;
-      if (dn.isCrit) {
-        g.font = "bold 13px 'Cinzel', serif, monospace";
-        g.fillStyle = dn.color;
-        g.shadowColor = "#ff0044";
-        g.shadowBlur = 10;
-      } else {
-        g.font = "bold 10px monospace";
-        g.fillStyle = dn.color;
-        g.shadowColor = "rgba(0, 0, 0, 0.9)";
-        g.shadowBlur = 4;
-      }
       g.textAlign = "center";
       g.textBaseline = "middle";
-      g.fillText(dn.text, sx, sy);
+      if (dn.isCrit) {
+        g.font = "bold 13px 'Cinzel', serif, monospace";
+        g.fillStyle = "rgba(0, 0, 0, 0.95)";
+        g.fillText(dn.text, sx + 1, sy + 1);
+        g.fillStyle = "#ff0044";
+        g.fillText(dn.text, sx - 1, sy);
+        g.fillStyle = dn.color;
+        g.fillText(dn.text, sx, sy);
+      } else {
+        g.font = "bold 10px monospace";
+        g.fillStyle = "rgba(0, 0, 0, 0.9)";
+        g.fillText(dn.text, sx + 1, sy + 1);
+        g.fillStyle = dn.color;
+        g.fillText(dn.text, sx, sy);
+      }
       g.restore();
     }
 
@@ -5837,18 +5873,21 @@ export function mountCampaign(
         g.font = "bold 13px serif";
         g.textAlign = "center";
         g.textBaseline = "middle";
-        g.shadowColor = "#ff1744";
-        g.shadowBlur = 12;
+        g.fillStyle = "#000000";
+        g.fillText("⚔️ O SENHOR DO SALÃO DESPERTOU! ⚔️", T.viewW / 2 + 1, barH + 19);
         g.fillStyle = "#ffd700";
         g.fillText("⚔️ O SENHOR DO SALÃO DESPERTOU! ⚔️", T.viewW / 2, barH + 18);
         g.font = "bold 8px monospace";
+        g.fillStyle = "#000000";
+        g.fillText("PREPARE-SE PARA A BATALHA!", T.viewW / 2 + 1, barH + 33);
         g.fillStyle = "#ffffff";
-        g.shadowBlur = 6;
         g.fillText("PREPARE-SE PARA A BATALHA!", T.viewW / 2, barH + 32);
       }
       g.restore();
     }
   }
+
+  let lastHudKey = "";
 
   function publish() {
     const boss = enemies.find((e) => e.boss && !e.dead) || enemies.find((e) => e.boss);
@@ -5878,26 +5917,48 @@ export function mountCampaign(
     }
     const sealsSolved = sealCrystals.filter((c) => c.activated).length;
     const sealsTotal = sealCrystals.length;
+
+    // Mobile Performance: Quantize charge into 10% steps (0.0, 0.1, ... 1.0)
+    // to prevent continuous React render churn during hold-to-charge
+    const chargeVal = Math.round(Math.min(1, player.holdT / 0.55) * 10) / 10;
+    const hudHp = player.hp;
+    const hudMana = Math.round(player.mana);
+    const hudSpecial = Math.round(player.special);
+    const hudBossHp = boss ? Math.max(0, boss.hp) : 0;
+    const hudBossOn = bossOn && !bossCinematic.active && gameMode !== "horde";
+    const hudToast = player.toastT > 0 ? player.toast : "";
+    const hudHordeRem = gameMode === "horde" ? hordeQueue.length + enemies.filter((e) => !e.dead && !e.dying).length : 0;
+    const cinActive = bossCinematic.active;
+    const cinChar = cinActive ? bossCinematic.charCount : 0;
+    const cinPhase = cinActive ? bossCinematic.phase : "";
+
+    const currentKey = `${hudHp}_${hudMana}_${hudSpecial}_${player.lives}_${hudBossHp}_${hudBossOn}_${hudToast}_${player.won}_${player.dead}_${player.dashCd <= 0}_${chargeVal}_${sealsSolved}_${cinActive}_${cinChar}_${cinPhase}_${hordeWave}_${hudHordeRem}_${hordeKills}_${hordeUpgradeAvailable}`;
+
+    if (currentKey === lastHudKey) {
+      return;
+    }
+    lastHudKey = currentKey;
+
     onHud({
-      hp: player.hp,
+      hp: hudHp,
       maxHp: T.maxHp,
-      mana: Math.round(player.mana),
+      mana: hudMana,
       maxMana: T.maxMana,
-      special: Math.round(player.special),
-      specialReady: player.special >= 100,
+      special: hudSpecial,
+      specialReady: hudSpecial >= 100,
       lives: player.lives,
       bossName: boss?.name || "",
-      bossHp: boss ? Math.max(0, boss.hp) : 0,
+      bossHp: hudBossHp,
       bossMax: boss?.max || 1,
-      bossOn: bossOn && !bossCinematic.active && gameMode !== "horde",
+      bossOn: hudBossOn,
       bossPhase: boss?.phase ?? 1,
       bossTransforming: (boss?.transformT ?? 0) > 0,
-      toast: player.toastT > 0 ? player.toast : "",
+      toast: hudToast,
       won: player.won,
       dead: player.dead,
       title: gameMode === "horde" ? `Onda ${hordeWave}` : level.title,
       dashReady: player.dashCd <= 0,
-      charge: Math.min(1, player.holdT / 0.55),
+      charge: chargeVal,
       sealsSolved,
       sealsTotal,
       bossCinematic: bossCinematic.active ? {
@@ -5918,7 +5979,7 @@ export function mountCampaign(
       gameMode,
       difficulty,
       hordeWave,
-      hordeRemaining: gameMode === "horde" ? hordeQueue.length + enemies.filter((e) => !e.dead && !e.dying).length : 0,
+      hordeRemaining: hudHordeRem,
       hordeTotalInWave,
       hordeKills,
       hordeBestWave,
@@ -5936,7 +5997,10 @@ export function mountCampaign(
       raf = requestAnimationFrame(frame);
       return;
     }
-    acc += Math.min(0.05, (now - last) / 1000);
+    const delta = (now - last) / 1000;
+    last = now;
+    // Mobile Frame Pacing: Clamp accumulator to max 50ms (prevents spiral of death)
+    acc = Math.min(0.05, acc + Math.min(0.05, delta));
     last = now;
     const held = actions();
     const hasKeyAction = (act: Action) => {
@@ -6068,6 +6132,7 @@ export function mountCampaign(
   return {
     destroy() {
       alive = false;
+      filteredPropCache.clear();
       cancelAnimationFrame(raf);
       sound.stopBgm();
       sound.stopBossVoice();

@@ -74,6 +74,9 @@
   image-rendering: pixelated;
   image-rendering: crisp-edges;
   touch-action: pan-y;
+  transform: translateZ(0);
+  will-change: transform;
+  backface-visibility: hidden;
 }
 
 .pixel-canvas-fullscreen {
@@ -87,6 +90,9 @@
   image-rendering: pixelated;
   image-rendering: crisp-edges;
   touch-action: none;
+  transform: translateZ(0);
+  will-change: transform;
+  backface-visibility: hidden;
 }
 
 .swatch {

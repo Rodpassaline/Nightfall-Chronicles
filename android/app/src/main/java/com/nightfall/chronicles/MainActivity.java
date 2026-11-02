@@ -1,8 +1,10 @@
 package com.nightfall.chronicles;
 
 import android.os.Bundle;
+import android.view.View;
 import android.view.WindowManager;
 import android.webkit.WebSettings;
+import android.webkit.WebView;
 import androidx.core.view.WindowCompat;
 import androidx.core.view.WindowInsetsCompat;
 import androidx.core.view.WindowInsetsControllerCompat;
@@ -11,6 +13,12 @@ import com.getcapacitor.BridgeActivity;
 public class MainActivity extends BridgeActivity {
     @Override
     protected void onCreate(Bundle savedInstanceState) {
+        // Enable hardware accelerated window for 60fps rendering
+        getWindow().setFlags(
+            WindowManager.LayoutParams.FLAG_HARDWARE_ACCELERATED,
+            WindowManager.LayoutParams.FLAG_HARDWARE_ACCELERATED
+        );
+
         super.onCreate(savedInstanceState);
 
         // Keep screen on during gameplay
@@ -19,10 +27,23 @@ public class MainActivity extends BridgeActivity {
         // Enable immersive sticky fullscreen (hide status and navigation bars)
         hideSystemBars();
 
-        // Allow WebView audio/video playback without gesture restriction
+        // Configure WebView for low-latency 60fps gaming performance
         if (getBridge() != null && getBridge().getWebView() != null) {
-            WebSettings settings = getBridge().getWebView().getSettings();
+            WebView webView = getBridge().getWebView();
+            // Force hardware acceleration layer on the WebView surface
+            webView.setLayerType(View.LAYER_TYPE_HARDWARE, null);
+
+            WebSettings settings = webView.getSettings();
             settings.setMediaPlaybackRequiresUserGesture(false);
+            settings.setRenderPriority(WebSettings.RenderPriority.HIGH);
+            settings.setCacheMode(WebSettings.LOAD_DEFAULT);
+            settings.setDomStorageEnabled(true);
+            settings.setDatabaseEnabled(true);
+
+            // Disable unnecessary zoom controls and overhead
+            settings.setSupportZoom(false);
+            settings.setBuiltInZoomControls(false);
+            settings.setDisplayZoomControls(false);
         }
     }
 
