@@ -1114,33 +1114,77 @@ export function mountCampaign(
     alpha: number;
     maxAlpha: number;
     color: string;
+    rgb?: [number, number, number];
     depth: "mid" | "fg";
     pulse: number;
+    isMistCloud?: boolean;
   };
 
   const particles: AmbientParticle[] = [];
   function initParticles() {
     particles.length = 0;
-    const count = 48;
-    for (let i = 0; i < count; i++) {
+    const stageWidth = stageW || level.width || 4800;
+
+    // 1. Luminescent Magical Mist Orbs (Safira, Ametista, Carmesim, Esmeralda, Âmbar, Celeste)
+    const orbPalette: { color: string; rgb: [number, number, number] }[] = [
+      { color: "rgba(60, 135, 255, 0.52)", rgb: [60, 135, 255] },   // Safira / Azul Luar
+      { color: "rgba(168, 85, 247, 0.52)", rgb: [168, 85, 247] },   // Ametista / Violeta Místico
+      { color: "rgba(244, 63, 94, 0.50)", rgb: [244, 63, 94] },    // Carmesim / Brasa de Sangue
+      { color: "rgba(52, 211, 153, 0.50)", rgb: [52, 211, 153] },  // Esmeralda Espectral
+      { color: "rgba(251, 191, 36, 0.46)", rgb: [251, 191, 36] },  // Âmbar Dourado
+      { color: "rgba(96, 165, 250, 0.52)", rgb: [96, 165, 250] },   // Azul Celeste Pálido
+    ];
+
+    const orbCount = 52;
+    for (let i = 0; i < orbCount; i++) {
       const isFg = i % 3 === 0;
-      const isDust = i % 2 === 0;
-      // Exclusively subtle blue-gray dust or dark amber/crimson embers
-      const color = isDust ? "rgba(160, 170, 210, 0.25)" : "rgba(220, 80, 40, 0.4)";
-      const vx = (Math.random() - 0.5) * 6; // slow, gentle horizontal drift
-      const vy = isDust ? -2 - Math.random() * 3 : -4 - Math.random() * 5; // slow, gentle rise
+      const pal = orbPalette[i % orbPalette.length];
+      const vx = (Math.random() - 0.5) * 12; // slow organic horizontal drift
+      const vy = -3 - Math.random() * 6;     // gentle ascending rise
 
       particles.push({
-        x: Math.random() * (stageW || level.width),
-        y: Math.random() * 300,
+        x: Math.random() * stageWidth,
+        y: Math.random() * 290,
         vx,
         vy,
-        size: isFg ? 1.5 + Math.random() * 1.5 : 1 + Math.random() * 1.0,
-        alpha: isDust ? 0.25 : 0.4,
-        maxAlpha: isDust ? 0.35 : 0.5,
-        color,
+        size: isFg ? 3.0 + Math.random() * 1.5 : 2.2 + Math.random() * 1.2,
+        alpha: 0.45 + Math.random() * 0.15,
+        maxAlpha: 0.65,
+        color: pal.color,
+        rgb: pal.rgb,
         depth: isFg ? "fg" : "mid",
         pulse: Math.random() * Math.PI * 2,
+      });
+    }
+
+    // 2. Rolling Ambient Mist Clouds (Raio 40px–80px, alpha muito baixo 0.04 a 0.08)
+    const mistPalette: { color: string; rgb: [number, number, number] }[] = [
+      { color: "rgba(110, 50, 155, 0.06)", rgb: [110, 50, 155] }, // Roxo noturno
+      { color: "rgba(35, 70, 145, 0.05)", rgb: [35, 70, 145] },   // Azul profundo
+      { color: "rgba(30, 100, 75, 0.05)", rgb: [30, 100, 75] },   // Esmeralda escuro
+    ];
+
+    const mistCloudCount = 14;
+    for (let i = 0; i < mistCloudCount; i++) {
+      const pal = mistPalette[i % mistPalette.length];
+      const isElevated = i % 3 === 0;
+      const cloudY = isElevated ? 90 + Math.random() * 80 : (GROUND_Y - 30) + (Math.random() - 0.5) * 35;
+      const vx = (Math.random() - 0.5) * 9; // very slow rolling glide
+      const vy = (Math.random() - 0.5) * 1.5;
+
+      particles.push({
+        x: Math.random() * stageWidth,
+        y: cloudY,
+        vx,
+        vy,
+        size: 45 + Math.random() * 35, // radius 45px to 80px
+        alpha: 0.04 + Math.random() * 0.04, // subtle 0.04 to 0.08
+        maxAlpha: 0.08,
+        color: pal.color,
+        rgb: pal.rgb,
+        depth: i % 2 === 0 ? "mid" : "fg",
+        pulse: Math.random() * Math.PI * 2,
+        isMistCloud: true,
       });
     }
   }
@@ -3057,16 +3101,21 @@ export function mountCampaign(
     for (const p of particles) {
       p.x += p.vx * dt;
       p.y += p.vy * dt;
-      p.pulse += dt * 2.5;
-      if (p.y < -10) {
-        p.y = 310;
-        p.x = Math.random() * stageW;
-      } else if (p.y > 320) {
-        p.y = 0;
-        p.x = Math.random() * stageW;
+      p.pulse += dt * (p.isMistCloud ? 1.0 : 2.2);
+      if (p.isMistCloud) {
+        if (p.y < 40) p.y = GROUND_Y;
+        else if (p.y > GROUND_Y + 30) p.y = 80;
+      } else {
+        if (p.y < -20) {
+          p.y = 310;
+          p.x = Math.random() * stageW;
+        } else if (p.y > 320) {
+          p.y = 0;
+          p.x = Math.random() * stageW;
+        }
       }
-      if (p.x < 0) p.x += stageW;
-      else if (p.x > stageW) p.x -= stageW;
+      if (p.x < -80) p.x += stageW + 160;
+      else if (p.x > stageW + 80) p.x -= (stageW + 160);
     }
 
     const focus = player.x + player.w / 2 + player.facing * 28;
@@ -4723,25 +4772,34 @@ export function mountCampaign(
     g.restore();
   }
 
-  function blitStill(img: HTMLImageElement | undefined, cx: number, feet: number, height: number, facing = 1) {
+  function blitStill(
+    img: HTMLImageElement | undefined,
+    cx: number,
+    feet: number,
+    height: number,
+    facing = 1,
+    isWallOrCeiling = false
+  ) {
     const ready = !!img && img.complete && img.naturalWidth > 0;
     const sx = Math.round(cx - camX);
     const sy = Math.round(feet - camY);
     const dw = ready ? height * (img.naturalWidth / img.naturalHeight) : height * 0.44;
 
-    // Contact shadow at the base
-    g.save();
-    g.fillStyle = "rgba(0, 0, 0, 0.7)";
-    g.beginPath();
-    g.ellipse(sx, sy, Math.max(14, dw * 0.42), 4.5, 0, 0, Math.PI * 2);
-    g.fill();
-    g.restore();
+    // Contact shadow at the base (only for ground-standing props, never for wall sconces or hanging props)
+    if (!isWallOrCeiling) {
+      g.save();
+      g.fillStyle = "rgba(0, 0, 0, 0.75)";
+      g.beginPath();
+      g.ellipse(sx, sy, Math.max(16, dw * 0.46), 5, 0, 0, Math.PI * 2);
+      g.fill();
+      g.restore();
+    }
 
     // Night color grading on structures and props (removes artificial/pasted look)
     g.save();
     g.translate(sx, sy);
     g.scale(facing, 1);
-    g.filter = "brightness(0.6) contrast(1.15) saturate(0.75)";
+    g.filter = "brightness(0.65) contrast(1.12) saturate(0.8)";
     if (!ready || !img) {
       g.fillStyle = "#1e1b29";
       g.fillRect(-height * 0.22, -height, height * 0.44, height);
@@ -4749,7 +4807,44 @@ export function mountCampaign(
       return;
     }
     g.drawImage(img, -dw / 2, -height, dw, height);
-    g.restore();
+
+    // Harmonização de Cores Noturnas com source-atop (não afeta partes transparentes do PNG)
+    g.save();
+    g.globalCompositeOperation = "source-atop";
+
+    // Overlay azul-noite/violeta profundo para casar perfeitamente com a iluminação gótica
+    g.fillStyle = "rgba(25, 20, 45, 0.35)";
+    g.fillRect(-dw / 2, -height, dw, height);
+
+    if (!isWallOrCeiling) {
+      // Edge Blending / Vignette na base: funde a base da pedra com as sombras do piso
+      const baseH = Math.min(36, height * 0.32);
+      const baseGrad = g.createLinearGradient(0, 0, 0, -baseH);
+      baseGrad.addColorStop(0, "rgba(8, 6, 16, 0.88)");
+      baseGrad.addColorStop(0.55, "rgba(8, 6, 16, 0.45)");
+      baseGrad.addColorStop(1, "rgba(8, 6, 16, 0.0)");
+      g.fillStyle = baseGrad;
+      g.fillRect(-dw / 2, -baseH, dw, baseH);
+    }
+
+    // Vinhetas laterais suaves (suaviza as bordas recortadas retangulares nos lados da coluna)
+    const sideW = Math.min(14, dw * 0.22);
+    if (sideW > 2) {
+      const leftGrad = g.createLinearGradient(-dw / 2, 0, -dw / 2 + sideW, 0);
+      leftGrad.addColorStop(0, "rgba(8, 6, 16, 0.72)");
+      leftGrad.addColorStop(1, "rgba(8, 6, 16, 0.0)");
+      g.fillStyle = leftGrad;
+      g.fillRect(-dw / 2, -height, sideW, height);
+
+      const rightGrad = g.createLinearGradient(dw / 2, 0, dw / 2 - sideW, 0);
+      rightGrad.addColorStop(0, "rgba(8, 6, 16, 0.72)");
+      rightGrad.addColorStop(1, "rgba(8, 6, 16, 0.0)");
+      g.fillStyle = rightGrad;
+      g.fillRect(dw / 2 - sideW, -height, sideW, height);
+    }
+
+    g.restore(); // restores source-atop
+    g.restore(); // restores translate & filter
   }
 
   function drawStrip(
@@ -4788,6 +4883,54 @@ export function mountCampaign(
       );
       x += dw;
     }
+    g.restore();
+  }
+
+  function drawParticleOrb(p: AmbientParticle, px: number, py: number) {
+    let rgb = p.rgb;
+    if (!rgb) {
+      if (p.color.startsWith("#")) {
+        const hex = p.color.slice(1);
+        if (hex.length === 3) {
+          rgb = [parseInt(hex[0] + hex[0], 16), parseInt(hex[1] + hex[1], 16), parseInt(hex[2] + hex[2], 16)];
+        } else {
+          rgb = [parseInt(hex.slice(0, 2), 16), parseInt(hex.slice(2, 4), 16), parseInt(hex.slice(4, 6), 16)];
+        }
+      } else if (p.color.startsWith("rgb")) {
+        const m = p.color.match(/\d+/g);
+        if (m && m.length >= 3) {
+          rgb = [parseInt(m[0], 10), parseInt(m[1], 10), parseInt(m[2], 10)];
+        } else {
+          rgb = [180, 160, 240];
+        }
+      } else {
+        rgb = [180, 160, 240];
+      }
+      p.rgb = rgb;
+    }
+
+    const [r, gVal, b] = rgb;
+    const isCloud = !!p.isMistCloud;
+    const rad = isCloud ? p.size : Math.max(7, Math.round(p.size * 3.6));
+    const pulseFactor = isCloud ? (0.75 + 0.25 * Math.sin(p.pulse)) : (0.55 + 0.45 * Math.sin(p.pulse));
+    const curAlpha = Math.min(0.85, p.alpha * pulseFactor);
+
+    if (curAlpha <= 0.005) return;
+
+    const orbGrad = g.createRadialGradient(px, py, 1, px, py, rad);
+    const centerA = isCloud ? curAlpha : Math.min(0.65, curAlpha * 1.35);
+    const midA = centerA * 0.45;
+
+    orbGrad.addColorStop(0, `rgba(${r}, ${gVal}, ${b}, ${centerA.toFixed(3)})`);
+    orbGrad.addColorStop(0.45, `rgba(${r}, ${gVal}, ${b}, ${midA.toFixed(3)})`);
+    orbGrad.addColorStop(1, `rgba(${r}, ${gVal}, ${b}, 0)`);
+
+    g.save();
+    g.globalCompositeOperation = "screen";
+    g.fillStyle = orbGrad;
+    g.beginPath();
+    g.arc(px, py, rad, 0, Math.PI * 2);
+    g.fill();
     g.restore();
   }
 
@@ -4846,24 +4989,37 @@ export function mountCampaign(
       g.restore();
     }
 
+    // Midground Ambient Particles & Mist Clouds
     for (const p of particles) {
       if (p.depth !== "mid") continue;
       const px = Math.round(p.x - camX * 0.7);
       const py = Math.round(p.y - camY * 0.7);
-      if (px < -10 || px > T.viewW + 10 || py < -10 || py > T.viewH + 10) continue;
-      const a = p.alpha * (0.5 + 0.5 * Math.sin(p.pulse));
-      g.fillStyle = p.color;
-      g.globalAlpha = a;
-      g.fillRect(px, py, p.size, p.size);
+      const margin = p.isMistCloud ? p.size + 15 : 30;
+      if (px < -margin || px > T.viewW + margin || py < -margin || py > T.viewH + margin) continue;
+      drawParticleOrb(p, px, py);
     }
-    g.globalAlpha = 1;
 
     // Background Architectural Props (Recessed Colossal Gladiator Statues, Arches, Stained Glass)
     for (const prop of getActiveProps()) {
       if (prop.layer === "bg") {
         const h = PROP_H[prop.kind] ?? 120;
+        const isWallOrCeiling = (
+          prop.kind === "sconceBlue" ||
+          prop.kind === "chains" ||
+          prop.kind === "hangingColumn" ||
+          prop.kind === "stainedGlass" ||
+          prop.kind === "banner" ||
+          prop.kind === "shield"
+        );
+        let feetY = prop.y;
+        if (!isWallOrCeiling) {
+          const ground = findFloorFor(prop.x, prop.y);
+          if (Math.abs(prop.y - ground) <= 24 || prop.y >= GROUND_Y - 10) {
+            feetY = ground;
+          }
+        }
         const sx = Math.round(prop.x - camX);
-        const sy = Math.round(prop.y - camY);
+        const sy = Math.round(feetY - camY);
 
         if (prop.kind === "gladiatorStatue") {
           g.save();
@@ -4924,7 +5080,7 @@ export function mountCampaign(
           g.stroke();
           g.restore();
         }
-        blitStill(propsArt[prop.kind], prop.x, prop.y, h);
+        blitStill(propsArt[prop.kind], prop.x, feetY, h, 1, isWallOrCeiling);
       }
     }
 
@@ -4934,74 +5090,132 @@ export function mountCampaign(
       if (sx > T.viewW + 12 || sx + s.w < -12 || sy > T.viewH + 12 || sy + s.h < -12) continue;
 
       if (s.oneWay) {
-        const platH = 10;
-        // Deep nocturnal gothic stone palette (replaces flat gray/bright edges)
-        const slabMain = "#14121d";
-        const slabDark = "#0e0c15";
-        const edgeHighlight = "rgba(45, 38, 64, 0.45)"; // worn dark purple/blue edge
-        const edgeGroove = "#08070d";
-        const corbelColor = "#1f1b2e";
-        const corbelShadow = "#08070d";
-        const seamColor = "#0d0b14";
+        const platH = 12;
 
         // 1. Soft Ambient Drop Shadow beneath the platform
-        const shadowGrad = g.createLinearGradient(0, sy + platH, 0, sy + platH + 16);
-        shadowGrad.addColorStop(0, "rgba(0, 0, 0, 0.85)");
+        const shadowGrad = g.createLinearGradient(0, sy + platH, 0, sy + platH + 18);
+        shadowGrad.addColorStop(0, "rgba(0, 0, 0, 0.75)");
         shadowGrad.addColorStop(1, "rgba(0, 0, 0, 0)");
         g.fillStyle = shadowGrad;
-        g.fillRect(sx - 4, sy + platH, s.w + 8, 16);
-        g.fillStyle = shadowGrad;
-        g.fillRect(sx - 2, sy + platH, s.w + 4, 12);
+        g.fillRect(sx - 3, sy + platH, s.w + 6, 18);
 
-        // 2. Main Stone Slab Body
-        g.fillStyle = slabMain;
-        g.fillRect(sx, sy, s.w, platH);
-        g.fillStyle = slabDark;
-        g.fillRect(sx, sy + 3, s.w, platH - 3);
-
-        // 3. Chiseled Stone Edge (Fine 1px top highlight + subtle 1px sub-tone + dark shadow groove)
-        g.fillStyle = edgeHighlight;
-        g.fillRect(sx, sy, s.w, 1);
-        g.fillStyle = "rgba(255, 255, 255, 0.08)";
-        g.fillRect(sx, sy + 1, s.w, 1);
-        g.fillStyle = edgeGroove;
-        g.fillRect(sx, sy + 2, s.w, 1);
-        g.fillStyle = "rgba(0, 0, 0, 0.7)";
-        g.fillRect(sx, sy + platH - 1, s.w, 1);
-
-        // 4. Subtle Interlocking Masonry Seams (chiseled joints every 24px)
-        g.fillStyle = seamColor;
-        for (let nx = 18; nx < s.w - 10; nx += 24) {
-          g.fillRect(sx + nx, sy + 1, 1, platH - 2);
-          g.fillStyle = "rgba(255, 255, 255, 0.06)";
-          g.fillRect(sx + nx + 1, sy + 1, 1, platH - 2);
-          g.fillStyle = seamColor;
-        }
-
-        // 5. Gothic Architectural Stone Corbels (brackets supporting the ledge)
-        const corbelW = 7;
-        const corbelH = 7;
-        const drawCorbel = (cx: number) => {
-          g.fillStyle = corbelShadow;
-          g.fillRect(cx, sy + platH, corbelW + 1, corbelH);
-          g.fillStyle = corbelColor;
-          g.fillRect(cx, sy + platH, corbelW, 3);
-          g.fillRect(cx + 1, sy + platH + 3, corbelW - 2, 2);
-          g.fillRect(cx + 2, sy + platH + 5, corbelW - 4, 2);
-          g.fillStyle = edgeHighlight;
-          g.fillRect(cx, sy + platH, 1, 3);
-          g.fillRect(cx + 1, sy + platH + 3, 1, 2);
-        };
-
-        drawCorbel(sx + 2);
-        if (s.w >= 36) {
-          drawCorbel(sx + s.w - corbelW - 2);
-        }
+        // 2. Gothic Architectural Stone Corbels & Arches beneath the platform
+        const corbelW = 8;
+        const corbelH = 9;
+        const corbelPoints: number[] = [sx + 2];
+        if (s.w >= 36) corbelPoints.push(sx + s.w - corbelW - 2);
         if (s.w >= 80) {
-          for (let nx = 32; nx <= s.w - 32; nx += 36) {
-            drawCorbel(sx + nx);
+          const step = (s.w - 24) / Math.floor((s.w - 24) / 40);
+          for (let nx = 20; nx <= s.w - 28; nx += step) {
+            corbelPoints.push(Math.round(sx + nx));
           }
         }
+        corbelPoints.sort((a, b) => a - b);
+
+        // Gothic shallow arches between corbel brackets
+        for (let ci = 0; ci < corbelPoints.length - 1; ci++) {
+          const c1 = corbelPoints[ci] + corbelW;
+          const c2 = corbelPoints[ci + 1];
+          if (c2 - c1 > 10) {
+            const archMid = (c1 + c2) / 2;
+            g.fillStyle = "rgba(10, 8, 16, 0.9)";
+            g.beginPath();
+            g.moveTo(c1, sy + platH);
+            g.quadraticCurveTo(archMid, sy + platH + 5, c2, sy + platH);
+            g.lineTo(c2, sy + platH + 2);
+            g.quadraticCurveTo(archMid, sy + platH + 7, c1, sy + platH + 2);
+            g.closePath();
+            g.fill();
+          }
+        }
+
+        // Corbels (mísulas de pedra talhada)
+        for (const cx of corbelPoints) {
+          // Dark bracket shadow
+          g.fillStyle = "#0a0812";
+          g.fillRect(cx - 1, sy + platH, corbelW + 2, corbelH + 1);
+          // Main corbel stone body
+          g.fillStyle = "#1e1a2b";
+          g.fillRect(cx, sy + platH, corbelW, 4);
+          g.fillStyle = "#252035";
+          g.fillRect(cx + 1, sy + platH + 4, corbelW - 2, 3);
+          g.fillStyle = "#161320";
+          g.fillRect(cx + 2, sy + platH + 7, corbelW - 4, 2);
+          // Highlight on corbel left edge
+          g.fillStyle = "rgba(150, 170, 220, 0.25)";
+          g.fillRect(cx, sy + platH, 1, 4);
+          g.fillRect(cx + 1, sy + platH + 4, 1, 3);
+        }
+
+        // Hanging dark purple creepers/vines beneath platform
+        const vineSeed = Math.abs(Math.sin(s.x * 12.9898 + s.y * 78.233));
+        const numVines = Math.max(1, Math.floor(s.w / 45));
+        for (let vi = 0; vi < numVines; vi++) {
+          const vOffset = 14 + (vi * (s.w - 28)) / numVines + ((vineSeed * 37 + vi * 17) % 8);
+          const vx = sx + Math.round(vOffset);
+          const vLen = 6 + Math.round(((vineSeed * 53 + vi * 23) % 9));
+          // Stem
+          g.strokeStyle = "#1e1328";
+          g.lineWidth = 1.5;
+          g.beginPath();
+          g.moveTo(vx, sy + platH);
+          g.quadraticCurveTo(vx + ((vi % 2 === 0) ? 2 : -2), sy + platH + vLen * 0.5, vx + ((vi % 2 === 0) ? 1 : -1), sy + platH + vLen);
+          g.stroke();
+          // Small purple leafy clusters
+          g.fillStyle = "rgba(75, 40, 95, 0.85)";
+          g.fillRect(vx - 1, sy + platH + vLen - 2, 3, 2);
+          g.fillStyle = "rgba(100, 50, 125, 0.65)";
+          g.fillRect(vx, sy + platH + vLen, 2, 2);
+        }
+
+        // 3. Divided Carved Stone Blocks (#1c1926 to #282436 with dark joints #0d0b14)
+        const blockTones = ["#1c1926", "#242032", "#282436", "#201c2b"];
+        let curX = 0;
+        let blockIdx = 0;
+        while (curX < s.w) {
+          const bw = Math.min(s.w - curX, 22 + ((curX * 7 + s.x) % 9));
+          const bx = sx + curX;
+          const tone = blockTones[(blockIdx + Math.floor(s.x / 40)) % blockTones.length];
+
+          // Stone block fill
+          g.fillStyle = tone;
+          g.fillRect(bx, sy + 1, bw, platH - 1);
+
+          // Sub-surface weathered gradient (darker near bottom)
+          const blockGrad = g.createLinearGradient(0, sy + 1, 0, sy + platH);
+          blockGrad.addColorStop(0, "rgba(255, 255, 255, 0.04)");
+          blockGrad.addColorStop(0.5, "rgba(0, 0, 0, 0)");
+          blockGrad.addColorStop(1, "rgba(8, 6, 14, 0.45)");
+          g.fillStyle = blockGrad;
+          g.fillRect(bx, sy + 1, bw, platH - 1);
+
+          // Dark mortar joint between blocks
+          if (curX > 0) {
+            g.fillStyle = "#0d0b14";
+            g.fillRect(bx, sy, 1.5, platH);
+            // Subtle edge bevel on left side of stone block
+            g.fillStyle = "rgba(150, 170, 220, 0.15)";
+            g.fillRect(bx + 1.5, sy + 1, 1, platH - 2);
+          }
+
+          // Stepped ancient slab surface (broken lunar edge, NOT continuous white line)
+          const irreg = (blockIdx % 3 === 1) ? 0.5 : 0;
+          g.fillStyle = "rgba(150, 170, 220, 0.35)"; // pale blue/purple lunar glow
+          g.fillRect(bx + 1, sy + irreg, bw - 2, 1);
+          g.fillStyle = "rgba(180, 195, 235, 0.18)";
+          g.fillRect(bx + 2, sy + irreg + 1, bw - 4, 1);
+
+          // Dark shadow groove right under the top slab rim
+          g.fillStyle = "#0c0a14";
+          g.fillRect(bx, sy + 2, bw, 1);
+
+          curX += bw;
+          blockIdx++;
+        }
+
+        // Subtle dark bottom rim
+        g.fillStyle = "#0a0812";
+        g.fillRect(sx, sy + platH - 1, s.w, 1);
       } else if (s.y === GROUND_Y) {
         g.save();
         g.beginPath();
@@ -5102,10 +5316,25 @@ export function mountCampaign(
     for (const prop of getActiveProps()) {
       if (!prop.layer || prop.layer === "main") {
         const h = PROP_H[prop.kind] ?? 120;
-        blitStill(propsArt[prop.kind], prop.x, prop.y, h);
+        const isWallOrCeiling = (
+          prop.kind === "sconceBlue" ||
+          prop.kind === "chains" ||
+          prop.kind === "hangingColumn" ||
+          prop.kind === "stainedGlass" ||
+          prop.kind === "banner" ||
+          prop.kind === "shield"
+        );
+        let feetY = prop.y;
+        if (!isWallOrCeiling) {
+          const ground = findFloorFor(prop.x, prop.y);
+          if (Math.abs(prop.y - ground) <= 24 || prop.y >= GROUND_Y - 10) {
+            feetY = ground;
+          }
+        }
+        blitStill(propsArt[prop.kind], prop.x, feetY, h, 1, isWallOrCeiling);
 
         const sx = Math.round(prop.x - camX);
-        const sy = Math.round(prop.y - camY);
+        const sy = Math.round(feetY - camY);
 
         if (prop.kind === "sconceBlue") {
           const fx = sx;
@@ -5704,29 +5933,24 @@ export function mountCampaign(
         if ((prop.kind === "hangingColumn" || prop.kind === "chains") && prop.y <= 60) {
           feet = prop.y + h;
         }
+        const isWallOrCeiling = prop.kind === "hangingColumn" || prop.kind === "chains";
         // Foreground 2.5D parallax (slightly faster scroll than main plane)
         const fgX = prop.x - (camX * 0.12);
-        blitStill(propsArt[prop.kind], fgX, feet, h);
+        blitStill(propsArt[prop.kind], fgX, feet, h, 1, isWallOrCeiling);
       }
     }
 
     // Soft rolling floor mist
     drawStrip(plates.fog, 1.15, 0.2, 0.6, GROUND_Y - 22, 58, 0.35, 1.1);
 
-    // Foreground Ambient Particles (depth === "fg", scrolling at 1.25x)
+    // Foreground Ambient Particles & Mist Clouds (depth === "fg", scrolling at 1.25x)
     for (const p of particles) {
       if (p.depth !== "fg") continue;
       const px = Math.round(p.x - camX * 1.25);
       const py = Math.round(p.y - camY * 1.25);
-      if (px < -10 || px > T.viewW + 10 || py < -10 || py > T.viewH + 10) continue;
-      const a = p.alpha * (0.6 + 0.4 * Math.sin(p.pulse));
-      g.save();
-      g.fillStyle = p.color;
-      g.globalAlpha = a;
-      g.shadowColor = p.color;
-      g.shadowBlur = 4;
-      g.fillRect(px, py, p.size, p.size);
-      g.restore();
+      const margin = p.isMistCloud ? p.size + 15 : 30;
+      if (px < -margin || px > T.viewW + margin || py < -margin || py > T.viewH + margin) continue;
+      drawParticleOrb(p, px, py);
     }
 
     // 4.5. Floating Damage Numbers ("Dano Flutuante")
