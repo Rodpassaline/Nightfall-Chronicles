@@ -582,7 +582,7 @@ export function mountCampaign(
 
   type BossCinematic = {
     active: boolean;
-    phase: "speaking" | "roar_out" | "done";
+    phase: "idle" | "speaking" | "roar_out" | "done";
     stageId: number;
     speaker: string;
     title: string;
@@ -599,7 +599,7 @@ export function mountCampaign(
 
   let bossCinematic: BossCinematic = {
     active: false,
-    phase: "done",
+    phase: "idle",
     stageId: level.id,
     speaker: "",
     title: "",
@@ -615,6 +615,12 @@ export function mountCampaign(
   };
 
   function startBossCinematic(boss: Enemy) {
+    keys.clear();
+    pointer.clear();
+    injected.clear();
+    keysDownThisFrame.clear();
+    pointerDownThisFrame.clear();
+
     const meta = BOSS_METADATA[level.id] || {
       speaker: boss.name.split(",")[0],
       title: boss.name,
@@ -706,7 +712,8 @@ export function mountCampaign(
   }
 
   function skipBossCinematic() {
-    if (!bossCinematic.active) return;
+    if (!bossCinematic.active || bossCinematic.phase !== "speaking") return;
+    if (bossCinematic.timer < 0.8) return;
     sound.stopBossVoice();
     advanceBossCinematicToRoar();
   }
@@ -1135,7 +1142,7 @@ export function mountCampaign(
     bossEnragedAnnounced = false;
     bossCinematic = {
       active: false,
-      phase: "done",
+      phase: "idle",
       stageId: level.id,
       speaker: "",
       title: "",
@@ -1555,12 +1562,6 @@ export function mountCampaign(
     // =========================================================================
     if (bossCinematic.active) {
       time += dt;
-
-      // Check for user skip input (action buttons)
-      const wantsSkip = press.jump || press.attack || press.dash || press.spell || press.special;
-      if (wantsSkip && bossCinematic.phase === "speaking") {
-        skipBossCinematic();
-      }
 
       // Update gates & crystals animation
       for (const gate of sealGates) {
@@ -5061,7 +5062,7 @@ export function mountCampaign(
     const bossInSight = !!boss && (boss.x < camX + T.viewW + 24 && boss.x + boss.w > camX - 32);
     const bossOn = !!boss && (boss.boss && (bossInSight || player.x > boss.homeX - 460 || boss.hp < boss.max));
     if (bossOn && !player.dead && !player.won && boss && !boss.dead) {
-      if (!bossIntroPlayed && !bossCinematic.active && bossCinematic.phase !== "done") {
+      if (!bossIntroPlayed && !bossCinematic.active) {
         bossIntroPlayed = true;
         startBossCinematic(boss);
       }
@@ -5165,6 +5166,10 @@ export function mountCampaign(
     draw();
     const bossObj = enemies.find((e) => e.boss && !e.dead);
     const wantsBossIntro = !!bossObj && !bossIntroPlayed && (bossObj.x < camX + T.viewW + 24 || player.x > bossObj.homeX - 460 || bossObj.hp < bossObj.max);
+    if (wantsBossIntro && !bossCinematic.active && !player.dead && !player.won) {
+      bossIntroPlayed = true;
+      startBossCinematic(bossObj);
+    }
     if (steps > 0 && (wantsBossIntro || bossCinematic.active || Math.floor(time * 60) % 4 === 0)) publish();
     raf = requestAnimationFrame(frame);
   }
@@ -5185,7 +5190,9 @@ export function mountCampaign(
   zone.addEventListener("pointerleave", markCold);
   const onDown = (e: KeyboardEvent) => {
     if (bossCinematic.active && bossCinematic.phase === "speaking") {
-      skipBossCinematic();
+      if ((e.code === "Space" || e.code === "Enter" || e.code === "Escape") && bossCinematic.timer >= 1.0) {
+        skipBossCinematic();
+      }
       return;
     }
     if (e.code === "Escape") {
@@ -5267,8 +5274,7 @@ export function mountCampaign(
       if (window.__controlsTest === probe) delete window.__controlsTest;
     },
     setHeld(action: Action, down: boolean) {
-      if (bossCinematic.active && bossCinematic.phase === "speaking" && down) {
-        skipBossCinematic();
+      if (bossCinematic.active) {
         return;
       }
       if (down) {
