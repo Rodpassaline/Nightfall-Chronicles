@@ -611,7 +611,6 @@ export function mountCampaign(
   let level = (gameMode === "horde" ? hordeArenaDef : (levels.find((item) => item.id === levelId) ?? levels[0]));
   let stageW = level.width;
   const ctx =
-    canvas.getContext("2d", { alpha: false, desynchronized: true }) ||
     canvas.getContext("2d", { alpha: false }) ||
     canvas.getContext("2d");
   if (!ctx) throw new Error("Canvas 2D indisponível");
@@ -734,6 +733,7 @@ export function mountCampaign(
   // Chamber Transitions & Gothic Typography Banner
   let currentChamberId = -1;
   let chamberTransitionTimer = 0;
+  let chamberCooldownTimer = 0;
   let chamberNameBanner = "";
   let chamberNameTimer = 0;
 
@@ -1535,6 +1535,7 @@ export function mountCampaign(
     bossEnragedAnnounced = false;
     currentChamberId = -1;
     chamberTransitionTimer = 0;
+    chamberCooldownTimer = 0;
     chamberNameBanner = "";
     chamberNameTimer = 0;
     bossCinematic = {
@@ -2186,18 +2187,26 @@ export function mountCampaign(
 
     time += dt;
 
+    if (chamberCooldownTimer > 0) chamberCooldownTimer = Math.max(0, chamberCooldownTimer - dt);
+
     // Chamber Detection & Elegant Gothic Typography Banner
     if (level.chambers && level.chambers.length > 0) {
       const pMidX = player.x + player.w / 2;
       const activeChamber = level.chambers.find((c) => pMidX >= c.xStart && pMidX <= c.xEnd) || level.chambers[0];
       if (activeChamber && activeChamber.id !== currentChamberId) {
-        if (currentChamberId !== -1) {
+        if (currentChamberId === -1) {
+          currentChamberId = activeChamber.id;
+          chamberNameBanner = activeChamber.name;
+          chamberNameTimer = 2.4;
+          chamberCooldownTimer = 2.0;
+        } else if (chamberCooldownTimer <= 0) {
+          currentChamberId = activeChamber.id;
           chamberTransitionTimer = 0.22;
           sound.playSfx("gateOpen");
+          chamberNameBanner = activeChamber.name;
+          chamberNameTimer = 2.4;
+          chamberCooldownTimer = 4.0;
         }
-        currentChamberId = activeChamber.id;
-        chamberNameBanner = activeChamber.name;
-        chamberNameTimer = 2.4;
       }
     }
     if (chamberTransitionTimer > 0) chamberTransitionTimer = Math.max(0, chamberTransitionTimer - dt);
@@ -4868,7 +4877,16 @@ export function mountCampaign(
     const sy = Math.round(feet - camY);
     if (sy - height > T.viewH + 32 || sy < -32) return;
 
-    const source = getFilteredProp(img);
+    const isNewGothicProp =
+      img === propsArt.chamberArch ||
+      img === propsArt.chandelier ||
+      img === propsArt.gargoyleStatue ||
+      img === propsArt.stainedGlassWindow ||
+      img === propsArt.stonePlatform ||
+      img === propsArt.gothicStairsUp ||
+      img === propsArt.gothicStairsDown;
+
+    const source = isNewGothicProp ? img : getFilteredProp(img);
 
     g.save();
     g.translate(sx, sy);
@@ -5036,10 +5054,22 @@ export function mountCampaign(
       if (prop.kind === "gothicStairsUp" || prop.kind === "gothicStairsDown") continue;
       if (prop.layer === "bg") {
         const h = PROP_H[prop.kind] ?? 120;
+        const isWallOrCeiling =
+          prop.kind === "chandelier" ||
+          prop.kind === "stainedGlassWindow" ||
+          prop.kind === "stainedGlass" ||
+          prop.kind === "hangingColumn" ||
+          prop.kind === "chains" ||
+          prop.kind === "sconceBlue";
+
         let feetY = prop.y;
-        const ground = findFloorFor(prop.x, prop.y);
-        if (Math.abs(prop.y - ground) <= 24 || prop.y >= GROUND_Y - 10) {
-          feetY = ground;
+        if (!isWallOrCeiling) {
+          const ground = findFloorFor(prop.x, prop.y);
+          if (Math.abs(prop.y - ground) <= 24 || prop.y >= GROUND_Y - 10) {
+            feetY = ground;
+          }
+        } else if (prop.kind === "chandelier" || prop.kind === "hangingColumn" || prop.kind === "chains") {
+          feetY = prop.y + h;
         }
         blitStill(propsArt[prop.kind], prop.x, feetY, h);
       }
@@ -5074,11 +5104,10 @@ export function mountCampaign(
             g.fillRect(sx, yLine, sw, 1);
           }
 
-          // Gothic Stairs Up Sprite
+          // Gothic Stairs Up Sprite (rendered directly for maximum performance and zero flicker)
           const stairsImg = propsArt.gothicStairsUp;
           if (stairsImg && stairsImg.complete && stairsImg.naturalWidth > 0) {
-            const source = getFilteredProp(stairsImg);
-            g.drawImage(source, sx, syTop - 6, sw, (syBottom - syTop) + 26);
+            g.drawImage(stairsImg, sx, syTop - 6, sw, (syBottom - syTop) + 26);
           } else {
             // Procedural stepped stones fallback
             const numSteps = Math.max(4, Math.round(sw / 22));
@@ -5110,11 +5139,10 @@ export function mountCampaign(
             g.fillRect(sx, yLine, sw, 1);
           }
 
-          // Gothic Stairs Down Sprite
+          // Gothic Stairs Down Sprite (rendered directly)
           const stairsImg = propsArt.gothicStairsDown;
           if (stairsImg && stairsImg.complete && stairsImg.naturalWidth > 0) {
-            const source = getFilteredProp(stairsImg);
-            g.drawImage(source, sx, syTop - 6, sw, (syBottom - syTop) + 26);
+            g.drawImage(stairsImg, sx, syTop - 6, sw, (syBottom - syTop) + 26);
           } else {
             // Procedural stepped stones fallback
             const numSteps = Math.max(4, Math.round(sw / 22));
@@ -5130,73 +5158,19 @@ export function mountCampaign(
             }
           }
         } else if (seg.type === "upper_hall") {
-          // Elevated Upper Hall foundation masonry down to screen bottom
+          // Elevated Upper Hall subterranean foundation masonry down to screen bottom
+          // (The floor surface itself is rendered by getActiveSolids to prevent duplicate draw calls)
           g.fillStyle = "#100e18";
           g.fillRect(sx, syStart + 16, sw, T.viewH + 40 - (syStart + 16));
 
-          // Upper Hall Floor surface
-          g.save();
-          g.beginPath();
-          g.rect(sx, syStart, sw, 20);
-          g.clip();
-          if (plates.floor && plates.floor.complete && plates.floor.naturalWidth > 0) {
-            const floorH = plates.floor.naturalHeight || 112;
-            const dw = plates.floor.naturalWidth;
-            const fx0 = -(((camX) % dw + dw) % dw);
-            let fx = fx0;
-            while (fx < sx + sw + 10) {
-              if (fx + dw > sx - 10) {
-                g.drawImage(plates.floor, Math.round(fx), syStart, dw, floorH);
-              }
-              fx += dw;
-            }
-          } else {
-            g.fillStyle = "#241f32";
-            g.fillRect(sx, syStart, sw, 20);
-          }
-          g.restore();
-
-          // Top flagstone edge highlight & shadow
-          g.fillStyle = "rgba(200, 215, 255, 0.35)";
-          g.fillRect(sx, syStart, sw, 1);
-          g.fillStyle = "rgba(0, 0, 0, 0.65)";
-          g.fillRect(sx, syStart + 1, sw, 1);
           g.fillStyle = "rgba(20, 16, 28, 0.7)";
           for (let yLine = syStart + 18; yLine < T.viewH + 40; yLine += 14) {
             g.fillRect(sx, yLine, sw, 1);
           }
         } else if (seg.type === "crypt") {
-          // Sunken Crypt foundation down to screen bottom
+          // Sunken Crypt subterranean foundation down to screen bottom
           g.fillStyle = "#0c0a14";
           g.fillRect(sx, syStart + 16, sw, T.viewH + 40 - (syStart + 16));
-
-          g.save();
-          g.beginPath();
-          g.rect(sx, syStart, sw, 24);
-          g.clip();
-          if (plates.floor && plates.floor.complete && plates.floor.naturalWidth > 0) {
-            const floorH = plates.floor.naturalHeight || 112;
-            const dw = plates.floor.naturalWidth;
-            const fx0 = -(((camX) % dw + dw) % dw);
-            let fx = fx0;
-            while (fx < sx + sw + 10) {
-              if (fx + dw > sx - 10) {
-                g.drawImage(plates.floor, Math.round(fx), syStart, dw, floorH);
-              }
-              fx += dw;
-            }
-            g.fillStyle = "rgba(8, 6, 14, 0.52)";
-            g.fillRect(sx, syStart, sw, 24);
-          } else {
-            g.fillStyle = "#181420";
-            g.fillRect(sx, syStart, sw, 24);
-          }
-          g.restore();
-
-          g.fillStyle = "rgba(160, 175, 215, 0.22)";
-          g.fillRect(sx, syStart, sw, 1);
-          g.fillStyle = "rgba(0, 0, 0, 0.7)";
-          g.fillRect(sx, syStart + 1, sw, 1);
         }
       }
     }
@@ -5218,9 +5192,8 @@ export function mountCampaign(
           g.fillStyle = shadowGrad;
           g.fillRect(sx - 3, sy + 12, s.w + 6, 16);
 
-          // 2. Stone Platform Sprite
-          const source = getFilteredProp(platImg);
-          g.drawImage(source, sx, sy - 2, s.w, platH);
+          // 2. Stone Platform Sprite (rendered directly, crisp and flicker-free)
+          g.drawImage(platImg, sx, sy - 2, s.w, platH);
           continue;
         }
 
@@ -5449,10 +5422,15 @@ export function mountCampaign(
       if (prop.kind === "gothicStairsUp" || prop.kind === "gothicStairsDown") continue;
       if (!prop.layer || prop.layer === "main") {
         const h = PROP_H[prop.kind] ?? 120;
+        const isHanging = prop.kind === "hangingColumn" || prop.kind === "chains";
         let feetY = prop.y;
-        const ground = findFloorFor(prop.x, prop.y);
-        if (Math.abs(prop.y - ground) <= 24 || prop.y >= GROUND_Y - 10) {
-          feetY = ground;
+        if (!isHanging) {
+          const ground = findFloorFor(prop.x, prop.y);
+          if (Math.abs(prop.y - ground) <= 24 || prop.y >= GROUND_Y - 10) {
+            feetY = ground;
+          }
+        } else {
+          feetY = prop.y + h;
         }
         blitStill(propsArt[prop.kind], prop.x, feetY, h);
       }
@@ -6068,12 +6046,19 @@ export function mountCampaign(
     g.fillRect(0, 0, T.viewW, T.viewH);
     g.setTransform(1, 0, 0, 1, 0, 0);
 
-    // Chamber Transition Vignette Curtain (200ms transition)
+    // Chamber Transition Vignette Curtain (200ms smooth edge-only vignette, never pitch black)
     if (chamberTransitionTimer > 0) {
       const p = chamberTransitionTimer / 0.22;
-      const a = Math.sin(p * Math.PI) * 0.55;
+      const a = Math.sin(p * Math.PI) * 0.42;
       g.save();
-      g.fillStyle = `rgba(6, 4, 12, ${a})`;
+      const cx = T.viewW / 2;
+      const cy = T.viewH / 2;
+      const rMax = Math.hypot(cx, cy);
+      const vigGrad = g.createRadialGradient(cx, cy, T.viewW * 0.28, cx, cy, rMax);
+      vigGrad.addColorStop(0, "rgba(6, 4, 12, 0)");
+      vigGrad.addColorStop(0.65, `rgba(6, 4, 12, ${a * 0.5})`);
+      vigGrad.addColorStop(1, `rgba(6, 4, 12, ${a})`);
+      g.fillStyle = vigGrad;
       g.fillRect(0, 0, T.viewW, T.viewH);
       g.restore();
     }
