@@ -131,6 +131,19 @@
 .sw-7d { background: #e2a23a; }
 .sw-7e { background: #e23b4a; }
 
+@keyframes boss-breathe {
+  0%, 100% {
+    transform: translateY(0px) scale(1);
+  }
+  50% {
+    transform: translateY(-5px) scale(1.015);
+  }
+}
+
+.animate-boss-breathe {
+  animation: boss-breathe 3.5s ease-in-out infinite;
+}
+
 @media (prefers-reduced-motion: reduce) {
   html {
     scroll-behavior: auto;
