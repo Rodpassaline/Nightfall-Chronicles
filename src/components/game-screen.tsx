@@ -11,8 +11,25 @@ import {
   Sparkles,
   Shield,
   Flame,
+  Moon,
+  Trophy,
+  Skull,
+  Heart,
+  RefreshCw,
+  Crown,
+  Play,
 } from "lucide-react";
-import { loadProgress, mountCampaign, preloadAllGameAssets, saveClear, type CampaignApi, type GameHud } from "@/game/campaign";
+import {
+  loadProgress,
+  mountCampaign,
+  preloadAllGameAssets,
+  saveClear,
+  type CampaignApi,
+  type GameHud,
+  type GameMode,
+  type Difficulty,
+  DIFFICULTY_PROFILES,
+} from "@/game/campaign";
 import { levels } from "@/game/levels";
 import { sound } from "@/game/audio";
 import { PrologueScreen } from "./prologue-screen";
@@ -61,6 +78,24 @@ export function GameScreen() {
       return false;
     }
   });
+  const [selectedMode, setSelectedMode] = useState<GameMode>("campaign");
+  const [selectedDifficulty, setSelectedDifficulty] = useState<Difficulty>("normal");
+  const [activeGameMode, setActiveGameMode] = useState<GameMode>("campaign");
+  const [hordeBest, setHordeBest] = useState(() => {
+    if (typeof window === "undefined") return 0;
+    try {
+      const val = localStorage.getItem("nightfall_horde_best");
+      return val ? parseInt(val, 10) || 0 : 0;
+    } catch {
+      return 0;
+    }
+  });
+
+  useEffect(() => {
+    if (hud.hordeBestWave && hud.hordeBestWave > hordeBest) {
+      setHordeBest(hud.hordeBestWave);
+    }
+  }, [hud.hordeBestWave, hordeBest]);
   const [stageIntroId, setStageIntroId] = useState<number | null>(null);
 
   useEffect(() => {
@@ -441,11 +476,15 @@ export function GameScreen() {
 
     ensureMobileFullscreen();
     sound.init();
-    // Se o jogador clica em iniciar pela primeira vez (ou se não assistiu ao prólogo), exibe a narrativa épica
-    if (!hasSeenIntro && progress.cleared.length === 0) {
-      startIntro();
+
+    if (selectedMode === "campaign") {
+      if (!hasSeenIntro && progress.cleared.length === 0) {
+        startIntro();
+      } else {
+        play(continueId, "campaign");
+      }
     } else {
-      play(continueId);
+      play(1, "horde");
     }
   };
 
@@ -456,8 +495,7 @@ export function GameScreen() {
       // ignore
     }
     setHasSeenIntro(true);
-    // Vai direto para a primeira fase após o prólogo
-    play(1);
+    play(1, "campaign");
   };
 
   // Automatically trigger title music on title and stage selection screens
@@ -471,7 +509,10 @@ export function GameScreen() {
     if (mode !== "play") return;
     const canvas = canvasRef.current;
     if (!canvas) return;
-    const api = mountCampaign(canvas, levelId, setHud);
+    const api = mountCampaign(canvas, levelId, setHud, {
+      gameMode: activeGameMode,
+      difficulty: selectedDifficulty,
+    });
     if (stageIntroId !== null) {
       api.setPaused(true);
     }
@@ -483,7 +524,7 @@ export function GameScreen() {
       api.destroy();
       apiRef.current = null;
     };
-  }, [mode, levelId]);
+  }, [mode, levelId, activeGameMode, selectedDifficulty]);
 
   useEffect(() => {
     if (apiRef.current) {
@@ -499,16 +540,22 @@ export function GameScreen() {
   const level = levels.find((item) => item.id === levelId) ?? levels[0];
   const continueId = levels.find((item) => item.id <= progress.unlocked && !progress.cleared.includes(item.id))?.id ?? progress.unlocked;
 
-  const play = (id: number) => {
+  const play = (id: number, gMode: GameMode = selectedMode) => {
     ensureMobileFullscreen();
     sound.setMuted(false);
     setMuted(false);
     sound.init();
-    sound.playStageBgm(id);
+    setActiveGameMode(gMode);
     setLevelId(id);
     setHud(empty);
     setMode("play");
-    setStageIntroId(id);
+    if (gMode === "campaign") {
+      sound.playStageBgm(id);
+      setStageIntroId(id);
+    } else {
+      sound.playStageBgm(1);
+      setStageIntroId(null);
+    }
   };
 
   if (mode === "intro") {
@@ -525,59 +572,202 @@ export function GameScreen() {
   }
 
   if (mode === "title") {
+    const diff = DIFFICULTY_PROFILES[selectedDifficulty];
+
     return (
       <div
-        className="relative min-h-screen"
+        className="relative min-h-screen overflow-y-auto"
         onPointerDown={() => {
           sound.init();
           sound.playBgm("title");
         }}
       >
-        <img src="/art/stage-7.jpg" alt="" className="pointer-events-none absolute inset-0 h-full w-full object-cover" />
-        <div className="pointer-events-none absolute inset-0 bg-bg/80" />
-        <div className="relative z-10 mx-auto flex min-h-screen max-w-3xl flex-col justify-center px-4 py-16 pb-28">
-          <p className="font-display text-xs tracking-widest text-gold">Campanha · 7 fases</p>
-          <h1 className="brand-title mt-2 font-display text-5xl sm:text-6xl">Nightfall Chronicles</h1>
-          <p className="mt-4 max-w-xl text-lg text-fg">
-            Aldric Vale atravessa os salões a pé. A lâmina, a esquiva e a magia abrem o caminho até Drácula. Não há abismos para pular.
-          </p>
-          <div className="mt-8 flex flex-wrap items-center gap-2">
+        <img src="/art/stage-7.jpg" alt="" className="pointer-events-none fixed inset-0 h-full w-full object-cover" />
+        <div className="pointer-events-none fixed inset-0 bg-bg/85 backdrop-blur-[2px]" />
+        
+        <div className="relative z-10 mx-auto flex min-h-screen max-w-4xl flex-col justify-center px-4 py-8 pb-24 sm:py-14">
+          {/* Header */}
+          <div className="text-center sm:text-left">
+            <div className="inline-flex items-center gap-2 px-3 py-1 rounded bg-black/60 border border-gold/30">
+              <Moon className="h-3.5 w-3.5 text-red-500 fill-red-500" />
+              <p className="font-display text-[11px] sm:text-xs tracking-widest text-gold uppercase">
+                Ação & Sobrevivência Gótica
+              </p>
+            </div>
+            <h1 className="brand-title mt-2 font-display text-4xl sm:text-6xl text-fg drop-shadow-[0_4px_16px_rgba(0,0,0,0.9)]">
+              Nightfall Chronicles
+            </h1>
+            <p className="mt-2 max-w-2xl text-xs sm:text-base text-fg/90">
+              Aldric Vale avança a pé pelos salões desconsagrados. A lâmina de prata, a esquiva veloz e magias ancestrais abrem o caminho contra as trevas.
+            </p>
+          </div>
+
+          {/* Seletor de Modo de Jogo (2 Gothic Cards) */}
+          <div className="mt-6">
+            <p className="font-display text-xs tracking-widest text-gold uppercase mb-2 flex items-center gap-1.5">
+              <span>Selecione o Modo de Jogo</span>
+            </p>
+            <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+              {/* Modo 1: Campanha */}
+              <button
+                type="button"
+                onClick={() => setSelectedMode("campaign")}
+                className={`relative flex flex-col p-3.5 sm:p-4 text-left rounded border transition-all duration-200 cursor-pointer ${
+                  selectedMode === "campaign"
+                    ? "border-gold bg-gradient-to-br from-gold/20 via-black/80 to-black/90 shadow-[0_0_20px_rgba(234,179,8,0.25)] ring-1 ring-gold"
+                    : "border-line/70 bg-black/60 hover:border-gold/50 hover:bg-black/75"
+                }`}
+              >
+                <div className="flex items-center justify-between">
+                  <div className="flex items-center gap-2">
+                    <div className={`p-1.5 sm:p-2 rounded ${selectedMode === "campaign" ? "bg-gold/20 text-gold" : "bg-surface text-muted"}`}>
+                      <Crown className="h-5 w-5" />
+                    </div>
+                    <span className="font-display text-sm sm:text-base font-bold text-fg">Campanha (7 Fases)</span>
+                  </div>
+                  {selectedMode === "campaign" ? (
+                    <span className="text-[10px] font-display font-bold px-2 py-0.5 rounded bg-gold text-black">ATIVO</span>
+                  ) : null}
+                </div>
+                <p className="mt-2 text-xs sm:text-sm text-muted">
+                  A jornada clássica pelos salões até Drácula.
+                </p>
+                <div className="mt-2.5 pt-2 border-t border-line/40 flex items-center justify-between text-[11px] text-fg/70">
+                  <span className="text-gold/90">7 Fases com Chefes e Mutações</span>
+                  <span>{progress.cleared.length > 0 ? `Fase ${continueId} Desbloqueada` : "Nova Jornada"}</span>
+                </div>
+              </button>
+
+              {/* Modo 2: Luar Contra Hordas */}
+              <button
+                type="button"
+                onClick={() => setSelectedMode("horde")}
+                className={`relative flex flex-col p-3.5 sm:p-4 text-left rounded border transition-all duration-200 cursor-pointer ${
+                  selectedMode === "horde"
+                    ? "border-red-500 bg-gradient-to-br from-red-950/40 via-black/80 to-black/90 shadow-[0_0_20px_rgba(239,68,68,0.35)] ring-1 ring-red-500"
+                    : "border-line/70 bg-black/60 hover:border-red-500/50 hover:bg-black/75"
+                }`}
+              >
+                <div className="flex items-center justify-between">
+                  <div className="flex items-center gap-2">
+                    <div className={`p-1.5 sm:p-2 rounded ${selectedMode === "horde" ? "bg-red-500/20 text-red-400" : "bg-surface text-muted"}`}>
+                      <Skull className="h-5 w-5" />
+                    </div>
+                    <span className="font-display text-sm sm:text-base font-bold text-fg">Luar Contra Hordas</span>
+                  </div>
+                  {selectedMode === "horde" ? (
+                    <span className="text-[10px] font-display font-bold px-2 py-0.5 rounded bg-blood text-white">ATIVO</span>
+                  ) : null}
+                </div>
+                <p className="mt-2 text-xs sm:text-sm text-muted">
+                  Sobrevivência infinita em ondas crescentes sob a lua de sangue.
+                </p>
+                <div className="mt-2.5 pt-2 border-t border-line/40 flex items-center justify-between text-[11px]">
+                  <span className="text-red-400/90 flex items-center gap-1">
+                    <Flame className="h-3 w-3" /> Bênçãos a cada 5 Ondas
+                  </span>
+                  <span className="font-display font-bold text-gold flex items-center gap-1">
+                    <Trophy className="h-3 w-3" />
+                    {hordeBest > 0 ? `Recorde: Onda ${hordeBest}` : "Sem recorde"}
+                  </span>
+                </div>
+              </button>
+            </div>
+          </div>
+
+          {/* Seletor de Dificuldade */}
+          <div className="mt-5">
+            <p className="font-display text-xs tracking-widest text-gold uppercase mb-2 flex items-center gap-1.5">
+              <span>Nível de Dificuldade</span>
+            </p>
+            <div className="grid grid-cols-3 gap-2">
+              {(["easy", "normal", "hard"] as Difficulty[]).map((dKey) => {
+                const isSel = selectedDifficulty === dKey;
+                const dProf = DIFFICULTY_PROFILES[dKey];
+                return (
+                  <button
+                    key={dKey}
+                    type="button"
+                    onClick={() => setSelectedDifficulty(dKey)}
+                    className={`py-2 px-1.5 sm:px-2 rounded border font-display text-xs sm:text-sm tracking-wider text-center transition-all cursor-pointer ${
+                      isSel
+                        ? dKey === "hard"
+                          ? "border-red-500 bg-red-950/70 text-red-200 font-bold shadow-[0_0_12px_rgba(239,68,68,0.4)]"
+                          : dKey === "easy"
+                            ? "border-emerald-500 bg-emerald-950/70 text-emerald-200 font-bold shadow-[0_0_12px_rgba(16,185,129,0.3)]"
+                            : "border-gold bg-gold/20 text-gold font-bold shadow-[0_0_12px_rgba(234,179,8,0.3)]"
+                        : "border-line/60 bg-black/60 text-fg/70 hover:border-gold/40 hover:text-fg"
+                    }`}
+                  >
+                    {dKey === "easy" ? "Fácil" : dKey === "normal" ? "Médio" : "Difícil"}
+                    <span className="block text-[9px] sm:text-[10px] opacity-75 font-normal truncate mt-0.5">{dProf.name}</span>
+                  </button>
+                );
+              })}
+            </div>
+
+            {/* Resumo do Modificador Ativo */}
+            <div className="mt-2.5 p-2.5 rounded bg-black/70 border border-line/50 flex items-center gap-2 text-xs text-fg/90">
+              <Shield className="h-4 w-4 shrink-0 text-gold" />
+              <div className="flex-1 min-w-0">
+                <span className="font-display font-bold text-gold mr-1.5">{diff.name}:</span>
+                <span className="text-muted">{diff.tagline}</span>
+              </div>
+            </div>
+          </div>
+
+          {/* Botões de Ação */}
+          <div className="mt-6 flex flex-wrap items-center gap-2.5">
             <button
               type="button"
-              className="h-12 bg-blood px-6 font-display text-sm tracking-widest text-fg hover:brightness-110 active:scale-95 transition-all cursor-pointer"
+              className="h-12 bg-blood px-6 sm:px-7 font-display text-xs sm:text-sm tracking-widest text-fg hover:brightness-110 active:scale-95 transition-all cursor-pointer flex items-center gap-2 shadow-[0_0_20px_rgba(180,35,48,0.5)] rounded"
               onPointerDown={handleStartGame}
               onClick={handleStartGame}
             >
-              {progress.cleared.length > 0 ? "Continuar" : "Iniciar"}
+              <Play className="h-4 w-4 fill-white" />
+              <span>
+                {selectedMode === "campaign" && progress.cleared.length > 0
+                  ? "Continuar Campanha"
+                  : "Iniciar Caçada"}
+              </span>
             </button>
+
+            {selectedMode === "campaign" ? (
+              <button
+                type="button"
+                className="h-12 border border-line bg-black/60 px-4 sm:px-5 font-display text-xs tracking-widest text-fg hover:border-gold hover:text-gold transition-all cursor-pointer rounded"
+                onClick={() => {
+                  sound.init();
+                  sound.playBgm("title");
+                  setMode("stages");
+                }}
+              >
+                Fases
+              </button>
+            ) : null}
+
             <button
               type="button"
-              className="h-11 border border-line px-5 font-display text-sm tracking-widest text-fg hover:border-gold hover:text-gold transition-all cursor-pointer"
+              className="h-12 border border-line bg-black/60 px-4 sm:px-5 font-display text-xs tracking-widest text-fg hover:border-gold hover:text-gold transition-all cursor-pointer rounded"
               onClick={startIntro}
             >
               Prólogo
             </button>
+
             <button
               type="button"
-              className="h-11 border border-line px-5 font-display text-sm tracking-widest text-fg hover:border-gold hover:text-gold transition-all cursor-pointer"
-              onClick={() => {
-                sound.init();
-                sound.playBgm("title");
-                setMode("stages");
-              }}
-            >
-              Fases
-            </button>
-            <button
-              type="button"
-              className="inline-flex h-11 items-center gap-2 border border-line bg-surface/80 px-4 font-display text-xs tracking-widest text-fg hover:border-gold transition-all cursor-pointer"
+              className="inline-flex h-12 items-center gap-2 border border-line bg-black/60 px-3.5 sm:px-4 font-display text-xs tracking-widest text-fg hover:border-gold transition-all cursor-pointer rounded"
               onClick={toggleAudio}
             >
               {muted ? <VolumeX className="h-4 w-4 text-blood" /> : <Volume2 className="h-4 w-4 text-gold" />}
               <span>{muted ? "Mudo" : "Música & SFX"}</span>
             </button>
           </div>
-          <p className="mt-6 max-w-xl text-sm text-muted">A e D andam. J (ou Z) ataca — segure para carregar. K esquiva. L (ou F) magia. E (ou Ataque+Magia) golpe especial quando a barra encher ao matar inimigos. W pula.</p>
+
+          {/* Rodapé com Dicas de Controle */}
+          <p className="mt-5 max-w-2xl text-[11px] sm:text-xs text-muted leading-relaxed">
+            Controles: <span className="text-fg/80">A e D</span> andam · <span className="text-fg/80">W</span> pula · <span className="text-fg/80">J (ou Z)</span> ataca (segure para carregar) · <span className="text-fg/80">K</span> esquiva · <span className="text-fg/80">L (ou F)</span> magia · <span className="text-fg/80">E</span> golpe especial crescente (ao matar inimigos).
+          </p>
         </div>
       </div>
     );
@@ -965,8 +1155,17 @@ export function GameScreen() {
           <div className="flex flex-col flex-1 min-w-0 w-full">
             <div className="flex items-center justify-between gap-1.5 min-w-0">
               <span className="font-display text-[10px] sm:text-xs text-gold tracking-wider font-bold truncate min-w-0 flex-1">
-                Fase {level.id} · {level.title}
+                {hud.gameMode === "horde" ? `Onda ${hud.hordeWave ?? 1}` : `Fase ${level.id} · ${level.title}`}
               </span>
+              {/* Horde Remaining Badge */}
+              {hud.gameMode === "horde" ? (
+                <div className="shrink-0 flex items-center gap-1 bg-red-950/70 border border-red-500/50 px-1.5 py-0.2 rounded">
+                  <Skull className="h-2.5 w-2.5 text-red-400" />
+                  <span className="font-display text-[9.5px] text-red-200 font-bold leading-none">
+                    Restantes: {hud.hordeRemaining ?? 0}
+                  </span>
+                </div>
+              ) : null}
               {/* Hearts / Lives */}
               <div className="shrink-0 flex items-center gap-0.5 bg-blood/30 border border-gold/40 px-1.5 py-0.2 rounded">
                 <span className="text-[10px] text-blood font-bold leading-none">♥</span>
@@ -1016,7 +1215,7 @@ export function GameScreen() {
           </div>
         </div>
 
-        {/* Center: Boss Meter (Active during Boss Fights) OR Seal Puzzle Progress */}
+        {/* Center: Boss Meter (Active during Boss Fights) OR Horde Banner OR Seal Puzzle Progress */}
         {hud.bossOn ? (
           <div
             className={`flex flex-col items-center bg-black/85 backdrop-blur-md border px-3 py-1 sm:px-4 sm:py-1.5 rounded shadow-2xl max-w-[220px] sm:max-w-xs w-full mx-1 min-w-0 transition-all ${
@@ -1061,6 +1260,16 @@ export function GameScreen() {
                 style={{ width: `${(hud.bossHp / Math.max(1, hud.bossMax)) * 100}%` }}
               />
             </div>
+          </div>
+        ) : hud.gameMode === "horde" ? (
+          <div className="hidden xs:flex items-center gap-2 bg-black/85 backdrop-blur-md border border-red-500/60 px-3 py-1 rounded shadow-xl">
+            <Moon className="h-3.5 w-3.5 text-red-500 fill-red-500 animate-pulse" />
+            <span className="font-display text-[10px] text-fg tracking-wider font-bold">
+              LUAR CONTRA HORDAS
+            </span>
+            <span className="text-[9px] font-display font-extrabold px-1.5 py-0.2 rounded border border-gold/40 text-gold bg-black/50">
+              {hud.difficulty === "easy" ? "FÁCIL" : hud.difficulty === "hard" ? "DIFÍCIL" : "MÉDIO"}
+            </span>
           </div>
         ) : (hud.sealsTotal ?? 0) > 0 ? (
           <div className="hidden xs:flex items-center gap-1.5 bg-black/75 backdrop-blur-md border border-gold/35 px-2.5 py-1 rounded shadow-xl shrink-0">
@@ -1124,8 +1333,145 @@ export function GameScreen() {
         </div>
       ) : null}
 
-      {/* Game Over / Stage Cleared Overlay Modal */}
-      {hud.won || hud.dead ? (
+      {/* Bênçãos do Luar (Upgrade a cada 5 Ondas na Horda) */}
+      {hud.hordeUpgradeAvailable ? (
+        <div className="absolute inset-0 z-40 flex items-center justify-center bg-black/90 backdrop-blur-md px-4">
+          <div className="w-full max-w-lg border-2 border-red-500/80 bg-gradient-to-b from-surface/98 via-surface-2/95 to-black/98 p-5 sm:p-6 text-center shadow-[0_0_40px_rgba(239,68,68,0.4)] rounded">
+            <div className="inline-flex items-center gap-1.5 px-3 py-1 rounded bg-red-950/80 border border-red-500/50 mb-2">
+              <Moon className="h-3.5 w-3.5 text-red-400 fill-red-400" />
+              <span className="font-display text-[11px] text-red-200 tracking-widest font-bold">
+                BÊNÇÃO DO LUAR · ONDA {hud.hordeUpgradeWave} CONCLUÍDA
+              </span>
+            </div>
+            <h2 className="font-display text-xl sm:text-2xl text-gold font-bold tracking-wide">
+              Escolha uma Dádiva Ancestral
+            </h2>
+            <p className="mt-1 text-xs text-fg/80 max-w-md mx-auto">
+              A lua de sangue concede uma bênção antes da próxima investida. Escolha um poder:
+            </p>
+
+            <div className="mt-5 grid grid-cols-1 sm:grid-cols-3 gap-3 text-left">
+              {/* Option 1: Cálice Carmesim */}
+              <button
+                type="button"
+                onClick={() => apiRef.current?.chooseBlessing?.("hp")}
+                className="flex flex-col p-3 rounded border border-blood/60 bg-blood/10 hover:border-gold hover:bg-blood/25 transition cursor-pointer active:scale-95 group"
+              >
+                <div className="flex items-center gap-1.5 text-red-400 mb-1">
+                  <Heart className="h-4 w-4 fill-red-500 text-red-500 group-hover:scale-110 transition" />
+                  <span className="font-display text-xs font-bold text-fg">Cálice Carmesim</span>
+                </div>
+                <p className="text-[11px] font-bold text-red-300">+50% HP Máximo</p>
+                <p className="mt-1 text-[10px] text-muted leading-tight">
+                  Recupera 50% do HP máximo de Aldric imediatamente.
+                </p>
+              </button>
+
+              {/* Option 2: Fio de Prata */}
+              <button
+                type="button"
+                onClick={() => apiRef.current?.chooseBlessing?.("blade")}
+                className="flex flex-col p-3 rounded border border-gold/60 bg-gold/10 hover:border-gold hover:bg-gold/25 transition cursor-pointer active:scale-95 group"
+              >
+                <div className="flex items-center gap-1.5 text-gold mb-1">
+                  <Sword className="h-4 w-4 group-hover:scale-110 transition -rotate-45" />
+                  <span className="font-display text-xs font-bold text-fg">Fio de Prata</span>
+                </div>
+                <p className="text-[11px] font-bold text-gold">+15% Dano Lâmina</p>
+                <p className="mt-1 text-[10px] text-muted leading-tight">
+                  Aumenta o dano da lâmina e do ataque carregado em +15%.
+                </p>
+              </button>
+
+              {/* Option 3: Essência Arcana */}
+              <button
+                type="button"
+                onClick={() => apiRef.current?.chooseBlessing?.("magic")}
+                className="flex flex-col p-3 rounded border border-purple-500/60 bg-purple-950/20 hover:border-purple-400 hover:bg-purple-950/40 transition cursor-pointer active:scale-95 group"
+              >
+                <div className="flex items-center gap-1.5 text-purple-300 mb-1">
+                  <Sparkles className="h-4 w-4 group-hover:scale-110 transition" />
+                  <span className="font-display text-xs font-bold text-fg">Essência Arcana</span>
+                </div>
+                <p className="text-[11px] font-bold text-purple-300">Especial 100% & -15% CD</p>
+                <p className="mt-1 text-[10px] text-muted leading-tight">
+                  Enche a barra de Especial e reduz a recarga da magia em 15%.
+                </p>
+              </button>
+            </div>
+          </div>
+        </div>
+      ) : null}
+
+      {/* Game Over / Summary na Horda */}
+      {hud.gameMode === "horde" && hud.dead ? (
+        <div className="absolute inset-0 z-40 flex items-center justify-center bg-black/90 backdrop-blur-sm px-4">
+          <div className="w-full max-w-md border-2 border-red-600/80 bg-surface/98 p-6 text-center shadow-[0_0_30px_rgba(239,68,68,0.4)] rounded">
+            <div className="inline-flex items-center gap-1 px-3 py-1 rounded bg-red-950/80 border border-red-500/50 mb-2">
+              <Skull className="h-4 w-4 text-red-500" />
+              <span className="font-display text-xs text-red-200 tracking-widest font-bold">
+                FIM DA SOBREVIVÊNCIA
+              </span>
+            </div>
+            <h2 className="font-display text-2xl text-fg font-bold tracking-wide">
+              O Luar Ceifou Aldric
+            </h2>
+            <p className="mt-1.5 text-xs text-muted">
+              Sua bravura ecoará para sempre sob a noite sem fim.
+            </p>
+
+            {/* Stats Box */}
+            <div className="my-5 grid grid-cols-3 gap-2 p-3 rounded bg-black/70 border border-line/60">
+              <div>
+                <span className="block font-display text-xl text-gold font-bold">{hud.hordeWave ?? 1}</span>
+                <span className="text-[10px] text-muted uppercase tracking-wider">Onda</span>
+              </div>
+              <div>
+                <span className="block font-display text-xl text-red-400 font-bold">{hud.hordeKills ?? 0}</span>
+                <span className="text-[10px] text-muted uppercase tracking-wider">Abates</span>
+              </div>
+              <div>
+                <span className="block font-display text-xl text-gold font-bold">{hud.hordeBestWave ?? hordeBest}</span>
+                <span className="text-[10px] text-muted uppercase tracking-wider">Recorde</span>
+              </div>
+            </div>
+
+            {hud.hordeWave && hud.hordeBestWave && hud.hordeWave >= hud.hordeBestWave && hud.hordeWave > 1 ? (
+              <div className="mb-4 inline-flex items-center gap-1.5 px-3 py-1 rounded bg-gold/20 border border-gold text-gold font-display text-xs font-bold animate-pulse">
+                <Trophy className="h-3.5 w-3.5" />
+                NOVO RECORDE DA HORDA!
+              </div>
+            ) : null}
+
+            <div className="flex flex-col gap-2 sm:flex-row sm:justify-center">
+              <button
+                type="button"
+                className="h-11 bg-blood px-6 font-display text-xs tracking-widest text-fg hover:brightness-110 rounded shadow transition flex items-center justify-center gap-1.5 cursor-pointer"
+                onClick={() => {
+                  apiRef.current?.reset();
+                }}
+              >
+                <RefreshCw className="h-3.5 w-3.5" />
+                Tentar Novamente
+              </button>
+              <button
+                type="button"
+                className="h-11 border border-line px-5 font-display text-xs tracking-widest text-fg hover:border-gold rounded transition cursor-pointer"
+                onClick={() => {
+                  sound.stopBgm();
+                  sound.playBgm("title");
+                  setMode("title");
+                }}
+              >
+                Voltar ao Menu
+              </button>
+            </div>
+          </div>
+        </div>
+      ) : null}
+
+      {/* Game Over / Stage Cleared Overlay Modal (Campanha) */}
+      {hud.gameMode !== "horde" && (hud.won || hud.dead) ? (
         <div className="absolute inset-0 z-40 flex items-center justify-center bg-black/85 backdrop-blur-sm px-4">
           <div className="w-full max-w-sm border border-gold/60 bg-surface/95 p-6 text-center shadow-2xl rounded">
             <p className="font-display text-xl text-fg font-bold tracking-wide">

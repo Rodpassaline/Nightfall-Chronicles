@@ -96,6 +96,49 @@ export const BOSS_METADATA: Record<
   },
 };
 
+export type Difficulty = "easy" | "normal" | "hard";
+export type GameMode = "campaign" | "horde";
+
+export interface DifficultyProfile {
+  name: string;
+  tagline: string;
+  enemyHpMult: number;
+  enemyDamageMult: number;
+  enemyCooldownMult: number;
+  specialGaugeMult: number;
+  hordeBudgetMult: number;
+}
+
+export const DIFFICULTY_PROFILES: Record<Difficulty, DifficultyProfile> = {
+  easy: {
+    name: "Caçador Iniciante",
+    tagline: "HP inimigo -20%, dano recebido -30%, recarga inimiga +35%, especial +25%",
+    enemyHpMult: 0.8,
+    enemyDamageMult: 0.7,
+    enemyCooldownMult: 1.35,
+    specialGaugeMult: 1.25,
+    hordeBudgetMult: 0.8,
+  },
+  normal: {
+    name: "Sangue Frio",
+    tagline: "Experiência equilibrada e desafiadora original",
+    enemyHpMult: 1.0,
+    enemyDamageMult: 1.0,
+    enemyCooldownMult: 1.0,
+    specialGaugeMult: 1.0,
+    hordeBudgetMult: 1.0,
+  },
+  hard: {
+    name: "Pesadelo Noturno",
+    tagline: "HP inimigo +20%, dano recebido +35%, recarga inimiga -25%, especial -15%",
+    enemyHpMult: 1.2,
+    enemyDamageMult: 1.35,
+    enemyCooldownMult: 0.75,
+    specialGaugeMult: 0.85,
+    hordeBudgetMult: 1.25,
+  },
+};
+
 export type GameHud = {
   hp: number;
   maxHp: number;
@@ -119,6 +162,16 @@ export type GameHud = {
   sealsSolved?: number;
   sealsTotal?: number;
   bossCinematic?: BossCinematicInfo | null;
+  // Horde & Difficulty fields
+  gameMode?: GameMode;
+  difficulty?: Difficulty;
+  hordeWave?: number;
+  hordeRemaining?: number;
+  hordeTotalInWave?: number;
+  hordeKills?: number;
+  hordeBestWave?: number;
+  hordeUpgradeAvailable?: boolean;
+  hordeUpgradeWave?: number;
 };
 
 type Action = "left" | "right" | "jump" | "aimUp" | "aimDown" | "attack" | "dash" | "spell" | "guard" | "special";
@@ -521,8 +574,18 @@ export function mountCampaign(
   canvas: HTMLCanvasElement,
   levelId: number,
   onHud: (hud: GameHud) => void,
+  options?: {
+    gameMode?: GameMode;
+    difficulty?: Difficulty;
+  },
 ) {
+  const gameMode: GameMode = options?.gameMode ?? "campaign";
+  const difficulty: Difficulty = options?.difficulty ?? "normal";
+  const diffProfile = DIFFICULTY_PROFILES[difficulty] ?? DIFFICULTY_PROFILES.normal;
+  const hordeArenaWidth = 720;
+
   const level = levels.find((item) => item.id === levelId) ?? levels[0];
+  const stageW = gameMode === "horde" ? hordeArenaWidth : level.width;
   const ctx = canvas.getContext("2d");
   if (!ctx) throw new Error("Canvas 2D indisponível");
   const g: CanvasRenderingContext2D = ctx;
@@ -614,6 +677,166 @@ export function mountCampaign(
   let bossIntroPlayed = false;
   let bossEnragedAnnounced = false;
   let ambushTimer = 4.0;
+
+  // Horde Mode State & Progression
+  let hordeWave = 1;
+  let hordeQueue: Kind[] = [];
+  let hordeTotalInWave = 0;
+  let hordeKills = 0;
+  let hordeSpawnTimer = 0.5;
+  let hordeWaveClearing = false;
+  let hordeBetweenWavesTimer = 0;
+  let hordeUpgradeAvailable = false;
+  let hordeUpgradeWave = 0;
+  let hordeBestWave = 0;
+  let bladeDmgMultiplier = 1.0;
+  let spellCdMultiplier = 1.0;
+  let currentHordeStageId = 1;
+
+  try {
+    const rawBest = typeof window !== "undefined" ? localStorage.getItem("nightfall_horde_best") : null;
+    hordeBestWave = rawBest ? parseInt(rawBest, 10) || 0 : 0;
+  } catch {
+    hordeBestWave = 0;
+  }
+
+  const hordeSolids = [
+    { x: 0, y: GROUND_Y, w: hordeArenaWidth, h: 80, oneWay: false },
+    { x: 120, y: GROUND_Y - 55, w: 100, h: 12, oneWay: true },
+    { x: 500, y: GROUND_Y - 55, w: 100, h: 12, oneWay: true },
+    { x: 310, y: GROUND_Y - 95, w: 100, h: 12, oneWay: true },
+  ];
+
+  function getActiveSolids() {
+    return gameMode === "horde" ? hordeSolids : level.solids;
+  }
+
+  function getActiveProps() {
+    if (gameMode === "horde") {
+      return [
+        { kind: "column" as PropKind, x: 80, y: GROUND_Y, layer: "main" as const },
+        { kind: "sconceBlue" as PropKind, x: 120, y: GROUND_Y - 80, layer: "main" as const },
+        { kind: "candelabra" as PropKind, x: 260, y: GROUND_Y, layer: "main" as const },
+        { kind: "statue" as PropKind, x: 360, y: GROUND_Y, layer: "bg" as const },
+        { kind: "candelabra" as PropKind, x: 460, y: GROUND_Y, layer: "main" as const },
+        { kind: "sconceBlue" as PropKind, x: 600, y: GROUND_Y - 80, layer: "main" as const },
+        { kind: "column" as PropKind, x: 640, y: GROUND_Y, layer: "main" as const },
+      ];
+    }
+    return level.props;
+  }
+
+  async function switchHordeStageTheme(targetStage: number) {
+    currentHordeStageId = targetStage;
+    bg = await preloadImage(`/art/stage-${targetStage}.jpg`);
+    plates.back = await preloadImage(`/art/stages/s${targetStage}/back.jpg`);
+    plates.floor = await preloadImage(`/art/stages/s${targetStage}/floor.jpg`);
+    plates.fg = await preloadImage(`/art/stages/s${targetStage}/fg.png`);
+    if (targetStage === 1) {
+      plates.mid = await preloadImage(`/art/stages/s1/mid.png`);
+    } else {
+      delete plates.mid;
+    }
+    sound.playStageBgm(targetStage);
+  }
+
+  function buildHordeWaveQueue(wave: number): Kind[] {
+    const baseCount = 5 + (wave - 1) * 3;
+    const count = Math.max(4, Math.round(baseCount * diffProfile.hordeBudgetMult));
+    const queue: Kind[] = [];
+
+    for (let i = 0; i < count; i++) {
+      if (wave === 1) {
+        queue.push(Math.random() < 0.65 ? "zombie" : "skeleton");
+      } else if (wave === 2) {
+        const r = Math.random();
+        queue.push(r < 0.4 ? "zombie" : r < 0.75 ? "skeleton" : "bat");
+      } else if (wave === 3) {
+        const r = Math.random();
+        queue.push(r < 0.35 ? "skeleton" : r < 0.65 ? "armoredSkeleton" : r < 0.85 ? "zombie" : "bat");
+      } else if (wave === 4) {
+        const r = Math.random();
+        queue.push(r < 0.3 ? "armoredSkeleton" : r < 0.6 ? "redSkeleton" : r < 0.8 ? "skeleton" : "bat");
+      } else if (wave % 5 === 0) {
+        if (i === 0) {
+          queue.push("knight");
+        } else if (i === 1) {
+          queue.push("gargoyle");
+        } else if (i === 2 && wave >= 10) {
+          queue.push("vampire");
+        } else {
+          const pool: Kind[] = ["armoredSkeleton", "redSkeleton", "gargoyle", "knight", "bat"];
+          queue.push(pool[Math.floor(Math.random() * pool.length)]);
+        }
+      } else {
+        const pool: Kind[] = [
+          "zombie",
+          "skeleton",
+          "armoredSkeleton",
+          "redSkeleton",
+          "bat",
+          "gargoyle",
+          "knight",
+          "vampire",
+        ];
+        queue.push(pool[Math.floor(Math.random() * pool.length)]);
+      }
+    }
+    return queue;
+  }
+
+  function spawnHordeEnemy(kind: Kind) {
+    const fromLeft = Math.random() < 0.5;
+    const sx = fromLeft ? 45 + Math.random() * 35 : hordeArenaWidth - 75 - Math.random() * 35;
+    let sy = GROUND_Y;
+    const isEmerging = kind === "zombie" || kind === "skeleton" || kind === "armoredSkeleton" || kind === "redSkeleton";
+
+    if (kind === "bat") {
+      sy = GROUND_Y - 75 - Math.random() * 45;
+    }
+
+    const baseHpMap: Record<string, number> = {
+      bat: 2,
+      zombie: 4,
+      skeleton: 5,
+      redSkeleton: 6,
+      gargoyle: 7,
+      knight: 8,
+      armoredSkeleton: 8,
+      vampire: 9,
+    };
+    const baseHp = baseHpMap[kind] || 5;
+    const waveFactor = 1 + (hordeWave - 1) * 0.03;
+    const finalHp = Math.max(1, Math.round(baseHp * waveFactor * diffProfile.enemyHpMult));
+
+    const e = makeEnemy({ kind, x: sx, y: sy, hp: finalHp }, isEmerging);
+    e.facing = sx < player.x ? 1 : -1;
+    if (kind === "bat") {
+      e.vx = e.facing * 110;
+    }
+    e.alertSoundPlayed = true;
+    enemies.push(e);
+    sound.playEnemyAlert(kind);
+  }
+
+  function startHordeWave(wave: number) {
+    hordeWave = wave;
+    hordeQueue = buildHordeWaveQueue(wave);
+    hordeTotalInWave = hordeQueue.length;
+    hordeSpawnTimer = 0.4;
+    hordeWaveClearing = false;
+    hordeBetweenWavesTimer = 0;
+    hordeUpgradeAvailable = false;
+
+    const targetStage = ((Math.floor((wave - 1) / 3)) % 7) + 1;
+    if (currentHordeStageId !== targetStage) {
+      currentHordeStageId = targetStage;
+      void switchHordeStageTheme(targetStage);
+    }
+
+    player.toast = `Onda ${wave} — Sobreviva à Lua de Sangue!`;
+    player.toastT = 2.4;
+  }
 
   type BossCinematic = {
     active: boolean;
@@ -900,7 +1123,7 @@ export function mountCampaign(
   function findFloorFor(x: number, fallbackY: number): number {
     let best = fallbackY;
     let bestDist = Infinity;
-    for (const s of level.solids) {
+    for (const s of getActiveSolids()) {
       if (x >= s.x && x <= s.x + s.w) {
         const dist = Math.abs(s.y - fallbackY);
         if (dist < bestDist && (s.y >= fallbackY - 50 || !s.oneWay)) {
@@ -969,13 +1192,13 @@ export function mountCampaign(
     const finalY = spawn.kind === "bat" ? floor - (spawn.boss ? 56 : 74) : floor - h;
     const y = isEmerging ? floor : finalY;
 
-    // Balanced enemy & boss HP: regular enemies die in a fair 3-5 hit combo (and 1-shot to Special!), while Bosses provide an epic duel
+    // Balanced enemy & boss HP with difficulty profile scaling
     const stageFactor = 1 + (level.id - 1) * 0.04;
     const scaledHp = isBoss
-      ? Math.round(spawn.hp * (1.55 + (level.id - 1) * 0.08))
+      ? Math.max(1, Math.round(spawn.hp * (1.55 + (level.id - 1) * 0.08) * diffProfile.enemyHpMult))
       : spawn.kind === "bat"
-        ? 2
-        : Math.round(spawn.hp * stageFactor);
+        ? Math.max(1, Math.round(2 * diffProfile.enemyHpMult))
+        : Math.max(1, Math.round(spawn.hp * stageFactor * diffProfile.enemyHpMult));
 
     return {
       id: nextId++,
@@ -1054,6 +1277,7 @@ export function mountCampaign(
   function initStagePuzzles() {
     sealCrystals = [];
     sealGates = [];
+    if (gameMode === "horde") return;
 
     // Stage-specific coordinates aligned with elevated platforms in each stage
     const gate1X = level.id === 1 ? 2480 : level.id === 2 ? 2150 : level.id === 7 ? 2100 : 2180;
@@ -1210,21 +1434,34 @@ export function mountCampaign(
     sound.stopBossVoice();
     shots.length = 0;
     specialSlashes.length = 0;
-    enemies = level.spawns.map((s) => makeEnemy(s));
-    items = level.items.map((it) => ({
-      id: it.id,
-      kind: it.kind,
-      x: it.x,
-      y: it.y,
-      w: 24,
-      h: 24,
-      collected: false,
-      bounceT: Math.random() * Math.PI * 2,
-    }));
-    initStagePuzzles();
-    initParticles();
-    // Play stage-specific music track (Fase 1-7, com Fase 7 tocando Sinister Horror para o Mestre)
-    sound.playStageBgm(level.id);
+
+    if (gameMode === "horde") {
+      player.x = Math.round(hordeArenaWidth / 2 - player.w / 2);
+      player.toast = "Sobreviva à Lua de Sangue!";
+      player.toastT = 3.0;
+      enemies = [];
+      items = [];
+      initParticles();
+      currentHordeStageId = 1;
+      void switchHordeStageTheme(1);
+      startHordeWave(1);
+    } else {
+      enemies = level.spawns.map((s) => makeEnemy(s));
+      items = level.items.map((it) => ({
+        id: it.id,
+        kind: it.kind,
+        x: it.x,
+        y: it.y,
+        w: 24,
+        h: 24,
+        collected: false,
+        bounceT: Math.random() * Math.PI * 2,
+      }));
+      initStagePuzzles();
+      initParticles();
+      // Play stage-specific music track (Fase 1-7, com Fase 7 tocando Sinister Horror para o Mestre)
+      sound.playStageBgm(level.id);
+    }
   }
 
   function actions() {
@@ -1240,6 +1477,19 @@ export function mountCampaign(
     body.wall = 0;
     body.grounded = false;
     body.x += body.vx * dt;
+
+    if (gameMode === "horde") {
+      if (body.x < 15) {
+        body.x = 15;
+        body.wall = -1;
+        body.vx = Math.max(0, body.vx);
+      } else if (body.x + body.w > hordeArenaWidth - 15) {
+        body.x = hordeArenaWidth - 15 - body.w;
+        body.wall = 1;
+        body.vx = Math.min(0, body.vx);
+      }
+    }
+
     // Collide with locked Gothic Seal Gates (blocks both player and enemies so foes behind a gate cannot phase through)
     for (const gate of sealGates) {
       if (gate.open) continue;
@@ -1264,7 +1514,7 @@ export function mountCampaign(
         }
       }
     }
-    for (const s of level.solids) {
+    for (const s of getActiveSolids()) {
       if (s.oneWay || !overlap(body, s)) continue;
       const feet = body.y + body.h;
       const rise = feet - s.y;
@@ -1286,7 +1536,7 @@ export function mountCampaign(
     const prevBottom = body.y + body.h;
     const prevTop = body.y;
     body.y += body.vy * dt;
-    for (const s of level.solids) {
+    for (const s of getActiveSolids()) {
       if (!overlap(body, s)) continue;
       if (s.oneWay) {
         if (drop || body.vy < 0 || prevBottom > s.y + 1) continue;
@@ -1313,7 +1563,7 @@ export function mountCampaign(
     }
     // Ground resting check: if resting directly on top of a solid surface, maintain grounded
     if (!body.grounded && body.vy >= 0) {
-      for (const s of level.solids) {
+      for (const s of getActiveSolids()) {
         if (body.x + body.w > s.x && body.x < s.x + s.w) {
           if (Math.abs(body.y + body.h - s.y) <= 2.5) {
             body.y = s.y - body.h;
@@ -1337,8 +1587,9 @@ export function mountCampaign(
       sound.playSfx("slash");
       return;
     }
-    const isFatal = player.hp <= dmg;
-    player.hp -= dmg;
+    const effectiveDmg = Math.max(1, Math.round(dmg * diffProfile.enemyDamageMult));
+    const isFatal = player.hp <= effectiveDmg;
+    player.hp -= effectiveDmg;
     player.iframes = T.hurtIFrames;
     player.hurtT = 0.16;
     player.charge = "idle";
@@ -1370,7 +1621,21 @@ export function mountCampaign(
       player.willRevive = player.lives > 1;
       shake = 6;
       if (!player.willRevive) {
-        player.toast = "Aldric sucumbiu às sombras da noite...";
+        player.dead = true;
+        if (gameMode === "horde") {
+          try {
+            const prevBest = parseInt(localStorage.getItem("nightfall_horde_best") || "0", 10) || 0;
+            if (hordeWave > prevBest) {
+              localStorage.setItem("nightfall_horde_best", String(hordeWave));
+              hordeBestWave = hordeWave;
+            }
+          } catch {
+            // ignore
+          }
+          player.toast = `Luar Ceifou Aldric! Onda alcançada: ${hordeWave}.`;
+        } else {
+          player.toast = "Aldric sucumbiu às sombras da noite...";
+        }
         player.toastT = 4.0;
       }
     } else {
@@ -1454,12 +1719,16 @@ export function mountCampaign(
       }
     }
 
-    const isFatal = e.hp <= dmg;
+    const effectiveDmg = hitSource === "slash" ? Math.max(1, Math.round(dmg * bladeDmgMultiplier)) : dmg;
+    const isFatal = e.hp <= effectiveDmg;
     const knockDir = (e.x + e.w / 2) >= (player.x + player.w / 2) ? 1 : -1;
     e.lastSwing = player.swingId;
-    e.hp -= dmg;
+    e.hp -= effectiveDmg;
 
     if (isFatal) {
+      if (gameMode === "horde") {
+        hordeKills++;
+      }
       e.hp = 0;
       e.dying = true;
       e.deathT = 0;
@@ -1473,10 +1742,11 @@ export function mountCampaign(
       if (e.boss) sound.stopBossVoice();
       shake = Math.max(shake, e.boss ? 8 : 4);
 
-      // Increase special meter on enemy kill (4 to 5 kills fills the 100% Special bar!)
+      // Increase special meter on enemy kill (with difficulty multiplier)
       const gain = e.boss ? 40 : e.kind === "knight" || e.kind === "armoredSkeleton" || e.kind === "gargoyle" || e.kind === "vampire" ? 25 : 20;
+      const adjustedGain = Math.max(1, Math.round(gain * diffProfile.specialGaugeMult));
       const wasFull = player.special >= 100;
-      player.special = Math.min(100, player.special + gain);
+      player.special = Math.min(100, player.special + adjustedGain);
       if (!wasFull && player.special >= 100) {
         player.toast = "⚔️ GOLPE CRESCENTE PRONTO! [E] ou [Ataque + Magia]";
         player.toastT = 3.2;
@@ -2001,10 +2271,10 @@ export function mountCampaign(
           player.toastT = 0.6;
         } else {
           player.mana -= T.spellCost;
-          player.castT = 0.28;
+          player.castT = 0.28 * spellCdMultiplier;
           player.castFired = false;
           player.attackT = 0;
-          player.attackLock = 0.28;
+          player.attackLock = 0.28 * spellCdMultiplier;
           player.charge = "idle";
           player.holdT = 0;
           sound.playSfx("spell");
@@ -2117,7 +2387,7 @@ export function mountCampaign(
       player.jumps = 1;
     } else player.coyote = Math.max(0, player.coyote - dt);
     if (player.dashT > 0 && player.wall !== 0) player.dashT = 0;
-    player.x = clamp(player.x, 0, level.width - player.w);
+    player.x = clamp(player.x, gameMode === "horde" ? 15 : 0, stageW - player.w - (gameMode === "horde" ? 15 : 0));
     if (player.y > 420) {
       hurtPlayer(2, player.x);
       player.y = GROUND_Y - STAND_H;
@@ -2478,54 +2748,105 @@ export function mountCampaign(
       if (s.life <= 0) specialSlashes.splice(i, 1);
     }
 
-    const bosses = enemies.filter((e) => e.boss);
-    const open = bosses.length > 0 && bosses.every((e) => e.dead);
-    const portal = { x: level.door.x - 16, y: level.door.y - 12, w: 60, h: 88 };
-    if (open && overlap(player, portal) && !clearedOnce) {
-      clearedOnce = true;
-      player.won = true;
-      player.toast =
-        level.id === 7
-          ? "Drácula caiu! O Castelo desmorona e a noite eterna recua!"
-          : "Portal Atravessado! Rumo ao próximo salão!";
-      player.toastT = 4.5;
-      sound.playSfx("gateOpen");
-      sound.playBgm("victory");
-    }
+    if (gameMode === "campaign") {
+      const bosses = enemies.filter((e) => e.boss);
+      const open = bosses.length > 0 && bosses.every((e) => e.dead);
+      const portal = { x: level.door.x - 16, y: level.door.y - 12, w: 60, h: 88 };
+      if (open && overlap(player, portal) && !clearedOnce) {
+        clearedOnce = true;
+        player.won = true;
+        player.toast =
+          level.id === 7
+            ? "Drácula caiu! O Castelo desmorona e a noite eterna recua!"
+            : "Portal Atravessado! Rumo ao próximo salão!";
+        player.toastT = 4.5;
+        sound.playSfx("gateOpen");
+        sound.playBgm("victory");
+      }
 
-    // Controlled Ambush System: Only spawns a lone scout when the screen is completely empty of enemies
-    // and never swarms the player while fighting or solving Seal Puzzles!
-    const bossChamberX = level.width - 650;
-    const inBossArena = player.x > bossChamberX;
-    const nearGate = sealGates.some((g) => !g.open && Math.abs(player.x - gateX(g)) < 220);
-    function gateX(g: SealGate) { return g.x; }
-    if (!player.dead && !player.won && !inBossArena && !nearGate) {
-      ambushTimer -= dt;
-      if (ambushTimer <= 0) {
-        ambushTimer = 24.0 + Math.random() * 8.0;
-        const nearbyEnemies = enemies.filter((e) => !e.dead && !e.dying && Math.abs(e.x - player.x) < 420).length;
-        if (nearbyEnemies === 0) {
-          const roll = Math.random();
-          if (roll < 0.65) {
-            const dir = player.facing;
-            const spawnDist = dir * (165 + Math.random() * 60);
-            const sx = clamp(player.x + spawnDist, 120, bossChamberX - 80);
-            const floor = findFloorFor(sx, GROUND_Y);
-            const spawnKind: Kind = level.theme === "gallery" || level.theme === "chapel" ? "skeleton" : "zombie";
-            const newEnemy = makeEnemy({ kind: spawnKind, x: sx, y: floor, hp: 4 }, true);
-            newEnemy.alertSoundPlayed = true;
-            enemies.push(newEnemy);
-            sound.playEnemyAlert(spawnKind);
+      // Controlled Ambush System: Only spawns a lone scout when the screen is completely empty of enemies
+      // and never swarms the player while fighting or solving Seal Puzzles!
+      const bossChamberX = level.width - 650;
+      const inBossArena = player.x > bossChamberX;
+      const nearGate = sealGates.some((g) => !g.open && Math.abs(player.x - gateX(g)) < 220);
+      function gateX(g: SealGate) { return g.x; }
+      if (!player.dead && !player.won && !inBossArena && !nearGate) {
+        ambushTimer -= dt;
+        if (ambushTimer <= 0) {
+          ambushTimer = 24.0 + Math.random() * 8.0;
+          const nearbyEnemies = enemies.filter((e) => !e.dead && !e.dying && Math.abs(e.x - player.x) < 420).length;
+          if (nearbyEnemies === 0) {
+            const roll = Math.random();
+            if (roll < 0.65) {
+              const dir = player.facing;
+              const spawnDist = dir * (165 + Math.random() * 60);
+              const sx = clamp(player.x + spawnDist, 120, bossChamberX - 80);
+              const floor = findFloorFor(sx, GROUND_Y);
+              const spawnKind: Kind = level.theme === "gallery" || level.theme === "chapel" ? "skeleton" : "zombie";
+              const newEnemy = makeEnemy({ kind: spawnKind, x: sx, y: floor, hp: 4 }, true);
+              newEnemy.alertSoundPlayed = true;
+              enemies.push(newEnemy);
+              sound.playEnemyAlert(spawnKind);
+            } else {
+              const fromRight = player.facing > 0;
+              const bx = fromRight ? camX + T.viewW + 25 : camX - 25;
+              const by = player.y - 60 - Math.random() * 25;
+              const batEnemy = makeEnemy({ kind: "bat", x: bx, y: by, hp: 2 }, false);
+              batEnemy.facing = fromRight ? -1 : 1;
+              batEnemy.vx = (fromRight ? -1 : 1) * 110;
+              batEnemy.alertSoundPlayed = true;
+              enemies.push(batEnemy);
+              sound.playEnemyAlert("bat");
+            }
+          }
+        }
+      }
+    } else if (gameMode === "horde") {
+      // Controlled spawn queue & wave progression in Horde Mode
+      if (!player.dead && !player.won && !hordeUpgradeAvailable) {
+        const activeCount = enemies.filter((e) => !e.dead && !e.dying).length;
+        const maxActive = difficulty === "easy" ? 3 : difficulty === "hard" ? 5 : 4;
+
+        hordeSpawnTimer -= dt;
+        if (hordeSpawnTimer <= 0 && activeCount < maxActive && hordeQueue.length > 0) {
+          hordeSpawnTimer = 0.8; // 800ms spawn delay between queued enemies
+          const nextKind = hordeQueue.shift()!;
+          spawnHordeEnemy(nextKind);
+        }
+
+        // Wave finished check
+        if (hordeQueue.length === 0 && activeCount === 0 && !hordeWaveClearing) {
+          hordeWaveClearing = true;
+          sound.playSfx("relic");
+          player.toast = `Onda ${hordeWave} Concluída!`;
+          player.toastT = 2.4;
+          player.mana = Math.min(T.maxMana, player.mana + 30);
+
+          if (player.hp < T.maxHp) {
+            items.push({
+              id: nextId++,
+              kind: Math.random() < 0.65 ? "heal" : "mana",
+              x: hordeArenaWidth / 2 + (Math.random() - 0.5) * 140,
+              y: GROUND_Y - 24,
+              w: 24,
+              h: 24,
+              collected: false,
+              bounceT: 0,
+            });
+          }
+
+          if (hordeWave % 5 === 0) {
+            hordeUpgradeAvailable = true;
+            hordeUpgradeWave = hordeWave;
           } else {
-            const fromRight = player.facing > 0;
-            const bx = fromRight ? camX + T.viewW + 25 : camX - 25;
-            const by = player.y - 60 - Math.random() * 25;
-            const batEnemy = makeEnemy({ kind: "bat", x: bx, y: by, hp: 2 }, false);
-            batEnemy.facing = fromRight ? -1 : 1;
-            batEnemy.vx = (fromRight ? -1 : 1) * 110;
-            batEnemy.alertSoundPlayed = true;
-            enemies.push(batEnemy);
-            sound.playEnemyAlert("bat");
+            hordeBetweenWavesTimer = 2.2;
+          }
+        }
+
+        if (hordeWaveClearing && !hordeUpgradeAvailable) {
+          hordeBetweenWavesTimer -= dt;
+          if (hordeBetweenWavesTimer <= 0) {
+            startHordeWave(hordeWave + 1);
           }
         }
       }
@@ -2542,20 +2863,20 @@ export function mountCampaign(
       p.pulse += dt * 2.5;
       if (p.y < -10) {
         p.y = 310;
-        p.x = Math.random() * level.width;
+        p.x = Math.random() * stageW;
       } else if (p.y > 320) {
         p.y = 0;
-        p.x = Math.random() * level.width;
+        p.x = Math.random() * stageW;
       }
-      if (p.x < 0) p.x += level.width;
-      else if (p.x > level.width) p.x -= level.width;
+      if (p.x < 0) p.x += stageW;
+      else if (p.x > stageW) p.x -= stageW;
     }
 
     const focus = player.x + player.w / 2 + player.facing * 28;
     const center = camX + T.viewW / 2;
     if (focus > center + 24) camX += (focus - center - 24) * Math.min(1, dt * 8);
     else if (focus < center - 24) camX += (focus - center + 24) * Math.min(1, dt * 8);
-    camX = clamp(camX, 0, Math.max(0, level.width - T.viewW));
+    camX = clamp(camX, 0, Math.max(0, stageW - T.viewW));
     const aimY = clamp(player.y + player.h - 180, -160, 115);
     camY += (aimY - camY) * Math.min(1, dt * 5.5);
     shake = Math.max(0, shake - dt * 14);
@@ -2564,7 +2885,7 @@ export function mountCampaign(
   function updateEnemy(e: Enemy, dt: number) {
     e.t += dt;
     e.hurt = Math.max(0, e.hurt - dt);
-    e.cd = Math.max(0, e.cd - dt);
+    e.cd = Math.max(0, e.cd - dt / diffProfile.enemyCooldownMult);
     if (e.dead) return;
 
     if (e.state === "emerge") {
@@ -4108,13 +4429,40 @@ export function mountCampaign(
     g.fillStyle = "#100814";
     g.fillRect(-4, -4, T.viewW + 8, T.viewH + 8);
     // 1. Deep Parallax Background Planes:
-    const isOutdoor = level.theme === "gates" || level.theme === "gallery";
+    const isOutdoor = gameMode === "horde" || level.theme === "gates" || level.theme === "gallery";
 
     if (isOutdoor) {
       // Distant nocturnal sky & moon (almost stationary)
       drawStrip(plates.sky, 0.03, 0, 1, -20, T.viewH + 40, 1, 0.02);
       // Distant castle spires / mountain silhouette
       drawStrip(plates.far, 0.08, 0, 1, -20, T.viewH + 40, 0.85, 0.05);
+
+      if (gameMode === "horde") {
+        // Blood Moon glowing in the nocturnal sky
+        const moonX = Math.round(380 - camX * 0.05);
+        const moonY = 46;
+        const rad = 26;
+        const grad = g.createRadialGradient(moonX, moonY, rad * 0.2, moonX, moonY, rad * 2.5);
+        grad.addColorStop(0, "rgba(239, 68, 68, 0.95)");
+        grad.addColorStop(0.35, "rgba(220, 38, 38, 0.75)");
+        grad.addColorStop(0.7, "rgba(185, 28, 28, 0.3)");
+        grad.addColorStop(1, "rgba(127, 29, 29, 0)");
+        g.fillStyle = grad;
+        g.beginPath();
+        g.arc(moonX, moonY, rad * 2.5, 0, Math.PI * 2);
+        g.fill();
+
+        g.fillStyle = "#ef4444";
+        g.beginPath();
+        g.arc(moonX, moonY, rad, 0, Math.PI * 2);
+        g.fill();
+
+        // Moon surface crater shadow
+        g.fillStyle = "rgba(127, 29, 29, 0.65)";
+        g.beginPath();
+        g.arc(moonX + 5, moonY - 3, rad * 0.45, 0, Math.PI * 2);
+        g.fill();
+      }
     } else {
       // Atmospheric dark gothic foundation for interior stages
       g.fillStyle = "#08050c";
@@ -4163,7 +4511,7 @@ export function mountCampaign(
     g.globalAlpha = 1;
 
     // Background Architectural Props (Recessed Colossal Gladiator Statues, Arches, Stained Glass)
-    for (const prop of level.props) {
+    for (const prop of getActiveProps()) {
       if (prop.layer === "bg") {
         const h = PROP_H[prop.kind] ?? 120;
         const sx = Math.round(prop.x - camX);
@@ -4232,7 +4580,7 @@ export function mountCampaign(
       }
     }
 
-    for (const s of level.solids) {
+    for (const s of getActiveSolids()) {
       const sx = Math.round(s.x - camX);
       const sy = Math.round(s.y - camY);
       if (sx > T.viewW + 12 || sx + s.w < -12 || sy > T.viewH + 12 || sy + s.h < -12) continue;
@@ -4446,7 +4794,7 @@ export function mountCampaign(
     }
 
     // Main Gameplay Plane Props (Columns, broken pillars, sconces, altars, cauldrons)
-    for (const prop of level.props) {
+    for (const prop of getActiveProps()) {
       if (!prop.layer || prop.layer === "main") {
         const h = PROP_H[prop.kind] ?? 120;
         blitStill(propsArt[prop.kind], prop.x, prop.y, h);
@@ -4710,7 +5058,7 @@ export function mountCampaign(
     const open = bosses.length > 0 && bosses.every((e) => e.dead);
 
     // Magical Gothic Portal - only appears when the stage Boss is defeated!
-    if (open) {
+    if (open && gameMode === "campaign") {
       const worldPortalX = level.door.x + 18;
       const worldPortalFeet = level.door.y + 64;
       const screenX = Math.round(worldPortalX - camX);
@@ -5012,7 +5360,7 @@ export function mountCampaign(
     }
 
     // Foreground Pillars and Hanging Ceiling Columns (passing in front of actors)
-    for (const prop of level.props) {
+    for (const prop of getActiveProps()) {
       if (prop.layer === "fg") {
         const h = PROP_H[prop.kind] ?? 150;
         let feet = prop.y;
@@ -5156,13 +5504,13 @@ export function mountCampaign(
       bossName: boss?.name || "",
       bossHp: boss ? Math.max(0, boss.hp) : 0,
       bossMax: boss?.max || 1,
-      bossOn: bossOn && !bossCinematic.active,
+      bossOn: bossOn && !bossCinematic.active && gameMode !== "horde",
       bossPhase: boss?.phase ?? 1,
       bossTransforming: (boss?.transformT ?? 0) > 0,
       toast: player.toastT > 0 ? player.toast : "",
       won: player.won,
       dead: player.dead,
-      title: level.title,
+      title: gameMode === "horde" ? `Onda ${hordeWave}` : level.title,
       dashReady: player.dashCd <= 0,
       charge: Math.min(1, player.holdT / 0.55),
       sealsSolved,
@@ -5182,6 +5530,15 @@ export function mountCampaign(
         duration: bossCinematic.duration,
         charCount: bossCinematic.charCount,
       } : null,
+      gameMode,
+      difficulty,
+      hordeWave,
+      hordeRemaining: gameMode === "horde" ? hordeQueue.length + enemies.filter((e) => !e.dead && !e.dying).length : 0,
+      hordeTotalInWave,
+      hordeKills,
+      hordeBestWave,
+      hordeUpgradeAvailable,
+      hordeUpgradeWave,
     });
   }
 
@@ -5354,8 +5711,37 @@ export function mountCampaign(
       skipBossCinematic();
     },
     reset() {
-      sound.playStageBgm(level.id);
+      if (gameMode === "horde") {
+        hordeWave = 1;
+        hordeKills = 0;
+        bladeDmgMultiplier = 1.0;
+        spellCdMultiplier = 1.0;
+        currentHordeStageId = 1;
+        void switchHordeStageTheme(1);
+      } else {
+        sound.playStageBgm(level.id);
+      }
       spawn();
+      publish();
+    },
+    chooseBlessing(type: "hp" | "blade" | "magic") {
+      if (type === "hp") {
+        player.hp = Math.min(T.maxHp, player.hp + Math.round(T.maxHp * 0.5));
+        player.toast = "Cálice Carmesim: +50% HP Restaurado!";
+        player.toastT = 2.8;
+      } else if (type === "blade") {
+        bladeDmgMultiplier += 0.15;
+        player.toast = `Fio de Prata: Dano de Lâmina +15%!`;
+        player.toastT = 2.8;
+      } else if (type === "magic") {
+        player.special = 100;
+        spellCdMultiplier = Math.max(0.4, spellCdMultiplier * 0.85);
+        player.toast = "Essência Arcana: Especial Cheio e Recarga -15%!";
+        player.toastT = 2.8;
+      }
+      hordeUpgradeAvailable = false;
+      sound.playSfx("relic");
+      startHordeWave(hordeWave + 1);
       publish();
     },
     setPaused(p: boolean) {
