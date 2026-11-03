@@ -1,0 +1,363 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Política de Privacidade — Nightfall Chronicles</title>
+    <meta
+      name="description"
+      content="Política de Privacidade oficial do jogo Nightfall Chronicles (com.nightfall.chronicles). Informações sobre coleta de dados, permissões e conformidade com o Google Play Console e LGPD."
+    />
+    <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link
+      href="https://fonts.googleapis.com/css2?family=Cinzel:wght@600;700;900&family=Literata:ital,opsz,wght@0,7..72,400;0,7..72,600;1,7..72,400&display=swap"
+      rel="stylesheet"
+    />
+    <style>
+      :root {
+        --bg: #09080d;
+        --surface: #121018;
+        --surface-border: #262232;
+        --gold: #d4af37;
+        --gold-glow: rgba(212, 175, 55, 0.25);
+        --blood: #b32634;
+        --text: #eae5dc;
+        --text-muted: #9e97a9;
+        --accent-emerald: #10b981;
+      }
+
+      * {
+        box-sizing: border-box;
+        margin: 0;
+        padding: 0;
+      }
+
+      body {
+        background-color: var(--bg);
+        color: var(--text);
+        font-family: "Literata", Georgia, serif;
+        line-height: 1.7;
+        padding: 2rem 1rem;
+        min-height: 100vh;
+        background-image: radial-gradient(circle at 50% 0%, #1c1428 0%, #09080d 70%);
+      }
+
+      .container {
+        max-width: 860px;
+        margin: 0 auto;
+        background: var(--surface);
+        border: 1px solid var(--surface-border);
+        border-radius: 12px;
+        padding: 2.5rem;
+        box-shadow: 0 10px 40px rgba(0, 0, 0, 0.7), 0 0 20px var(--gold-glow);
+      }
+
+      header {
+        border-bottom: 1px solid var(--surface-border);
+        padding-bottom: 2rem;
+        margin-bottom: 2rem;
+        text-align: center;
+      }
+
+      .badge {
+        display: inline-block;
+        padding: 0.3rem 0.8rem;
+        border-radius: 9999px;
+        background: rgba(212, 175, 55, 0.12);
+        border: 1px solid rgba(212, 175, 55, 0.35);
+        color: var(--gold);
+        font-family: "Cinzel", serif;
+        font-size: 0.75rem;
+        letter-spacing: 0.15em;
+        text-transform: uppercase;
+        margin-bottom: 1rem;
+      }
+
+      h1 {
+        font-family: "Cinzel", serif;
+        color: #fff;
+        font-size: 2.2rem;
+        font-weight: 700;
+        letter-spacing: 0.05em;
+        margin-bottom: 0.5rem;
+        text-shadow: 0 2px 10px rgba(0, 0, 0, 0.8);
+      }
+
+      .subtitle {
+        color: var(--text-muted);
+        font-size: 0.95rem;
+      }
+
+      .highlight-box {
+        background: rgba(16, 185, 129, 0.08);
+        border-left: 4px solid var(--accent-emerald);
+        border-radius: 6px;
+        padding: 1.2rem 1.4rem;
+        margin: 1.5rem 0;
+        color: #d1fae5;
+        font-size: 0.95rem;
+      }
+
+      .highlight-box strong {
+        color: #34d399;
+      }
+
+      h2 {
+        font-family: "Cinzel", serif;
+        color: var(--gold);
+        font-size: 1.35rem;
+        margin-top: 2rem;
+        margin-bottom: 0.8rem;
+        display: flex;
+        align-items: center;
+        gap: 0.5rem;
+      }
+
+      p {
+        margin-bottom: 1rem;
+        color: var(--text);
+        font-size: 1rem;
+      }
+
+      ul {
+        margin-left: 1.5rem;
+        margin-bottom: 1.2rem;
+        color: var(--text);
+      }
+
+      li {
+        margin-bottom: 0.45rem;
+      }
+
+      strong {
+        color: #fff;
+      }
+
+      .card-grid {
+        display: grid;
+        grid-template-columns: 1fr;
+        gap: 1rem;
+        margin: 1.5rem 0;
+      }
+
+      @media (min-width: 640px) {
+        .card-grid {
+          grid-template-columns: 1fr 1fr;
+        }
+      }
+
+      .mini-card {
+        background: #0d0b13;
+        border: 1px solid #1f1b2c;
+        border-radius: 8px;
+        padding: 1rem 1.2rem;
+      }
+
+      .mini-card h3 {
+        font-family: "Cinzel", serif;
+        font-size: 0.95rem;
+        color: var(--gold);
+        margin-bottom: 0.4rem;
+      }
+
+      .mini-card p {
+        font-size: 0.88rem;
+        color: var(--text-muted);
+        margin-bottom: 0;
+      }
+
+      footer {
+        border-top: 1px solid var(--surface-border);
+        margin-top: 2.5rem;
+        padding-top: 1.5rem;
+        text-align: center;
+        color: var(--text-muted);
+        font-size: 0.85rem;
+      }
+
+      .btn-back {
+        display: inline-block;
+        background: var(--blood);
+        color: #fff;
+        padding: 0.75rem 1.75rem;
+        border-radius: 6px;
+        text-decoration: none;
+        font-family: "Cinzel", serif;
+        font-size: 0.85rem;
+        letter-spacing: 0.1em;
+        text-transform: uppercase;
+        margin-top: 1.5rem;
+        transition: transform 0.2s, background-color 0.2s;
+      }
+
+      .btn-back:hover {
+        background: #cf2234;
+        transform: translateY(-1px);
+      }
+
+      code {
+        background: #1b1726;
+        padding: 0.15rem 0.4rem;
+        border-radius: 4px;
+        font-size: 0.9em;
+        color: #fbcfe8;
+      }
+    </style>
+  </head>
+  <body>
+    <div class="container">
+      <header>
+        <span class="badge">Google Play Console & LGPD Compliance</span>
+        <h1>Política de Privacidade</h1>
+        <p class="subtitle">
+          Nightfall Chronicles · Identificador do Pacote: <code>com.nightfall.chronicles</code>
+        </p>
+        <p class="subtitle" style="font-size: 0.85rem; margin-top: 0.3rem">
+          Última atualização: 2 de Novembro de 2026
+        </p>
+      </header>
+
+      <div class="highlight-box">
+        <strong>Resumo de Privacidade:</strong> O jogo <em>Nightfall Chronicles</em> foi desenvolvido respeitando integralmente a sua privacidade. <strong>Nenhum dado pessoal é coletado, transmitido, vendido ou compartilhado com terceiros.</strong> Todo o progresso do jogo (fases liberadas e recordes) fica gravado exclusivamente na memória local do seu próprio dispositivo.
+      </div>
+
+      <section>
+        <h2>1. Identificação do Aplicativo e Desenvolvedor</h2>
+        <p>
+          Esta Política de Privacidade aplica-se ao jogo eletrônico para dispositivos móveis e navegadores web denominado <strong>Nightfall Chronicles</strong> (doravante denominado "Aplicativo" ou "Jogo"), identificado tecnicamente pelo pacote Android <code>com.nightfall.chronicles</code>, desenvolvido por <strong>Rodpassaline</strong>.
+        </p>
+        <p>
+          Nosso compromisso é garantir transparência, proteção e conformidade com as diretrizes do <strong>Google Play Developer Distribution Agreement</strong>, a <strong>Lei Geral de Proteção de Dados (LGPD - Lei nº 13.709/2018)</strong> e a <strong>Children's Online Privacy Protection Act (COPPA)</strong>.
+        </p>
+      </section>
+
+      <section>
+        <h2>2. Dados Pessoais Coletados</h2>
+        <p>
+          O aplicativo <strong>NÃO coleta, NÃO armazena e NÃO compartilha</strong> quaisquer dados de identificação pessoal. Isto significa que nós:
+        </p>
+        <ul>
+          <li><strong>Não solicitamos</strong> nome completo, CPF, RG ou documentos pessoais;</li>
+          <li><strong>Não solicitamos</strong> e-mail, número de telefone ou redes sociais;</li>
+          <li><strong>Não coletamos</strong> localização geográfica aproximada ou precisa (GPS);</li>
+          <li><strong>Não acessamos</strong> sua lista de contatos, fotos, mídias ou arquivos pessoais do seu aparelho;</li>
+          <li><strong>Não exigimos</strong> criação de conta, nome de usuário ou login obrigatório para jogar;</li>
+          <li><strong>Não coletamos</strong> dados biométricos, informações de pagamento ou cartões de crédito.</li>
+        </ul>
+      </section>
+
+      <section>
+        <h2>3. Armazenamento Local no Dispositivo (Save Game)</h2>
+        <p>
+          Para que você não perca seu progresso ao fechar o jogo, o aplicativo armazena uma quantidade mínima de dados técnicos <strong>exclusivamente na memória local do seu aparelho</strong> (através de <code>localStorage</code> isolado do navegador/WebView):
+        </p>
+        <div class="card-grid">
+          <div class="mini-card">
+            <h3>Progresso da Campanha</h3>
+            <p>IDs das 7 fases desbloqueadas e concluídas pelo jogador.</p>
+          </div>
+          <div class="mini-card">
+            <h3>Recorde no Luar Contra Hordas</h3>
+            <p>Número máximo de ondas sobrevividas para exibição do troféu pessoal.</p>
+          </div>
+          <div class="mini-card">
+            <h3>Preferências de Som & Dificuldade</h3>
+            <p>Se a música/efeitos sonoros estão ativos e o nível de desafio selecionado (Fácil, Médio ou Difícil).</p>
+          </div>
+          <div class="mini-card">
+            <h3>Controles Touch na Tela</h3>
+            <p>Preferência do usuário sobre exibir ou ocultar os botões virtuais na tela.</p>
+          </div>
+        </div>
+        <p>
+          Esses dados pertencem a você, <strong>permanecem 100% confinados no seu dispositivo</strong> e nunca são sincronizados ou transmitidos para nenhum servidor externo.
+        </p>
+      </section>
+
+      <section>
+        <h2>4. Permissões do Android</h2>
+        <p>
+          O jogo foi construído para funcionar completamente offline. Não exigimos nenhuma permissão perigosa no sistema Android:
+        </p>
+        <ul>
+          <li><strong>Sem acesso a Câmera ou Microfone</strong>;</li>
+          <li><strong>Sem acesso a Contatos ou Chamadas</strong>;</li>
+          <li><strong>Sem acesso a Localização</strong>;</li>
+          <li><strong>Sem acesso ao Armazenamento Externo Compartilhado</strong> (opera apenas em sandbox privada do app).</li>
+        </ul>
+      </section>
+
+      <section>
+        <h2>5. Serviços de Terceiros e Publicidade</h2>
+        <p>
+          O <em>Nightfall Chronicles</em>:
+        </p>
+        <ul>
+          <li><strong>Não possui anúncios abusivos nem redes de publicidade comportamental</strong> que rastreiem suas atividades em outros aplicativos ou na web;</li>
+          <li><strong>Não utiliza SDKs de terceiros</strong> para mineração de dados, venda de dados pessoais para data brokers ou análise comportamental;</li>
+          <li><strong>Não vende, aluga ou comercializa</strong> informações de usuários sob nenhuma circunstância.</li>
+        </ul>
+      </section>
+
+      <section>
+        <h2>6. Privacidade de Crianças (COPPA e LGPD)</h2>
+        <p>
+          O jogo é seguro para públicos de todas as idades. Em total observância à <strong>COPPA (Children's Online Privacy Protection Act)</strong> e aos artigos da <strong>LGPD</strong> referentes ao tratamento de dados de crianças e adolescentes:
+        </p>
+        <ul>
+          <li>Não coletamos intencionalmente nenhuma informação pessoal de crianças menores de 13 anos (nem de qualquer outro usuário);</li>
+          <li>O jogo não contém compras no aplicativo (in-app purchases) ocultas nem mecanismos predatórios de monetização.</li>
+        </ul>
+      </section>
+
+      <section>
+        <h2>7. Exclusão e Controle dos Seus Dados</h2>
+        <p>
+          Você tem total soberania sobre qualquer dado armazenado pelo jogo. Para apagar completamente o histórico de fases, recordes e preferências a qualquer momento:
+        </p>
+        <ul>
+          <li>Acesse <strong>Configurações do Android</strong> &gt; <strong>Aplicativos</strong> &gt; <strong>Nightfall Chronicles</strong> &gt; <strong>Armazenamento</strong> &gt; <strong>Limpar Dados</strong>; ou</li>
+          <li>Simplesmente <strong>desinstale o aplicativo</strong> do seu dispositivo. Todos os registros locais serão imediatamente e definitivamente excluídos.</li>
+        </ul>
+      </section>
+
+      <section>
+        <h2>8. Segurança das Informações</h2>
+        <p>
+          Como o aplicativo não transmite nenhum dado pessoal pela internet nem mantém banco de dados centralizado em nuvem com perfis de usuários, o risco de vazamento ou acesso não autorizado às suas informações privadas através do <em>Nightfall Chronicles</em> é nulo.
+        </p>
+      </section>
+
+      <section>
+        <h2>9. Alterações nesta Política</h2>
+        <p>
+          Esta Política de Privacidade poderá ser atualizada ocasionalmente para refletir melhorias no jogo ou novas exigências legais ou das lojas de aplicativos. Qualquer alteração será acompanhada pela data de atualização no topo deste documento.
+        </p>
+      </section>
+
+      <section>
+        <h2>10. Contato e Suporte</h2>
+        <p>
+          Se você tiver qualquer dúvida, sugestão ou solicitação referente a esta Política de Privacidade ou ao jogo <em>Nightfall Chronicles</em>, sinta-se à vontade para entrar em contato:
+        </p>
+        <ul>
+          <li><strong>Desenvolvedor:</strong> Rodpassaline</li>
+          <li><strong>Repositório Oficial & Suporte:</strong> <a href="https://github.com/Rodpassaline/Nightfall-Chronicles" target="_blank" rel="noopener noreferrer" style="color: var(--gold); text-decoration: underline;">https://github.com/Rodpassaline/Nightfall-Chronicles</a></li>
+          <li><strong>E-mail para Dúvidas:</strong> <a href="mailto:rodpassaline@gmail.com" style="color: var(--gold); text-decoration: underline;">rodpassaline@gmail.com</a></li>
+        </ul>
+      </section>
+
+      <footer>
+        <p>© 2026 Nightfall Chronicles. Todos os direitos reservados.</p>
+        <p style="margin-top: 0.35rem; font-size: 0.8rem; color: #767082;">
+          Este documento atende às exigências de URL pública de Política de Privacidade do Google Play Developer Console.
+        </p>
+        <div>
+          <a href="/" class="btn-back">← Voltar ao Jogo</a>
+        </div>
+      </footer>
+    </div>
+  </body>
+</html>

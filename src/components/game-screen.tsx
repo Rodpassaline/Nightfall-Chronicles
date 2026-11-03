@@ -18,6 +18,11 @@ import {
   RefreshCw,
   Crown,
   Play,
+  X,
+  Copy,
+  Check,
+  ExternalLink,
+  FileText,
 } from "lucide-react";
 import {
   loadProgress,
@@ -97,6 +102,25 @@ export function GameScreen() {
     }
   }, [hud.hordeBestWave, hordeBest]);
   const [stageIntroId, setStageIntroId] = useState<number | null>(null);
+  const [showPrivacy, setShowPrivacy] = useState(false);
+  const [copiedPrivacyUrl, setCopiedPrivacyUrl] = useState(false);
+
+  const handleCopyPrivacyUrl = (e?: React.MouseEvent) => {
+    e?.stopPropagation();
+    if (typeof window !== "undefined") {
+      const origin = window.location.origin && window.location.origin !== "null"
+        ? window.location.origin
+        : "https://nightfall-chronicles.vercel.app";
+      const url = `${origin}/privacidade.html`;
+      navigator.clipboard.writeText(url).then(() => {
+        setCopiedPrivacyUrl(true);
+        setTimeout(() => setCopiedPrivacyUrl(false), 2500);
+      }).catch(() => {
+        // Fallback prompt if clipboard API is restricted
+        window.prompt("Copie a URL da Política de Privacidade para o Play Console:", url);
+      });
+    }
+  };
 
   useEffect(() => {
     preloadAllGameAssets();
@@ -762,13 +786,204 @@ export function GameScreen() {
               {muted ? <VolumeX className="h-4 w-4 text-blood" /> : <Volume2 className="h-4 w-4 text-gold" />}
               <span>{muted ? "Mudo" : "Música & SFX"}</span>
             </button>
+
+            <button
+              type="button"
+              className="inline-flex h-12 items-center gap-2 border border-line bg-black/60 px-3.5 sm:px-4 font-display text-xs tracking-widest text-fg hover:border-gold hover:text-gold transition-all cursor-pointer rounded"
+              onClick={(e) => {
+                e.stopPropagation();
+                setShowPrivacy(true);
+              }}
+              title="Visualizar Política de Privacidade"
+            >
+              <Shield className="h-4 w-4 text-gold" />
+              <span>Privacidade</span>
+            </button>
           </div>
 
-          {/* Rodapé com Dicas de Controle */}
-          <p className="mt-5 max-w-2xl text-[11px] sm:text-xs text-muted leading-relaxed">
-            Controles: <span className="text-fg/80">A e D</span> andam · <span className="text-fg/80">W</span> pula · <span className="text-fg/80">J (ou Z)</span> ataca (segure para carregar) · <span className="text-fg/80">K</span> esquiva · <span className="text-fg/80">L (ou F)</span> magia · <span className="text-fg/80">E</span> golpe especial crescente (ao matar inimigos).
-          </p>
+          {/* Rodapé com Dicas de Controle e Link de Privacidade */}
+          <div className="mt-5 pt-3 border-t border-line/30 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2.5 text-[11px] sm:text-xs text-muted">
+            <p className="max-w-xl leading-relaxed">
+              Controles: <span className="text-fg/80">A e D</span> andam · <span className="text-fg/80">W</span> pula · <span className="text-fg/80">J (ou Z)</span> ataca (segure para carregar) · <span className="text-fg/80">K</span> esquiva · <span className="text-fg/80">L (ou F)</span> magia · <span className="text-fg/80">E</span> golpe especial crescente (ao matar inimigos).
+            </p>
+            <div className="flex items-center gap-2 shrink-0">
+              <button
+                type="button"
+                onClick={(e) => {
+                  e.stopPropagation();
+                  setShowPrivacy(true);
+                }}
+                className="text-gold/90 hover:text-gold hover:underline inline-flex items-center gap-1 cursor-pointer transition-colors"
+              >
+                <Shield className="h-3 w-3" />
+                <span>Política de Privacidade</span>
+              </button>
+              <span className="text-line">·</span>
+              <span className="text-[10px] text-muted">com.nightfall.chronicles</span>
+            </div>
+          </div>
         </div>
+
+        {/* Modal de Política de Privacidade */}
+        {showPrivacy && (
+          <div
+            className="fixed inset-0 z-50 flex items-center justify-center p-3 sm:p-6 bg-black/85 backdrop-blur-sm"
+            onClick={(e) => {
+              e.stopPropagation();
+              setShowPrivacy(false);
+            }}
+          >
+            <div
+              className="relative w-full max-w-2xl max-h-[85vh] flex flex-col bg-[#121018] border border-gold/40 rounded-xl shadow-[0_0_30px_rgba(0,0,0,0.95),0_0_20px_rgba(212,175,55,0.2)] overflow-hidden animate-fade-in"
+              onClick={(e) => e.stopPropagation()}
+            >
+              {/* Header do Modal */}
+              <div className="flex items-center justify-between p-4 sm:p-5 border-b border-[#262232] bg-[#0d0b13]">
+                <div className="flex items-center gap-2.5">
+                  <div className="p-1.5 rounded bg-gold/15 border border-gold/30 text-gold">
+                    <Shield className="h-4 w-4 sm:h-5 sm:w-5" />
+                  </div>
+                  <div>
+                    <h2 className="font-display text-sm sm:text-base font-bold text-fg">
+                      Política de Privacidade
+                    </h2>
+                    <p className="text-[10px] sm:text-[11px] text-muted">
+                      com.nightfall.chronicles · Google Play Console & LGPD
+                    </p>
+                  </div>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => setShowPrivacy(false)}
+                  className="p-1.5 rounded hover:bg-surface text-muted hover:text-fg transition-colors cursor-pointer"
+                  title="Fechar"
+                >
+                  <X className="h-5 w-5" />
+                </button>
+              </div>
+
+              {/* Corpo com scroll */}
+              <div className="flex-1 overflow-y-auto p-4 sm:p-6 space-y-4 text-xs sm:text-sm text-fg/85 leading-relaxed font-serif">
+                <div className="p-3 sm:p-4 rounded-lg bg-emerald-950/20 border-l-4 border-emerald-500 text-xs sm:text-sm text-emerald-100/90 leading-relaxed">
+                  <strong className="text-emerald-400 font-semibold block mb-0.5">Resumo de Privacidade:</strong>
+                  O jogo <em>Nightfall Chronicles</em> foi desenvolvido respeitando integralmente a sua privacidade. <strong>Nenhum dado pessoal é coletado, transmitido ou compartilhado.</strong> Todo o progresso de fases e recordes é salvo exclusivamente de forma local no seu próprio aparelho.
+                </div>
+
+                <section>
+                  <h3 className="font-display text-xs sm:text-sm font-bold text-gold uppercase tracking-wider mb-1">
+                    1. Identificação do Jogo
+                  </h3>
+                  <p className="text-muted">
+                    Aplicativo: <strong>Nightfall Chronicles</strong> (<code className="bg-[#1b1726] text-pink-200 px-1 py-0.5 rounded text-[11px]">com.nightfall.chronicles</code>). Desenvolvido por <strong>Rodpassaline</strong>.
+                  </p>
+                </section>
+
+                <section>
+                  <h3 className="font-display text-xs sm:text-sm font-bold text-gold uppercase tracking-wider mb-1">
+                    2. Dados Pessoais Coletados
+                  </h3>
+                  <p className="text-muted">
+                    <strong>Nenhum dado pessoal é coletado.</strong> Não solicitamos nome, e-mail, telefone, CPF, localização geográfica (GPS), contatos, fotos ou documentos. Não é necessária a criação de nenhuma conta ou login.
+                  </p>
+                </section>
+
+                <section>
+                  <h3 className="font-display text-xs sm:text-sm font-bold text-gold uppercase tracking-wider mb-1">
+                    3. Armazenamento Local no Dispositivo (Save Game)
+                  </h3>
+                  <p className="text-muted">
+                    O jogo utiliza apenas armazenamento local (<code>localStorage</code>) no aparelho para salvar:
+                  </p>
+                  <ul className="list-disc list-inside mt-1 ml-1 space-y-0.5 text-muted text-[11px] sm:text-xs">
+                    <li>Fases desbloqueadas e concluídas na Campanha;</li>
+                    <li>Recorde de ondas sobrevividas no modo Luar Contra Hordas;</li>
+                    <li>Preferência de áudio (mudo/ativo) e nível de dificuldade (Fácil, Médio ou Difícil);</li>
+                    <li>Preferência de exibição dos controles virtuais touch.</li>
+                  </ul>
+                  <p className="text-muted mt-1">
+                    Estes dados nunca saem do seu aparelho e não são enviados para nenhum servidor externo.
+                  </p>
+                </section>
+
+                <section>
+                  <h3 className="font-display text-xs sm:text-sm font-bold text-gold uppercase tracking-wider mb-1">
+                    4. Permissões do Android
+                  </h3>
+                  <p className="text-muted">
+                    O aplicativo opera 100% offline. Não exige permissões invasivas ou perigosas no sistema Android (sem acesso a câmera, microfone, localização, contatos ou armazenamento compartilhado).
+                  </p>
+                </section>
+
+                <section>
+                  <h3 className="font-display text-xs sm:text-sm font-bold text-gold uppercase tracking-wider mb-1">
+                    5. Publicidade e Terceiros
+                  </h3>
+                  <p className="text-muted">
+                    O jogo não possui anúncios invasivos nem rastreadores de publicidade comportamental. Não vendemos, alugamos ou compartilhamos dados com corretores de dados ou terceiros.
+                  </p>
+                </section>
+
+                <section>
+                  <h3 className="font-display text-xs sm:text-sm font-bold text-gold uppercase tracking-wider mb-1">
+                    6. Crianças e Família (COPPA & LGPD)
+                  </h3>
+                  <p className="text-muted">
+                    O aplicativo é seguro para jogadores de todas as idades, em total conformidade com a COPPA e a LGPD. Não contém compras no app (sem microtransações ocultas).
+                  </p>
+                </section>
+
+                <section>
+                  <h3 className="font-display text-xs sm:text-sm font-bold text-gold uppercase tracking-wider mb-1">
+                    7. Exclusão de Dados
+                  </h3>
+                  <p className="text-muted">
+                    Para apagar todos os dados salvos localmente, basta acessar <em>Configurações do Android &gt; Aplicativos &gt; Nightfall Chronicles &gt; Armazenamento &gt; Limpar Dados</em>, ou simplesmente desinstalar o jogo.
+                  </p>
+                </section>
+
+                <section>
+                  <h3 className="font-display text-xs sm:text-sm font-bold text-gold uppercase tracking-wider mb-1">
+                    8. Contato e Suporte
+                  </h3>
+                  <p className="text-muted">
+                    Dúvidas ou solicitações: <a href="mailto:rodpassaline@gmail.com" className="text-gold underline">rodpassaline@gmail.com</a> ou pelo GitHub oficial: <a href="https://github.com/Rodpassaline/Nightfall-Chronicles" target="_blank" rel="noopener noreferrer" className="text-gold underline">Nightfall-Chronicles</a>.
+                  </p>
+                </section>
+              </div>
+
+              {/* Footer do Modal com Botões */}
+              <div className="flex flex-wrap items-center justify-between gap-2 p-3 sm:p-4 border-t border-[#262232] bg-[#0d0b13]">
+                <div className="flex flex-wrap items-center gap-2">
+                  <button
+                    type="button"
+                    onClick={handleCopyPrivacyUrl}
+                    className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded bg-black/60 border border-gold/40 text-gold hover:bg-gold/15 text-xs font-display tracking-wider cursor-pointer transition-all active:scale-95"
+                    title="Copiar URL para o Google Play Console"
+                  >
+                    {copiedPrivacyUrl ? <Check className="h-3.5 w-3.5 text-emerald-400" /> : <Copy className="h-3.5 w-3.5" />}
+                    <span>{copiedPrivacyUrl ? "Link Copiado!" : "Copiar Link (Play Console)"}</span>
+                  </button>
+                  <a
+                    href="/privacidade.html"
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="inline-flex items-center gap-1 px-2.5 py-1.5 rounded bg-surface border border-line text-xs font-display text-muted hover:text-fg hover:border-gold/50 transition-all"
+                  >
+                    <ExternalLink className="h-3 w-3" />
+                    <span>Página Web</span>
+                  </a>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => setShowPrivacy(false)}
+                  className="px-4 py-1.5 rounded bg-blood hover:bg-red-700 text-white font-display text-xs tracking-wider uppercase transition-all cursor-pointer shadow"
+                >
+                  Fechar
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
       </div>
     );
   }
