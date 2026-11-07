@@ -1551,6 +1551,27 @@ export function mountCampaign(
     shake = Math.max(shake, 6);
   }
 
+  // ===========================================================================
+  // DEDICATED ATTACK INPUT CLASSIFIER ROUTINE (HOLD vs. MULTI-PRESS / TAP)
+  // Accurately distinguishes whether the player is:
+  // 1. Holding the Attack button ("HOLD_CHARGING"): Channels arcane energy in a
+  //    steady blade stance (heroAttack frame 0) and unleashes Charged Magic
+  //    without ever releasing early or swinging the sword mid-charge.
+  // 2. Tapping or pressing multiple times ("TAP" / "MULTI_PRESS"): Executes
+  //    responsive 3-hit sword combos without false magic charges.
+  // ===========================================================================
+  const attackRoutine = {
+    wasPhysicallyHeld: false,
+    holdDuration: 0,
+    releaseGraceT: 0,
+    timeSinceLastPress: 99,
+    timeSinceLastRelease: 99,
+    rapidPressCount: 0,
+    multiPressComboWindow: 0,
+    lockedUntilRelease: false,
+    pendingTapSlash: false,
+  };
+
   function spawn() {
     if (gameMode === "horde") {
       level = hordeArenaDef;
@@ -1590,6 +1611,15 @@ export function mountCampaign(
     player.dashT = 0;
     player.charge = "idle";
     player.holdT = 0;
+    attackRoutine.wasPhysicallyHeld = false;
+    attackRoutine.holdDuration = 0;
+    attackRoutine.releaseGraceT = 0;
+    attackRoutine.timeSinceLastPress = 99;
+    attackRoutine.timeSinceLastRelease = 99;
+    attackRoutine.rapidPressCount = 0;
+    attackRoutine.multiPressComboWindow = 0;
+    attackRoutine.lockedUntilRelease = false;
+    attackRoutine.pendingTapSlash = false;
     player.toast = `${level.title}. Quebre os Cristais de Selo no alto para abrir os Portões!`;
     player.toastT = 3.2;
     clearedOnce = false;
@@ -2727,8 +2757,6 @@ export function mountCampaign(
 
     if (press.jump) player.buffer = T.jumpBuffer;
     else player.buffer = Math.max(0, player.buffer - dt);
-    if (press.attack) player.attackBuffer = 0.22;
-    else player.attackBuffer = Math.max(0, player.attackBuffer - dt);
     if (press.dash) player.dashBuffer = 0.16;
     else player.dashBuffer = Math.max(0, player.dashBuffer - dt);
     if (press.spell) player.spellBuffer = 0.16;
@@ -2765,16 +2793,32 @@ export function mountCampaign(
     }
 
     // =========================================================================
-    // HOLD-TO-CHARGE ENERGY & SUPER MAGIC WAVE ("MAGIA CARREGADA"):
-    // 1. Tapping/mashing Attack NEVER fires the magic wave (resets holdT on every press).
-    // 2. Holding Attack continuously channels arcane energy in a steady, non-trembling
-    //    blade stance (heroAttack frame 0) and unleashes the Charged Magic Wave!
+    // DEDICATED ATTACK INPUT CLASSIFIER: HOLD-TO-CHARGE vs. MULTI-PRESS / TAP
+    // 1. Captures whether the player is holding the Attack button continuously
+    //    or tapping / pressing it repeatedly.
+    // 2. When holding: Aldric remains steadily in the blade windup pose
+    //    (heroAttack frame 0), charges arcane energy without swinging the sword
+    //    mid-charge, and unleashes the Charged Magic Wave!
+    // 3. When tapping or pressing multiple times: executes fast 3-hit sword
+    //    combos without false magic triggers.
     // =========================================================================
-    if (press.attack) {
-      player.holdT = 0;
-      player.charge = "idle";
+    const rawAttackHeld = held.has("attack");
+    if (rawAttackHeld) {
+      attackRoutine.releaseGraceT = 0.045; // 45ms micro-drop immunity during charge
+    } else {
+      attackRoutine.releaseGraceT = Math.max(0, attackRoutine.releaseGraceT - dt);
     }
-    const holding = held.has("attack");
+    const holding =
+      rawAttackHeld ||
+      (attackRoutine.wasPhysicallyHeld &&
+        !attackRoutine.lockedUntilRelease &&
+        attackRoutine.holdDuration >= 0.14 &&
+        attackRoutine.releaseGraceT > 0);
+
+    attackRoutine.timeSinceLastPress += dt;
+    attackRoutine.timeSinceLastRelease += dt;
+    attackRoutine.multiPressComboWindow = Math.max(0, attackRoutine.multiPressComboWindow - dt);
+
     const unleashChargedMagic = () => {
       player.holdT = 0;
       player.charge = "idle";
@@ -2823,75 +2867,144 @@ export function mountCampaign(
       }
     };
 
-    if (holding && !press.attack && player.castT <= 0 && player.specialT <= 0 && !player.guard && player.hurtT <= 0) {
-      player.holdT += dt;
+    const justPressedAttack = (press.attack || (rawAttackHeld && !attackRoutine.wasPhysicallyHeld)) && !attackRoutine.wasPhysicallyHeld;
+    let triggerSwordSwing = false;
 
-      // Once holding past 0.15s, keep Aldric smoothly in the charging windup pose (no arm up/down bounce!)
-      if (player.holdT >= 0.15 && player.attackT < 0.16) {
-        player.attackT = 0;
-      }
+    if (justPressedAttack) {
+      attackRoutine.wasPhysicallyHeld = true;
+      attackRoutine.lockedUntilRelease = false;
+      attackRoutine.holdDuration = 0;
+      player.holdT = 0;
+      player.charge = "idle";
 
-      // Emit converging arcane & golden energy particles while charging
-      if (player.holdT > 0.18 && Math.random() < 0.75) {
-        const focusX = player.x + player.w / 2 + player.facing * 12;
-        const focusY = player.y + player.h - (player.crouching ? 24 : 52);
-        const ang = Math.random() * Math.PI * 2;
-        const rad = 22 + Math.random() * 18;
-        const px = focusX + Math.cos(ang) * rad;
-        const py = focusY + Math.sin(ang) * rad;
-        particles.push({
-          x: px,
-          y: py,
-          vx: (focusX - px) * 4.5,
-          vy: (focusY - py) * 4.5 - 15,
-          size: 2 + Math.random() * 1.8,
-          alpha: 0.9,
-          maxAlpha: 0.9,
-          color: player.charge === "wind" ? (Math.random() > 0.45 ? "#fde047" : "#38bdf8") : "#60a5fa",
-          depth: "fg",
-          pulse: Math.random() * Math.PI * 2,
-          gravity: 0,
-          life: 0.24,
-          maxLife: 0.24,
-        });
-      }
+      // Check if player is pressing multiple times (Multi-Press / Combo Mash)
+      const isMultiPress =
+        attackRoutine.multiPressComboWindow > 0 ||
+        attackRoutine.timeSinceLastPress < 0.36 ||
+        player.comboWindow > 0;
+      const isAirDirectional = !player.grounded && (aimDown || aimUp);
 
-      // Enter full Charged Energy Stance ("wind") at 0.36s
-      if (player.holdT >= 0.36 && player.charge !== "wind") {
-        player.charge = "wind";
-        sound.playSfx("chargeWind");
-        for (let i = 0; i < 14; i++) {
-          const ang = (i / 14) * Math.PI * 2;
-          particles.push({
-            x: player.x + player.w / 2 + player.facing * 10,
-            y: player.y + player.h - 48,
-            vx: Math.cos(ang) * 55,
-            vy: Math.sin(ang) * 55 - 10,
-            size: 2.4,
-            alpha: 0.95,
-            maxAlpha: 0.95,
-            color: i % 2 === 0 ? "#fde047" : "#38bdf8",
-            depth: "fg",
-            pulse: Math.random() * Math.PI * 2,
-          });
-        }
-      }
-
-      // Peak Overcharge Release at 0.78s (smooth single charge -> fire cycle)
-      if (player.holdT >= 0.78 && player.attackLock <= 0) {
-        unleashChargedMagic();
-        pointer.delete("attack");
-        keys.delete("KeyJ");
-        keys.delete("KeyZ");
-      }
-    } else if (!holding) {
-      // Released Attack button after charging: unleash the Charged Magic Wave!
-      if (player.charge === "wind" && player.castT <= 0 && player.specialT <= 0 && player.hurtT <= 0) {
-        unleashChargedMagic();
+      if (isMultiPress || isAirDirectional) {
+        // MULTI-PRESS DETECTED: Execute immediate Sword Slash & Combo!
+        attackRoutine.rapidPressCount++;
+        attackRoutine.multiPressComboWindow = 0.46;
+        attackRoutine.pendingTapSlash = false;
+        triggerSwordSwing = true;
       } else {
+        // INITIAL PRESS FROM REST: Enter Blade Ready Pose (frame 0) and observe
+        // whether the player holds (>= 0.14s -> Charge Magic) or releases (< 0.14s -> Tap Sword Slash)
+        attackRoutine.rapidPressCount = 1;
+        attackRoutine.pendingTapSlash = true;
+      }
+      attackRoutine.timeSinceLastPress = 0;
+    } else if (holding) {
+      attackRoutine.wasPhysicallyHeld = true;
+
+      if (attackRoutine.lockedUntilRelease) {
         player.holdT = 0;
         player.charge = "idle";
+        attackRoutine.pendingTapSlash = false;
+        player.attackBuffer = 0;
+      } else if (player.castT <= 0 && player.specialT <= 0 && !player.guard && player.hurtT <= 0) {
+        attackRoutine.holdDuration += dt;
+        player.holdT = attackRoutine.holdDuration;
+
+        // Once held continuously for >= 0.14s: Confirmed HOLD-TO-CHARGE!
+        // Cancel any pending tap sword slash so Aldric NEVER swings the sword while charging!
+        if (attackRoutine.holdDuration >= 0.14) {
+          attackRoutine.pendingTapSlash = false;
+          player.attackBuffer = 0;
+          player.comboWindow = 0;
+          if (player.attackT < 0.18) {
+            player.attackT = 0;
+          }
+        }
+
+        // Emit converging arcane & golden energy particles while charging
+        if (player.holdT > 0.12 && Math.random() < 0.78) {
+          const focusX = player.x + player.w / 2 + player.facing * 12;
+          const focusY = player.y + player.h - (player.crouching ? 24 : 52);
+          const ang = Math.random() * Math.PI * 2;
+          const rad = 22 + Math.random() * 18;
+          const px = focusX + Math.cos(ang) * rad;
+          const py = focusY + Math.sin(ang) * rad;
+          particles.push({
+            x: px,
+            y: py,
+            vx: (focusX - px) * 4.5,
+            vy: (focusY - py) * 4.5 - 15,
+            size: 2 + Math.random() * 1.8,
+            alpha: 0.9,
+            maxAlpha: 0.9,
+            color: player.charge === "wind" ? (Math.random() > 0.45 ? "#fde047" : "#38bdf8") : "#60a5fa",
+            depth: "fg",
+            pulse: Math.random() * Math.PI * 2,
+            gravity: 0,
+            life: 0.24,
+            maxLife: 0.24,
+          });
+        }
+
+        // Enter full Charged Energy Stance ("wind") at 0.36s
+        if (player.holdT >= 0.36 && player.charge !== "wind") {
+          player.charge = "wind";
+          sound.playSfx("chargeWind");
+          for (let i = 0; i < 14; i++) {
+            const ang = (i / 14) * Math.PI * 2;
+            particles.push({
+              x: player.x + player.w / 2 + player.facing * 10,
+              y: player.y + player.h - 48,
+              vx: Math.cos(ang) * 55,
+              vy: Math.sin(ang) * 55 - 10,
+              size: 2.4,
+              alpha: 0.95,
+              maxAlpha: 0.95,
+              color: i % 2 === 0 ? "#fde047" : "#38bdf8",
+              depth: "fg",
+              pulse: Math.random() * Math.PI * 2,
+            });
+          }
+        }
+
+        // Peak Overcharge Auto-Release at 0.62s (smooth single charge -> fire cycle without fake release)
+        if (player.holdT >= 0.62 && player.attackLock <= 0) {
+          unleashChargedMagic();
+          attackRoutine.lockedUntilRelease = true;
+          attackRoutine.pendingTapSlash = false;
+          attackRoutine.holdDuration = 0;
+          player.attackBuffer = 0;
+        }
       }
+    } else {
+      // Physical release of the Attack button
+      if (attackRoutine.wasPhysicallyHeld) {
+        attackRoutine.wasPhysicallyHeld = false;
+        attackRoutine.timeSinceLastRelease = 0;
+
+        if (!attackRoutine.lockedUntilRelease && player.castT <= 0 && player.specialT <= 0 && player.hurtT <= 0 && !player.guard) {
+          if (player.charge === "wind" || attackRoutine.holdDuration >= 0.36) {
+            // Released after completing the charge -> Unleash Charged Magic Wave!
+            unleashChargedMagic();
+          } else if (attackRoutine.pendingTapSlash || (attackRoutine.holdDuration > 0 && attackRoutine.holdDuration < 0.36)) {
+            // Released before charge completed -> TAP detected! Execute normal Sword Slash & open Multi-Press window!
+            triggerSwordSwing = true;
+            attackRoutine.multiPressComboWindow = 0.46;
+          }
+        }
+      }
+      attackRoutine.holdDuration = 0;
+      attackRoutine.pendingTapSlash = false;
+      attackRoutine.lockedUntilRelease = false;
+      player.holdT = 0;
+      player.charge = "idle";
+    }
+
+    if (triggerSwordSwing) {
+      player.attackBuffer = 0.22;
+    } else if (holding && attackRoutine.holdDuration >= 0.14) {
+      player.attackBuffer = 0;
+    } else {
+      player.attackBuffer = Math.max(0, player.attackBuffer - dt);
     }
 
     // Special Attack Trigger ("Golpe Crescente"):
@@ -2958,12 +3071,25 @@ export function mountCampaign(
       player.vx = 0;
       if (player.grounded) player.vy = 0;
     } else if (player.hurtT <= 0) {
-      if ((press.attack || player.attackBuffer > 0) && !player.guard && player.castT <= 0 && player.charge !== "wind" && player.holdT < 0.15 && (player.attackLock <= 0 || player.comboWindow > 0)) {
+      if (
+        (triggerSwordSwing || player.attackBuffer > 0) &&
+        !player.guard &&
+        player.castT <= 0 &&
+        player.charge !== "wind" &&
+        !attackRoutine.pendingTapSlash &&
+        !attackRoutine.lockedUntilRelease &&
+        attackRoutine.holdDuration < 0.14 &&
+        (player.attackLock <= 0 || player.comboWindow > 0)
+      ) {
         player.attackBuffer = 0;
         player.swingId++;
         const down = aimDown && !player.grounded && !player.crouching;
         player.attackKind = down ? "down" : aimUp ? "up" : player.crouching ? "crouch" : "side";
-        player.combo = (player.attackKind === "side" || player.attackKind === "crouch") && player.comboWindow > 0 ? (player.combo + 1) % 3 : 0;
+        player.combo =
+          (player.attackKind === "side" || player.attackKind === "crouch") &&
+          (player.comboWindow > 0 || attackRoutine.multiPressComboWindow > 0)
+            ? (player.combo + 1) % 3
+            : 0;
         player.attackT = player.combo === 2 ? 0.22 : 0.20;
         player.attackLock = player.combo === 2 ? 0.20 : 0.18;
         player.comboWindow = 0;
@@ -6490,9 +6616,14 @@ export function mountCampaign(
       }
     } else if (
       player.charge === "wind" ||
-      (player.holdT >= 0.14 && player.castT <= 0 && player.specialT <= 0 && !player.guard && player.hurtT <= 0)
+      ((player.holdT > 0.01 || attackRoutine.pendingTapSlash) &&
+        !attackRoutine.lockedUntilRelease &&
+        player.castT <= 0 &&
+        player.specialT <= 0 &&
+        !player.guard &&
+        player.hurtT <= 0)
     ) {
-      // Steady, rock-solid hold-to-charge power stance!
+      // Steady, rock-solid hold-to-charge & windup power stance!
       // Holds sword raised cleanly in heroAttack frame 0 without trembling or arm-flapping.
       if (player.crouching) {
         sheet = "heroCrouch";
@@ -7028,6 +7159,8 @@ export function mountCampaign(
     if (!CODE[e.code]) return;
     if (!hot && document.activeElement !== canvas) return;
     e.preventDefault();
+    // Ignore OS keyboard auto-repeat so holding Attack NEVER fires fake rising-edge presses!
+    if (e.repeat || keys.has(e.code)) return;
     keys.add(e.code);
     keysDownThisFrame.add(e.code);
   };
@@ -7107,8 +7240,11 @@ export function mountCampaign(
         return;
       }
       if (down) {
+        // Only register rising-edge press if action was not already held down
+        if (!pointer.has(action)) {
+          pointerDownThisFrame.add(action);
+        }
         pointer.add(action);
-        pointerDownThisFrame.add(action);
       } else {
         pointer.delete(action);
       }

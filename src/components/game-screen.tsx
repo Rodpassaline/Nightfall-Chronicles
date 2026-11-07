@@ -369,13 +369,25 @@ export function GameScreen() {
   }, [hud.bossCinematic?.active]);
 
   // Right Side Action Button Handlers (Attack, Jump, Dash, Spell, Guard, Special)
-  // Supports both direct Touch events (zero-latency multi-touch on smartphones) and Pointer events without pointer-capture contention
+  // Uses explicit Pointer Capture per button so holding Attack to charge magic NEVER drops if the thumb shifts or button scales
+  const activePointersRef = useRef<Record<string, Set<number>>>({});
+
   const handleActionDown = (
-    e: React.PointerEvent<HTMLButtonElement> | React.TouchEvent<HTMLButtonElement>,
+    e: React.PointerEvent<HTMLButtonElement>,
     action: "attack" | "jump" | "dash" | "spell" | "guard" | "special",
   ) => {
     e.preventDefault();
     e.stopPropagation();
+    try {
+      e.currentTarget.setPointerCapture(e.pointerId);
+    } catch {
+      // ignore if synthetic event
+    }
+    if (!activePointersRef.current[action]) {
+      activePointersRef.current[action] = new Set();
+    }
+    activePointersRef.current[action].add(e.pointerId);
+
     setHeldActions((prev) => {
       if (prev.has(action)) return prev;
       const next = new Set(prev);
@@ -386,11 +398,24 @@ export function GameScreen() {
   };
 
   const handleActionUp = (
-    e: React.PointerEvent<HTMLButtonElement> | React.TouchEvent<HTMLButtonElement>,
+    e: React.PointerEvent<HTMLButtonElement>,
     action: "attack" | "jump" | "dash" | "spell" | "guard" | "special",
   ) => {
     e.preventDefault();
     e.stopPropagation();
+    try {
+      if (e.currentTarget.hasPointerCapture?.(e.pointerId)) {
+        e.currentTarget.releasePointerCapture(e.pointerId);
+      }
+    } catch {
+      // ignore
+    }
+    const set = activePointersRef.current[action];
+    if (set) {
+      set.delete(e.pointerId);
+      if (set.size > 0) return;
+    }
+
     setHeldActions((prev) => {
       if (!prev.has(action)) return prev;
       const next = new Set(prev);
@@ -403,6 +428,7 @@ export function GameScreen() {
   // Safety release: if all touches end or window loses focus, ensure no action button stays stuck held
   useEffect(() => {
     const clearAllActionButtons = () => {
+      activePointersRef.current = {};
       setHeldActions((prev) => (prev.size === 0 ? prev : new Set()));
       const actions: ("attack" | "jump" | "dash" | "spell" | "guard" | "special")[] = [
         "attack",
@@ -418,20 +444,6 @@ export function GameScreen() {
     };
     const handleGlobalTouchEnd = (ev: TouchEvent) => {
       if (ev.touches.length === 0) {
-        clearAllActionButtons();
-        return;
-      }
-      // Check if any active touch is still on an action button
-      let hasActionTouch = false;
-      for (let i = 0; i < ev.touches.length; i++) {
-        const t = ev.touches[i];
-        const el = t.target as HTMLElement | null;
-        if (el && el.closest?.("[data-action-btn]")) {
-          hasActionTouch = true;
-          break;
-        }
-      }
-      if (!hasActionTouch) {
         clearAllActionButtons();
       }
     };
@@ -451,7 +463,9 @@ export function GameScreen() {
 
   useEffect(() => {
     const handleGesture = () => {
-      ensureMobileFullscreen();
+      if (mode !== "play") {
+        ensureMobileFullscreen();
+      }
       sound.resumePlayback();
       if (!sound.isMuted() && (mode === "title" || mode === "stages")) {
         sound.playBgm("title");
@@ -1226,31 +1240,29 @@ export function GameScreen() {
           <button
             type="button"
             data-action-btn="attack"
-            className={`pointer-events-auto touch-none after:content-[''] after:absolute after:-inset-2.5 after:rounded-full absolute bottom-[54px] right-[92px] sm:bottom-[64px] sm:right-[108px] h-[78px] w-[78px] sm:h-[86px] sm:w-[86px] rounded-full border-2 flex flex-col items-center justify-center transition-all duration-75 active:scale-90 shadow-2xl ${
+            className={`pointer-events-auto touch-none select-none after:content-[''] after:absolute after:-inset-2.5 after:rounded-full absolute bottom-[54px] right-[92px] sm:bottom-[64px] sm:right-[108px] h-[78px] w-[78px] sm:h-[86px] sm:w-[86px] rounded-full border-2 flex flex-col items-center justify-center transition-colors duration-75 shadow-2xl ${
               hud.charge >= 1
-                ? "border-amber-300 bg-gradient-to-br from-amber-500/90 via-yellow-500/85 to-cyan-500/85 scale-95 shadow-[0_0_32px_rgba(250,204,21,0.98)] text-white animate-pulse"
-                : hud.charge > 0.25
-                  ? "border-cyan-300 bg-cyan-600/75 scale-95 shadow-[0_0_24px_rgba(56,189,248,0.9)] text-white"
+                ? "border-amber-300 bg-gradient-to-br from-amber-500/90 via-yellow-500/85 to-cyan-500/85 shadow-[0_0_32px_rgba(250,204,21,0.98)] text-white animate-pulse"
+                : hud.charge > 0.1
+                  ? "border-cyan-300 bg-cyan-600/80 shadow-[0_0_24px_rgba(56,189,248,0.95)] text-white"
                   : heldActions.has("attack")
-                    ? "border-red-400 bg-red-600/80 scale-90 shadow-[0_0_26px_rgba(239,68,68,0.95)] text-white"
+                    ? "border-red-400 bg-red-600/85 shadow-[0_0_26px_rgba(239,68,68,0.95)] text-white"
                     : "border-white/45 bg-black/45 backdrop-blur-[2px] text-white hover:border-white/70 shadow-[0_4px_18px_rgba(0,0,0,0.65)]"
             }`}
-            onTouchStart={(e) => handleActionDown(e, "attack")}
-            onTouchEnd={(e) => handleActionUp(e, "attack")}
-            onTouchCancel={(e) => handleActionUp(e, "attack")}
+            onContextMenu={(e) => e.preventDefault()}
             onPointerDown={(e) => handleActionDown(e, "attack")}
             onPointerUp={(e) => handleActionUp(e, "attack")}
             onPointerCancel={(e) => handleActionUp(e, "attack")}
-            onPointerLeave={(e) => handleActionUp(e, "attack")}
+            onLostPointerCapture={(e) => handleActionUp(e, "attack")}
           >
             <div
               className={`pointer-events-none absolute inset-1.5 rounded-full border ${
-                hud.charge >= 1 ? "border-amber-200/80" : hud.charge > 0.25 ? "border-cyan-200/70" : "border-white/20"
+                hud.charge >= 1 ? "border-amber-200/80" : hud.charge > 0.1 ? "border-cyan-200/70" : "border-white/20"
               }`}
             />
             <Sword className="pointer-events-none h-8 w-8 sm:h-9 sm:w-9 -rotate-45 text-white drop-shadow-[0_2px_4px_rgba(0,0,0,0.9)]" />
             <span className="pointer-events-none text-[8px] font-display font-bold tracking-wider leading-none mt-0.5 text-white/95">
-              {hud.charge >= 1 ? "⚡ MAGIA!" : hud.charge > 0.25 ? "CARREGANDO" : "ATAQUE"}
+              {hud.charge >= 1 ? "⚡ MAGIA!" : hud.charge > 0.1 ? "CARREGANDO" : "ATAQUE"}
             </span>
           </button>
 
@@ -1258,18 +1270,16 @@ export function GameScreen() {
           <button
             type="button"
             data-action-btn="spell"
-            className={`pointer-events-auto touch-none after:content-[''] after:absolute after:-inset-2 after:rounded-full absolute bottom-[180px] right-3.5 sm:bottom-[198px] sm:right-5 h-[52px] w-[52px] sm:h-14 sm:w-14 rounded-full border-2 flex flex-col items-center justify-center transition-all duration-75 active:scale-90 shadow-xl ${
+            className={`pointer-events-auto touch-none select-none after:content-[''] after:absolute after:-inset-2 after:rounded-full absolute bottom-[180px] right-3.5 sm:bottom-[198px] sm:right-5 h-[52px] w-[52px] sm:h-14 sm:w-14 rounded-full border-2 flex flex-col items-center justify-center transition-colors duration-75 shadow-xl ${
               heldActions.has("spell")
-                ? "border-purple-300 bg-purple-700/80 scale-90 shadow-[0_0_18px_rgba(168,85,247,0.95)] text-white"
+                ? "border-purple-300 bg-purple-700/80 shadow-[0_0_18px_rgba(168,85,247,0.95)] text-white"
                 : "border-white/35 bg-black/45 backdrop-blur-[2px] text-white/95 hover:border-white/60"
             }`}
-            onTouchStart={(e) => handleActionDown(e, "spell")}
-            onTouchEnd={(e) => handleActionUp(e, "spell")}
-            onTouchCancel={(e) => handleActionUp(e, "spell")}
+            onContextMenu={(e) => e.preventDefault()}
             onPointerDown={(e) => handleActionDown(e, "spell")}
             onPointerUp={(e) => handleActionUp(e, "spell")}
             onPointerCancel={(e) => handleActionUp(e, "spell")}
-            onPointerLeave={(e) => handleActionUp(e, "spell")}
+            onLostPointerCapture={(e) => handleActionUp(e, "spell")}
           >
             <div className="pointer-events-none absolute inset-1 rounded-full border border-white/15" />
             <Sparkles className="pointer-events-none h-5 w-5 text-purple-200 drop-shadow" />
@@ -1282,18 +1292,16 @@ export function GameScreen() {
           <button
             type="button"
             data-action-btn="jump"
-            className={`pointer-events-auto touch-none after:content-[''] after:absolute after:-inset-2 after:rounded-full absolute bottom-[96px] right-3.5 sm:bottom-[106px] sm:right-5 h-[52px] w-[52px] sm:h-14 sm:w-14 rounded-full border-2 flex flex-col items-center justify-center transition-all duration-75 active:scale-90 shadow-xl ${
+            className={`pointer-events-auto touch-none select-none after:content-[''] after:absolute after:-inset-2 after:rounded-full absolute bottom-[96px] right-3.5 sm:bottom-[106px] sm:right-5 h-[52px] w-[52px] sm:h-14 sm:w-14 rounded-full border-2 flex flex-col items-center justify-center transition-colors duration-75 shadow-xl ${
               heldActions.has("jump")
-                ? "border-amber-300 bg-amber-600/80 scale-90 shadow-[0_0_18px_rgba(245,158,11,0.95)] text-white"
+                ? "border-amber-300 bg-amber-600/80 shadow-[0_0_18px_rgba(245,158,11,0.95)] text-white"
                 : "border-white/35 bg-black/45 backdrop-blur-[2px] text-white/95 hover:border-white/60"
             }`}
-            onTouchStart={(e) => handleActionDown(e, "jump")}
-            onTouchEnd={(e) => handleActionUp(e, "jump")}
-            onTouchCancel={(e) => handleActionUp(e, "jump")}
+            onContextMenu={(e) => e.preventDefault()}
             onPointerDown={(e) => handleActionDown(e, "jump")}
             onPointerUp={(e) => handleActionUp(e, "jump")}
             onPointerCancel={(e) => handleActionUp(e, "jump")}
-            onPointerLeave={(e) => handleActionUp(e, "jump")}
+            onLostPointerCapture={(e) => handleActionUp(e, "jump")}
           >
             <div className="pointer-events-none absolute inset-1 rounded-full border border-white/15" />
             <ChevronsUp className="pointer-events-none h-6 w-6 text-white drop-shadow" />
@@ -1306,18 +1314,16 @@ export function GameScreen() {
           <button
             type="button"
             data-action-btn="dash"
-            className={`pointer-events-auto touch-none after:content-[''] after:absolute after:-inset-2 after:rounded-full absolute bottom-3.5 right-3.5 sm:bottom-4 sm:right-5 h-[52px] w-[52px] sm:h-14 sm:w-14 rounded-full border-2 flex flex-col items-center justify-center transition-all duration-75 active:scale-90 shadow-xl ${
+            className={`pointer-events-auto touch-none select-none after:content-[''] after:absolute after:-inset-2 after:rounded-full absolute bottom-3.5 right-3.5 sm:bottom-4 sm:right-5 h-[52px] w-[52px] sm:h-14 sm:w-14 rounded-full border-2 flex flex-col items-center justify-center transition-colors duration-75 shadow-xl ${
               heldActions.has("dash")
-                ? "border-cyan-300 bg-cyan-700/80 scale-90 shadow-[0_0_18px_rgba(34,211,238,0.95)] text-white"
+                ? "border-cyan-300 bg-cyan-700/80 shadow-[0_0_18px_rgba(34,211,238,0.95)] text-white"
                 : "border-white/35 bg-black/45 backdrop-blur-[2px] text-white/95 hover:border-white/60"
             }`}
-            onTouchStart={(e) => handleActionDown(e, "dash")}
-            onTouchEnd={(e) => handleActionUp(e, "dash")}
-            onTouchCancel={(e) => handleActionUp(e, "dash")}
+            onContextMenu={(e) => e.preventDefault()}
             onPointerDown={(e) => handleActionDown(e, "dash")}
             onPointerUp={(e) => handleActionUp(e, "dash")}
             onPointerCancel={(e) => handleActionUp(e, "dash")}
-            onPointerLeave={(e) => handleActionUp(e, "dash")}
+            onLostPointerCapture={(e) => handleActionUp(e, "dash")}
           >
             <div className="pointer-events-none absolute inset-1 rounded-full border border-white/15" />
             <Wind className="pointer-events-none h-5 w-5 text-cyan-200 drop-shadow" />
@@ -1330,18 +1336,16 @@ export function GameScreen() {
           <button
             type="button"
             data-action-btn="guard"
-            className={`pointer-events-auto touch-none after:content-[''] after:absolute after:-inset-2 after:rounded-full absolute bottom-3.5 right-[182px] sm:bottom-4 sm:right-[208px] h-[50px] w-[50px] sm:h-[54px] sm:w-[54px] rounded-full border-2 flex flex-col items-center justify-center transition-all duration-75 active:scale-90 shadow-xl ${
+            className={`pointer-events-auto touch-none select-none after:content-[''] after:absolute after:-inset-2 after:rounded-full absolute bottom-3.5 right-[182px] sm:bottom-4 sm:right-[208px] h-[50px] w-[50px] sm:h-[54px] sm:w-[54px] rounded-full border-2 flex flex-col items-center justify-center transition-colors duration-75 shadow-xl ${
               heldActions.has("guard")
-                ? "border-gold bg-amber-800/85 scale-90 shadow-[0_0_16px_rgba(200,160,80,0.9)] text-white"
+                ? "border-gold bg-amber-800/85 shadow-[0_0_16px_rgba(200,160,80,0.9)] text-white"
                 : "border-white/35 bg-black/45 backdrop-blur-[2px] text-white/90 hover:border-white/60"
             }`}
-            onTouchStart={(e) => handleActionDown(e, "guard")}
-            onTouchEnd={(e) => handleActionUp(e, "guard")}
-            onTouchCancel={(e) => handleActionUp(e, "guard")}
+            onContextMenu={(e) => e.preventDefault()}
             onPointerDown={(e) => handleActionDown(e, "guard")}
             onPointerUp={(e) => handleActionUp(e, "guard")}
             onPointerCancel={(e) => handleActionUp(e, "guard")}
-            onPointerLeave={(e) => handleActionUp(e, "guard")}
+            onLostPointerCapture={(e) => handleActionUp(e, "guard")}
           >
             <div className="pointer-events-none absolute inset-1 rounded-full border border-white/15" />
             <Shield className="pointer-events-none h-4 w-4 sm:h-5 sm:w-5 text-amber-200 drop-shadow" />
@@ -1354,20 +1358,18 @@ export function GameScreen() {
           <button
             type="button"
             data-action-btn="special"
-            className={`pointer-events-auto touch-none after:content-[''] after:absolute after:-inset-2 after:rounded-full absolute bottom-[122px] right-[188px] sm:bottom-[136px] sm:right-[214px] h-[56px] w-[56px] sm:h-[60px] sm:w-[60px] rounded-full border-2 flex flex-col items-center justify-center transition-all duration-75 active:scale-90 shadow-xl ${
+            className={`pointer-events-auto touch-none select-none after:content-[''] after:absolute after:-inset-2 after:rounded-full absolute bottom-[122px] right-[188px] sm:bottom-[136px] sm:right-[214px] h-[56px] w-[56px] sm:h-[60px] sm:w-[60px] rounded-full border-2 flex flex-col items-center justify-center transition-colors duration-75 shadow-xl ${
               heldActions.has("special")
-                ? "border-red-300 bg-red-600 scale-90 shadow-[0_0_24px_rgba(255,23,68,1)] text-white"
+                ? "border-red-300 bg-red-600 shadow-[0_0_24px_rgba(255,23,68,1)] text-white"
                 : hud.specialReady
                   ? "border-red-500 bg-red-950/85 backdrop-blur-[2px] text-red-200 animate-pulse shadow-[0_0_18px_rgba(255,23,68,0.85)]"
                   : "border-white/30 bg-black/45 backdrop-blur-[2px] text-white/75 hover:border-white/50"
             }`}
-            onTouchStart={(e) => handleActionDown(e, "special")}
-            onTouchEnd={(e) => handleActionUp(e, "special")}
-            onTouchCancel={(e) => handleActionUp(e, "special")}
+            onContextMenu={(e) => e.preventDefault()}
             onPointerDown={(e) => handleActionDown(e, "special")}
             onPointerUp={(e) => handleActionUp(e, "special")}
             onPointerCancel={(e) => handleActionUp(e, "special")}
-            onPointerLeave={(e) => handleActionUp(e, "special")}
+            onLostPointerCapture={(e) => handleActionUp(e, "special")}
             title="Golpe Especial (Golpe Crescente)"
           >
             <div className="pointer-events-none absolute inset-1 rounded-full border border-white/15" />
