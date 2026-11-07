@@ -70,6 +70,7 @@ type SfxKind =
   | "wallJump"
   | "pogo"
   | "hurt"
+  | "playerDie"
   | "enemyHurt"
   | "enemyDie"
   | "bossHurt"
@@ -366,6 +367,7 @@ class SoundEngine {
   private slashPool = new SfxAudioPool("/audio/sfx-slash.mp3", 8);
   private slicePool = new SfxAudioPool("/audio/sfx-slice.mp3", 8);
   private spellPool = new SfxAudioPool("/audio/sfx-spell.mp3", 8);
+  private playerDiePool = new SfxAudioPool("/audio/sfx-player-die.mp3", 4);
 
   // Dedicated boss attack SFX pools (2 signature attack sounds per boss across 7 stages)
   private bossAtkPools: Record<string, SfxAudioPool> = {
@@ -408,6 +410,7 @@ class SoundEngine {
   private audioElementsCache: Map<string, HTMLAudioElement> = new Map();
   private slashBuffer: AudioBuffer | null = null;
   private spellBuffer: AudioBuffer | null = null;
+  private playerDieBuffer: AudioBuffer | null = null;
   // Enemy / Character Alert and Voice Buffers (e.g. Zombie groan, etc.)
   private enemyAudioBuffers: Map<string, AudioBuffer> = new Map();
   private lastEnemySoundTimes: Map<string, number> = new Map();
@@ -547,6 +550,9 @@ class SoundEngine {
     });
     void loadBuf("/audio/sfx-spell.mp3").then((buf) => {
       if (buf) this.spellBuffer = buf;
+    });
+    void loadBuf("/audio/sfx-player-die.mp3").then((buf) => {
+      if (buf) this.playerDieBuffer = buf;
     });
   }
 
@@ -1045,6 +1051,25 @@ class SoundEngine {
     }
     if (kind === "spell") {
       this.spellPool.play(this.sfxVol, 1.0);
+      return;
+    }
+    if (kind === "playerDie") {
+      const actx = this.init();
+      if (actx && this.playerDieBuffer && this.sfxGain) {
+        try {
+          const source = actx.createBufferSource();
+          source.buffer = this.playerDieBuffer;
+          const gain = actx.createGain();
+          gain.gain.setValueAtTime(Math.min(1.4, this.sfxVol * 1.35), actx.currentTime);
+          source.connect(gain);
+          gain.connect(this.sfxGain);
+          source.start();
+          return;
+        } catch {
+          // Fallback to pool below
+        }
+      }
+      this.playerDiePool.play(Math.min(1, this.sfxVol * 1.15), 1.0);
       return;
     }
     if (kind === "special") {
