@@ -2,6 +2,22 @@ import { GROUND_Y, levels, hordeArenaDef, getGroundYForLevel, type ItemKind, typ
 import { tuning as T } from "./tuning";
 import { sound } from "./audio";
 import stageLayersManifest from "./stage-layers.json";
+import {
+  CombatDirector,
+  PlayerBehaviorTracker,
+  ENEMY_COMBAT_CONFIG,
+  resolvePlayerAttackProfile,
+  evaluatePoiseImpact,
+  evaluateAdaptiveTacticalAction,
+  updateEnemyPoiseAndFsmTimers,
+  setEnemyFsmState,
+  getEnemyHurtbox,
+  getPlayerHurtbox,
+  resolveCombatBodyCollisions,
+  type EnemyFsmState,
+  type CombatRole,
+  type AttackWindowPhase,
+} from "./combat-system";
 
 export type BossCinematicInfo = {
   active: boolean;
@@ -236,6 +252,18 @@ type Enemy = Body & {
   recoilT?: number;
   recoilVx?: number;
   postAttackT?: number;
+  // Etapa 2: FSM, CombatDirector, Attack Window & Poise fields
+  fsmState?: EnemyFsmState;
+  combatRole?: CombatRole;
+  slotOffsetX?: number;
+  attackPhase?: AttackWindowPhase;
+  phaseTimer?: number;
+  hitPlayerThisAttack?: boolean;
+  poiseRegenTimer?: number;
+  antiStunTimer?: number;
+  consecutiveStuns?: number;
+  blockCooldown?: number;
+  dodgeCooldown?: number;
 };
 
 type Shot = {
@@ -735,6 +763,8 @@ export function mountCampaign(
   let dashAfterimageTimer = 0;
   let enemies: Enemy[] = [];
   let items: ActiveItem[] = [];
+  const combatDirector = new CombatDirector();
+  const playerTracker = new PlayerBehaviorTracker();
   let clearedOnce = false;
   let bossIntroPlayed = false;
   let bossEnragedAnnounced = false;
@@ -1294,6 +1324,11 @@ export function mountCampaign(
         ? Math.max(1, Math.round(2 * diffProfile.enemyHpMult))
         : Math.max(1, Math.round(spawn.hp * stageFactor * diffProfile.enemyHpMult));
 
+    const combatCfg = ENEMY_COMBAT_CONFIG[spawn.kind] ?? ENEMY_COMBAT_CONFIG.skeleton;
+    const basePoise = isBoss
+      ? Math.round(combatCfg.maxPoise * (difficulty === "easy" ? 0.85 : difficulty === "hard" ? 1.25 : 1.0))
+      : combatCfg.maxPoise;
+
     return {
       id: nextId++,
       kind: spawn.kind,
@@ -1342,12 +1377,23 @@ export function mountCampaign(
       guardsSpawnedPhase2Hard: false,
       phase2ShockwaveCd: 3.0,
       phase2DashCd: 4.0,
-      poise: isBoss ? (difficulty === "easy" ? 16 : difficulty === "hard" ? 26 : 20) : (spawn.kind === "knight" || spawn.kind === "armoredSkeleton" ? 6 : 0),
-      maxPoise: isBoss ? (difficulty === "easy" ? 16 : difficulty === "hard" ? 26 : 20) : (spawn.kind === "knight" || spawn.kind === "armoredSkeleton" ? 6 : 0),
+      poise: basePoise,
+      maxPoise: basePoise,
       staggered: false,
       recoilT: 0,
       recoilVx: 0,
       postAttackT: 0,
+      fsmState: "IDLE",
+      combatRole: "PRIMARY_ATTACKER",
+      slotOffsetX: 0,
+      attackPhase: "NONE",
+      phaseTimer: 0,
+      hitPlayerThisAttack: false,
+      poiseRegenTimer: 0,
+      antiStunTimer: 0,
+      consecutiveStuns: 0,
+      blockCooldown: 0,
+      dodgeCooldown: 0,
     };
   }
 
@@ -1580,6 +1626,7 @@ export function mountCampaign(
     damageNumbers.length = 0;
     afterimages.length = 0;
     dashAfterimageTimer = 0;
+    playerTracker.reset();
 
     if (gameMode === "horde") {
       player.toast = "Sobreviva à Horda Noturna!";
@@ -1874,10 +1921,32 @@ export function mountCampaign(
         e.lastSwing = player.swingId;
         sound.playSfx("slash");
         player.vx = -player.facing * 85;
-        e.recoilT = 0.22;
-        e.recoilVx = knockDir * 78;
+        e.recoilT = 0.18;
+        e.recoilVx = knockDir * 68;
         e.vx = e.recoilVx;
-        e.cd = Math.max(e.cd, 0.35);
+        e.poise = Math.max(1, (e.poise ?? 14) - 2.5);
+        e.comboHits = (e.comboHits ?? 0) + 1;
+        damageNumbers.push({
+          id: nextId++,
+          text: e.comboHits >= 2 ? "CONTRA-ATAQUE!" : "BLOQUEIO!",
+          x: e.x + e.w / 2,
+          y: e.y - 6,
+          vy: -34,
+          life: 0.55,
+          maxLife: 0.55,
+          isCrit: e.comboHits >= 2,
+          color: e.comboHits >= 2 ? "#fde047" : "#93c5fd",
+        });
+        if (e.comboHits >= 2) {
+          e.comboHits = 0;
+          e.blockCooldown = 1.6;
+          setEnemyFsmState(e, "COUNTER", 0.20);
+          e.state = "slash";
+          e.wind = 0.20;
+          e.cd = 0.52;
+        } else {
+          e.cd = Math.max(e.cd, 0.28);
+        }
         player.toast = "Escudo! Segure ATAQUE para Magia Carregada, finalize o Combo de 3 golpes ou Pule!";
         player.toastT = 1.8;
         shake = 2.5;
@@ -1906,10 +1975,31 @@ export function mountCampaign(
         e.lastSwing = player.swingId;
         sound.playSfx("slash");
         player.vx = -player.facing * 90;
-        e.recoilT = 0.20;
-        e.recoilVx = knockDir * 72;
+        e.recoilT = 0.16;
+        e.recoilVx = knockDir * 64;
         e.vx = e.recoilVx;
-        e.poise = Math.max(1, (e.poise ?? 14) - 1.5);
+        e.poise = Math.max(1, (e.poise ?? 22) - 2.5);
+        e.comboHits = (e.comboHits ?? 0) + 1;
+        damageNumbers.push({
+          id: nextId++,
+          text: e.comboHits >= 2 ? "CONTRA-ATAQUE!" : "BLOQUEIO!",
+          x: e.x + e.w / 2,
+          y: e.y - 8,
+          vy: -36,
+          life: 0.6,
+          maxLife: 0.6,
+          isCrit: e.comboHits >= 2,
+          color: e.comboHits >= 2 ? "#fde047" : "#93c5fd",
+        });
+        if (e.comboHits >= 2) {
+          e.comboHits = 0;
+          e.blockCooldown = 1.8;
+          setEnemyFsmState(e, "COUNTER", 0.22);
+          e.state = "slash";
+          e.wind = 0.22;
+          e.cd = 0.62;
+          sound.playBossAttack(2, 1);
+        }
         player.toast = "Escudo de Valerius! Use Magia Carregada (Segure Ataque), 3º golpe do Combo ou Pogo!";
         player.toastT = 2.0;
         shake = 3;
@@ -1924,10 +2014,32 @@ export function mountCampaign(
         e.lastSwing = player.swingId;
         sound.playSfx("slash");
         player.vx = -player.facing * 95;
-        e.recoilT = 0.24;
-        e.recoilVx = knockDir * 82;
+        e.recoilT = 0.20;
+        e.recoilVx = knockDir * 72;
         e.vx = e.recoilVx;
-        e.cd = Math.max(e.cd, 0.35);
+        e.poise = Math.max(1, (e.poise ?? 18) - 2.5);
+        e.comboHits = (e.comboHits ?? 0) + 1;
+        damageNumbers.push({
+          id: nextId++,
+          text: e.comboHits >= 2 ? "CONTRA-ATAQUE!" : "BLOQUEIO!",
+          x: e.x + e.w / 2,
+          y: e.y - 6,
+          vy: -34,
+          life: 0.55,
+          maxLife: 0.55,
+          isCrit: e.comboHits >= 2,
+          color: e.comboHits >= 2 ? "#fde047" : "#93c5fd",
+        });
+        if (e.comboHits >= 2) {
+          e.comboHits = 0;
+          e.blockCooldown = 1.7;
+          setEnemyFsmState(e, "COUNTER", 0.22);
+          e.state = "slash";
+          e.wind = 0.22;
+          e.cd = 0.58;
+        } else {
+          e.cd = Math.max(e.cd, 0.30);
+        }
         player.toast = "Escudo de Aço! Quebre com Magia Carregada (Segure Ataque) ou Golpe Descendente!";
         player.toastT = 1.8;
         shake = 3;
@@ -1947,6 +2059,11 @@ export function mountCampaign(
         }
         return;
       }
+    }
+
+    // Track if player punished an enemy during its post-attack RECOVERY window
+    if ((e.postAttackT ?? 0) > 0 || e.fsmState === "RECOVERY") {
+      playerTracker.recordHitOnEnemyInRecovery();
     }
 
     // Boss is completely invulnerable during Phase 2 transformation
@@ -2083,38 +2200,35 @@ export function mountCampaign(
       }
     }
 
+    const attackProfile = resolvePlayerAttackProfile(
+      dmg,
+      pogo,
+      hitSource,
+      player.combo,
+      player.specialT > 0,
+    );
+    const poiseEval = evaluatePoiseImpact(
+      e,
+      attackProfile,
+      knockDir,
+      wasShielding,
+      difficulty,
+    );
+
     if (e.boss) {
-      // =====================================================================
-      // CLASSIC CASTLEVANIA BOSS COMBAT: POISE, HYPER-ARMOR & ACTIVE EVASION
-      // 1. Bosses NEVER freeze or get stun-locked by button mashing!
-      // 2. If the Boss is mid-attack (e.wind > 0 or diving/charging), basic
-      //    hits do NOT interrupt its attack — you must dodge, jump, or parry!
-      // 3. If hit repeatedly in neutral, the Boss dynamically leaps, backsteps,
-      //    or teleports and launches an immediate counter-attack!
-      // =====================================================================
-      let poiseDmg = isCharged ? 6.5 : isSpecial ? 7.5 : player.combo === 2 ? 3.2 : (pogo || hitSource === "spell") ? 2.8 : 1.6;
-      if (wasCounterHit) poiseDmg *= 1.25;
-
-      if (!e.staggered && (e.superArmor ?? 0) <= 0) {
-        e.poise = Math.max(0, (e.poise ?? (e.maxPoise || 20)) - poiseDmg);
-      }
-
-      if (!e.staggered && (e.poise ?? 0) <= 0) {
-        // ⚡ POISE BREAK / BOSS STAGGER (Brief 0.58s-0.75s punish window, then Boss gains SuperArmor & counters!)
-        const staggerDur = difficulty === "easy" ? 0.75 : difficulty === "hard" ? 0.52 : 0.64;
+      if (poiseEval.stunned || poiseEval.guardBroken) {
+        // ⚡ POISE BREAK / BOSS STAGGER (Punish window, then Boss gains anti-stunlock armor & counters!)
+        const staggerDur = poiseEval.stunDuration;
         e.staggered = true;
-        e.poise = e.maxPoise ?? 20;
-        e.superArmor = staggerDur + 1.35; // Cannot be chain-staggered!
+        e.superArmor = staggerDur + 1.35;
         e.hurt = staggerDur;
         e.wind = 0;
-        if (e.state === "slash" || e.state === "smash" || e.state === "dive") {
-          e.state = "idle";
-        }
+        setEnemyFsmState(e, poiseEval.guardBroken ? "GUARD_BROKEN" : "STUNNED", staggerDur);
         e.attackVariant = 0;
-        e.cd = 0; // Ready to counter immediately when stagger ends!
+        e.cd = 0;
         e.postAttackT = 0;
-        e.recoilT = 0.18;
-        e.recoilVx = knockDir * 125;
+        e.recoilT = poiseEval.recoilDuration;
+        e.recoilVx = poiseEval.recoilVelocity;
         e.vx = e.recoilVx;
 
         hitstop = Math.max(hitstop, 0.075);
@@ -2153,14 +2267,13 @@ export function mountCampaign(
           });
         }
       } else if (e.wind <= 0 && e.state !== "dive") {
-        // Boss is in neutral: track consecutive hits so it reacts dynamically instead of walking onto Aldric or standing still!
         e.comboHits = (e.comboHits ?? 0) + 1;
-        if (e.comboHits >= 2) {
-          // Castlevania Boss Tactical Evasion & Counter-Attack!
+        if (e.comboHits >= 2 || poiseEval.triggerTacticalCounter) {
           e.comboHits = 0;
           e.superArmor = 0.95;
           e.recoilT = 0;
           e.postAttackT = 0;
+          setEnemyFsmState(e, "COUNTER", 0.24);
           if (e.kind === "bossPetros") {
             e.state = "dive";
             e.vy = -245;
@@ -2200,95 +2313,73 @@ export function mountCampaign(
             sound.playBossAttack(7, 2);
           }
         } else {
-          // 1st hit in neutral: subtle slide-back to blade-tip distance (never freezes Boss AI!)
-          e.recoilT = 0.09;
-          e.recoilVx = knockDir * 68;
+          e.recoilT = poiseEval.recoilDuration;
+          e.recoilVx = poiseEval.recoilVelocity;
           e.vx = e.recoilVx;
         }
       }
     } else {
-      // =====================================================================
-      // CLASSIC CASTLEVANIA REGULAR ENEMY COMBAT & COUNTER-MOVEMENT:
-      // 1. If the enemy is ALREADY winding up an attack (e.wind > 0) or has
-      //    SuperArmor/Leap/Charge, basic melee slashes do NOT cancel its attack!
-      //    Mashing blindly into an attacking enemy WILL get you hit!
-      // 2. In neutral (e.wind <= 0), Hit 1 pushes the enemy to sword-tip range,
-      //    and Hit 2 triggers an immediate Evasive Backstep or Hyper-Armor Counter!
-      // =====================================================================
-      const canInterruptWindup = isCharged || isSpecial || pogo;
-      const isCommittedAttack = e.wind > 0 || (e.superArmor ?? 0) > 0 || e.state === "charge" || e.state === "leap" || e.state === "dive";
-
-      if (isCommittedAttack && !canInterruptWindup) {
-        // Enemy has Attack Commitment (Poise)! It takes the damage and flashes,
-        // but finishes its attack right through button-mashing!
-        e.recoilT = 0.05;
-        e.recoilVx = knockDir * 32;
-      } else if (canInterruptWindup) {
-        // Heavy Charged Magic Wave, Special, or Pogo breaks enemy stance!
+      // Regular Enemy Poise, Interruption & FSM Reaction
+      if (poiseEval.stunned || poiseEval.guardBroken) {
         e.wind = 0;
         e.comboHits = 0;
-        if (e.state === "slash" || e.state === "charge") e.state = "idle";
-        e.hurt = 0.24;
-        e.recoilT = 0.20;
-        e.recoilVx = knockDir * 135;
+        e.staggered = poiseEval.guardBroken;
+        e.hurt = poiseEval.stunDuration;
+        e.recoilT = poiseEval.recoilDuration;
+        e.recoilVx = poiseEval.recoilVelocity;
         e.vx = e.recoilVx;
-      } else {
-        // Neutral hit with basic sword slash:
-        e.comboHits = (e.comboHits ?? 0) + 1;
+      } else if (poiseEval.triggerTacticalCounter || (e.wind <= 0 && (e.comboHits = (e.comboHits ?? 0) + 1) >= 2)) {
+        e.comboHits = 0;
+        e.hurt = 0;
+        e.recoilT = 0;
+        e.postAttackT = 0;
+        e.superArmor = 0.85;
 
-        if (e.comboHits >= 2) {
-          // 2nd Hit -> Classic Castlevania Tactical Counter-Reaction (Anti-Stunlock)!
-          e.comboHits = 0;
-          e.hurt = 0;
-          e.recoilT = 0;
-          e.postAttackT = 0;
-          e.superArmor = 0.85;
-
-          if (e.kind === "skeleton" || e.kind === "redSkeleton") {
-            // Agile Backflip Leap out of sword range + Immediate Bone Counter!
-            e.state = "retreat";
-            e.vy = -135;
-            e.vx = knockDir * 145;
-            e.cd = 0.08;
-          } else if (e.kind === "vampire") {
-            // Shadow-Step Back + Immediate Blood/Claw Counter!
-            e.vy = -105;
-            e.vx = knockDir * 155;
-            e.state = "slash";
-            e.wind = 0.18;
-            e.cd = 0.55;
-            sound.playEnemyAlert("vampire");
-          } else if (e.kind === "armoredSkeleton" || e.kind === "knight") {
-            // Iron Poise Counter-Slash!
-            e.state = "slash";
-            e.wind = 0.22;
-            e.cd = 0.55;
-            e.vx = e.facing * 45;
-            sound.playSfx("slash");
-          } else if (e.kind === "zombie") {
-            // Feral Hyper-Armor Leaping Bite!
-            e.state = "leap";
-            e.vy = -130;
-            e.vx = e.facing * 135;
-            e.wind = 0.24;
-            e.cd = 0.85;
-            sound.playEnemyAlert("zombie");
-          } else if (e.kind === "gargoyle") {
-            // Red Arremer Winged Ascent into Hover & Dive-Bomb!
-            e.state = "leap";
-            e.vy = -230;
-            e.vx = knockDir * 95;
-            e.cd = 0.20;
-            sound.playSfx("jump");
-          } else {
-            e.hurt = 0.14;
-            e.vx = knockDir * 110;
-          }
+        if (e.kind === "skeleton" || e.kind === "redSkeleton") {
+          setEnemyFsmState(e, "DODGE", 0.32);
+          e.state = "retreat";
+          e.vy = -135;
+          e.vx = knockDir * 145;
+          e.cd = 0.08;
+        } else if (e.kind === "vampire") {
+          setEnemyFsmState(e, "COUNTER", 0.20);
+          e.vy = -105;
+          e.vx = knockDir * 155;
+          e.state = "slash";
+          e.wind = 0.18;
+          e.cd = 0.55;
+          sound.playEnemyAlert("vampire");
+        } else if (e.kind === "armoredSkeleton" || e.kind === "knight") {
+          setEnemyFsmState(e, "COUNTER", 0.22);
+          e.state = "slash";
+          e.wind = 0.22;
+          e.cd = 0.55;
+          e.vx = e.facing * 45;
+          sound.playSfx("slash");
+        } else if (e.kind === "zombie") {
+          setEnemyFsmState(e, "COUNTER", 0.24);
+          e.state = "leap";
+          e.vy = -130;
+          e.vx = e.facing * 135;
+          e.wind = 0.24;
+          e.cd = 0.85;
+          sound.playEnemyAlert("zombie");
+        } else if (e.kind === "gargoyle") {
+          setEnemyFsmState(e, "DODGE", 0.35);
+          e.state = "leap";
+          e.vy = -230;
+          e.vx = knockDir * 95;
+          e.cd = 0.20;
+          sound.playSfx("jump");
         } else {
-          // 1st Hit in neutral: crisp 0.10s micro-flinch & slide to sword-tip distance (does NOT reset e.cd!)
-          e.hurt = 0.10;
-          e.recoilT = 0.11;
-          e.recoilVx = knockDir * ((e.kind === "armoredSkeleton" || e.kind === "knight") ? 68 : 92);
+          e.hurt = 0.14;
+          e.vx = knockDir * 110;
+        }
+      } else {
+        // Poise held: apply physical slide without canceling committed attack
+        e.recoilT = poiseEval.recoilDuration;
+        e.recoilVx = poiseEval.recoilVelocity;
+        if (e.wind <= 0) {
           e.vx = e.recoilVx;
         }
       }
@@ -3049,7 +3140,7 @@ export function mountCampaign(
                   w: 60,
                   h: 68,
                 };
-      for (const e of enemies) if (!e.dead && !e.dying && overlap(box, e)) hurtEnemy(e, player.combo === 2 ? T.finisherDamage : T.slashDamage, player.attackKind === "down", "slash");
+      for (const e of enemies) if (!e.dead && !e.dying && overlap(box, getEnemyHurtbox(e))) hurtEnemy(e, player.combo === 2 ? T.finisherDamage : T.slashDamage, player.attackKind === "down", "slash");
 
       // Shatter Gothic Seal Crystals with Sword Strike (or Downward Pogo)!
       for (const c of sealCrystals) {
@@ -3087,115 +3178,26 @@ export function mountCampaign(
       }
     }
 
-    for (const e of enemies) updateEnemy(e, dt);
-
-    // =========================================================================
-    // PHYSICAL SOLID BODY RESOLUTION:
-    // Enemies and player cannot occupy the same space or clip behind each other!
-    // =========================================================================
-    if (!player.dead && !player.won) {
-      for (let i = 0; i < enemies.length; i++) {
-        const e1 = enemies[i];
-        if (e1.dead || e1.dying) continue;
-
-        if (e1.kind !== "bat") {
-          // Player vs Ground Enemy horizontal solid body separation
-          const pTop = player.y;
-          const pBot = player.y + player.h;
-          const eTop = e1.y;
-          const eBot = e1.y + e1.h;
-          const vert = Math.min(pBot, eBot) - Math.max(pTop, eTop);
-
-          // Only block when at the same ground elevation (allows jumping/pogoing over)
-          if (vert > 12) {
-            const eMid = e1.x + e1.w / 2;
-            const pMid = player.x + player.w / 2;
-            const minD = (e1.w + player.w) / 2;
-            const dist = Math.abs(pMid - eMid);
-
-            if (dist < minD) {
-              if (eMid < pMid) {
-                // Enemy on the LEFT of player
-                e1.x = player.x - e1.w;
-                if (e1.vx > 0) e1.vx = 0;
-                if (player.vx < 0) player.vx = 0;
-              } else {
-                // Enemy on the RIGHT of player
-                e1.x = player.x + player.w;
-                if (e1.vx < 0) e1.vx = 0;
-                if (player.vx > 0) player.vx = 0;
-              }
-            }
-          }
-        } else {
-          // Player vs Aerial Enemy (Bat) solid body resolution:
-          // Bats swoop at the head, but MUST NEVER occupy the same space as Aldric!
-          const headTop = player.y;
-          const pMid = player.x + player.w / 2;
-          const eMid = e1.x + e1.w / 2;
-
-          // 1. Head top boundary: bat cannot penetrate below the top of Aldric's head
-          if (e1.x + e1.w > player.x && e1.x < player.x + player.w) {
-            if (e1.y + e1.h > headTop) {
-              e1.y = headTop - e1.h;
-              if (e1.vy > 0) e1.vy = 0;
-            }
-          }
-
-          // 2. Horizontal body boundary: bat cannot penetrate inside Aldric's torso
-          if (e1.y + e1.h > headTop && e1.y < player.y + player.h) {
-            if (eMid < pMid) {
-              if (e1.x + e1.w > player.x) {
-                e1.x = player.x - e1.w;
-                if (e1.vx > 0) e1.vx = 0;
-              }
-            } else {
-              if (e1.x < player.x + player.w) {
-                e1.x = player.x + player.w;
-                if (e1.vx < 0) e1.vx = 0;
-              }
-            }
-          }
-        }
-
-        // Soft spacing between enemy pairs so they don't merge into a single sprite
-        for (let j = i + 1; j < enemies.length; j++) {
-          const e2 = enemies[j];
-          if (e2.dead || e2.dying) continue;
-
-          if (e1.kind === "bat" && e2.kind === "bat") {
-            // Aerial flock spacing between bats
-            const bdx = (e2.x + e2.w / 2) - (e1.x + e1.w / 2);
-            const bdy = (e2.y + e2.h / 2) - (e1.y + e1.h / 2);
-            const bDist = Math.hypot(bdx, bdy);
-            const minBatDist = 28;
-            if (bDist < minBatDist && bDist > 0) {
-              const push = (minBatDist - bDist) * 0.3;
-              const nx = bdx / bDist;
-              const ny = bdy / bDist;
-              e2.x += nx * push;
-              e2.y += ny * push;
-              e1.x -= nx * push;
-              e1.y -= ny * push;
-            }
-          } else if (e1.kind !== "bat" && e2.kind !== "bat") {
-            // Ground enemy spacing
-            if (Math.abs(e1.y - e2.y) < 18) {
-              const e1Mid = e1.x + e1.w / 2;
-              const e2Mid = e2.x + e2.w / 2;
-              const spacing = (e1.w + e2.w) / 2;
-              const delta = e2Mid - e1Mid;
-              if (Math.abs(delta) < spacing && Math.abs(delta) > 0) {
-                const push = (spacing - Math.abs(delta)) * 0.25;
-                const dir = delta > 0 ? 1 : -1;
-                e2.x += dir * push;
-                e1.x -= dir * push;
-              }
-            }
-          }
-        }
+    // Update PlayerBehaviorTracker (sliding window adaptive combat reading)
+    let nearestEnemyX: number | null = null;
+    let nearestDist = Infinity;
+    for (const e of enemies) {
+      if (e.dead || e.dying) continue;
+      const d = Math.abs((e.x + e.w / 2) - (player.x + player.w / 2));
+      if (d < nearestDist) {
+        nearestDist = d;
+        nearestEnemyX = e.x + e.w / 2;
       }
     }
+    playerTracker.update(dt, time, player, nearestEnemyX);
+
+    // CombatDirector coordinates initiative, attack slots, and flanking spacing before enemies update
+    combatDirector.update(dt, player, enemies, difficulty, gameMode === "horde");
+
+    for (const e of enemies) updateEnemy(e, dt);
+
+    // Non-overlapping physical BODY COLLIDER separation (preserves jumping/platforming, zero unfair passive contact damage)
+    resolveCombatBodyCollisions(player, enemies, stageW, dt);
 
     // Collect items
     for (const it of items) {
@@ -3307,13 +3309,13 @@ export function mountCampaign(
           }
         }
         for (const e of enemies) {
-          if (e.dead || e.dying || s.hits.includes(e.id) || !overlap(s, e)) continue;
+          if (e.dead || e.dying || s.hits.includes(e.id) || !overlap(s, getEnemyHurtbox(e))) continue;
           s.hits.push(e.id);
           player.swingId++;
           hurtEnemy(e, s.dmg, false, s.sprite === "spell" || s.charged ? "spell" : "slash");
           if (s.sprite !== "slash" && !s.charged) s.life = 0;
         }
-      } else if (overlap(s, player)) {
+      } else if (overlap(s, getPlayerHurtbox(player))) {
         hurtPlayer(s.dmg, s.x, s.sprite === "spell" ? "spell" : "slash");
         s.life = 0;
       }
@@ -3621,39 +3623,50 @@ export function mountCampaign(
     shake = Math.max(0, shake - dt * 14);
   }
 
-  function getSimultaneousAttackersCount(): number {
-    let count = 0;
-    for (const other of enemies) {
-      if (other.dead || other.dying || other.boss) continue;
-      if (other.wind > 0 || other.state === "slash" || other.state === "charge" || other.state === "dive") {
-        count++;
-      }
-    }
-    return count;
-  }
-
   function canEnemyAttack(e: Enemy): boolean {
-    if (e.boss) return true;
     const distToPlayer = Math.abs((player.x + player.w / 2) - (e.x + e.w / 2));
-    if (distToPlayer <= 95) return true; // Melee-range enemies ALWAYS attack without hesitation!
-    const maxAttackers = difficulty === "easy" ? 2 : difficulty === "hard" ? 4 : 3;
-    return getSimultaneousAttackersCount() < maxAttackers;
+    return combatDirector.requestAttackInitiative(e, distToPlayer, difficulty);
   }
 
   function getTacticalMoveVx(e: Enemy, dist: number, dx: number, chaseSpeed: number, idealDist?: number): number {
     if ((e.recoilT ?? 0) > 0) {
       return e.recoilVx ?? 0;
     }
-    const minStop = idealDist ?? ((e.w + player.w) / 2 + (e.boss ? 10 : 4));
+    const cfg = ENEMY_COMBAT_CONFIG[e.kind] ?? ENEMY_COMBAT_CONFIG.skeleton;
+    const roleSlot = e.boss ? 0 : (e.slotOffsetX ?? 0);
+    const baseStop = idealDist ?? cfg.preferredDistance ?? ((e.w + player.w) / 2 + (e.boss ? 10 : 6));
+    const minStop = baseStop + roleSlot;
+
+    // Rear Guard holds perimeter or observes without crowding the Primary Attacker
+    if (!e.boss && e.combatRole === "REAR_GUARD") {
+      const guardDist = minStop + 26;
+      if (dist > guardDist + 14) {
+        setEnemyFsmState(e, "APPROACH");
+        return Math.sign(dx) * (chaseSpeed * 0.72);
+      }
+      if (dist < guardDist - 10) {
+        setEnemyFsmState(e, "RETREAT");
+        return -Math.sign(dx) * (chaseSpeed * 0.65);
+      }
+      setEnemyFsmState(e, cfg.archetype === "defensive" || cfg.archetype === "heavy" ? "DEFEND" : "OBSERVE");
+      return 0;
+    }
+
     if ((e.postAttackT ?? 0) > 0) {
+      setEnemyFsmState(e, "RECOVERY", e.postAttackT);
       return dist < minStop - 4 ? -Math.sign(dx) * Math.min(55, chaseSpeed * 0.75) : 0;
     }
-    if (dist > minStop) {
-      return Math.sign(dx) * chaseSpeed;
+    const adaptiveMods = playerTracker.getModifiers();
+    const effectiveSpeed = chaseSpeed * adaptiveMods.chaseSpeedMult;
+    if (dist > minStop + 4) {
+      setEnemyFsmState(e, "APPROACH");
+      return Math.sign(dx) * effectiveSpeed;
     }
     if (dist < minStop - 8 && e.cd > 0) {
+      setEnemyFsmState(e, "RETREAT");
       return -Math.sign(dx) * Math.min(55, chaseSpeed * 0.7);
     }
+    setEnemyFsmState(e, cfg.archetype === "defensive" || cfg.archetype === "heavy" ? "DEFEND" : "OBSERVE");
     return 0;
   }
 
@@ -3667,12 +3680,12 @@ export function mountCampaign(
     e.superArmor = Math.max(0, (e.superArmor ?? 0) - dt);
     e.postAttackT = Math.max(0, (e.postAttackT ?? 0) - dt);
     e.cd = Math.max(0, e.cd - dt / diffProfile.enemyCooldownMult);
-    if (e.dead) return;
-
-    // Gradual Poise recovery for Bosses when not being struck
-    if (e.boss && !e.staggered && e.hurt <= 0 && (e.recoilT ?? 0) <= 0 && (e.maxPoise ?? 0) > 0) {
-      e.poise = Math.min(e.maxPoise!, (e.poise ?? e.maxPoise!) + dt * 0.45);
+    if (e.dead) {
+      e.fsmState = "DEAD";
+      return;
     }
+
+    updateEnemyPoiseAndFsmTimers(e, dt);
 
     // Anti-stacking horizontal separation between nearby living ground enemies (25px - 35px)
     if (!e.boss && e.kind !== "bat" && !e.dead && !e.dying && e.hurt <= 0) {
@@ -4052,7 +4065,66 @@ export function mountCampaign(
       e.recoilVx = (e.recoilVx ?? 0) * Math.max(0, 1 - 10 * dt);
     }
 
-    const postPauseDur = difficulty === "easy" ? 0.22 : difficulty === "hard" ? 0.10 : 0.16;
+    const postPauseDur =
+      (ENEMY_COMBAT_CONFIG[e.kind]?.recoveryDuration ?? 0.25) *
+      (difficulty === "easy" ? 1.25 : difficulty === "hard" ? 0.78 : 1.0);
+
+    // =========================================================================
+    // FASE 6 & FASE 7: ADAPTIVE DODGE, DEFEND & COUNTER-ATTACK DECISION
+    // =========================================================================
+    const adaptiveMods = playerTracker.getModifiers();
+    if (adaptiveMods.forceOffensiveInitiative && e.cd > 0.15) {
+      e.cd = Math.max(0.10, e.cd - dt * 1.5);
+    }
+
+    if (e.kind !== "bat" && e.wind <= 0 && (e.postAttackT ?? 0) <= 0 && e.state !== "dive" && e.state !== "leap" && e.state !== "hover" && e.state !== "retreat") {
+      const tacticalChoice = evaluateAdaptiveTacticalAction(e, dist, stageW, adaptiveMods);
+      if (tacticalChoice === "DODGE") {
+        setEnemyFsmState(e, "DODGE", 0.30);
+        damageNumbers.push({
+          id: nextId++,
+          text: "ESQUIVA!",
+          x: e.x + e.w / 2,
+          y: e.y - 6,
+          vy: -35,
+          life: 0.55,
+          maxLife: 0.55,
+          isCrit: false,
+          color: "#38bdf8",
+        });
+        if (e.kind === "gargoyle") {
+          e.state = "leap";
+          e.vy = -225;
+          e.vx = -e.facing * 90;
+          e.cd = 0.22;
+          sound.playSfx("jump");
+        } else if (e.kind === "bossSeraphine" || e.kind === "bossVeyne" || e.kind === "bossDracula") {
+          e.x = clamp(player.x + (e.facing > 0 ? -120 : 120), e.homeX - 145, e.homeX + 145);
+          e.cd = 0.25;
+        } else {
+          e.state = "retreat";
+          e.vy = -125;
+          e.vx = -e.facing * 135;
+          e.cd = 0.18;
+        }
+      } else if (tacticalChoice === "COUNTER") {
+        setEnemyFsmState(e, "COUNTER", 0.20);
+        e.state = "slash";
+        e.wind = 0.20;
+        e.cd = (ENEMY_COMBAT_CONFIG[e.kind]?.attackCooldown ?? 0.65) * 0.85;
+        damageNumbers.push({
+          id: nextId++,
+          text: "CONTRA-ATAQUE!",
+          x: e.x + e.w / 2,
+          y: e.y - 8,
+          vy: -38,
+          life: 0.6,
+          maxLife: 0.6,
+          isCrit: true,
+          color: "#fde047",
+        });
+      }
+    }
 
     // =========================================================================
     // 1. BAT (Hunting formation: undulating sine-wave flight & rapid head dives)
@@ -4948,6 +5020,8 @@ export function mountCampaign(
             e.cd = 0.20;
           } else {
             e.state = "charge";
+            e.hitPlayerThisAttack = false;
+            setEnemyFsmState(e, "ATTACK", 0.68);
             e.wind = 0.68; // Charge duration
             e.cd = 1.45;
             sound.playEnemyAlert("knight");
@@ -4956,6 +5030,7 @@ export function mountCampaign(
           if (!canEnemyAttack(e)) {
             e.cd = 0.18;
           } else {
+            setEnemyFsmState(e, "WINDUP", 0.25);
             e.wind = 0.25; // Crisp 250ms halberd cleave
             e.cd = 0.62;
             e.state = "slash";
@@ -4971,13 +5046,15 @@ export function mountCampaign(
             w: 46,
             h: 40,
           };
-          if (overlap(chargeBox, player)) {
+          if (!e.hitPlayerThisAttack && overlap(chargeBox, getPlayerHurtbox(player))) {
+            e.hitPlayerThisAttack = true;
             hurtPlayer(2, e.x, "slash");
             e.wind = 0;
           }
           if (e.wind <= 0) {
             e.state = "shield";
-            e.postAttackT = 0.18;
+            e.postAttackT = postPauseDur;
+            setEnemyFsmState(e, "RECOVERY", postPauseDur);
           }
         } else if (e.wind > 0) {
           e.wind -= dt;
@@ -4989,9 +5066,10 @@ export function mountCampaign(
               w: 58,
               h: 38,
             };
-            if (overlap(box, player)) hurtPlayer(2, e.x, "slash");
+            if (overlap(box, getPlayerHurtbox(player))) hurtPlayer(2, e.x, "slash");
             e.state = "shield";
-            e.postAttackT = 0.18;
+            e.postAttackT = postPauseDur;
+            setEnemyFsmState(e, "RECOVERY", postPauseDur);
           }
         } else {
           e.state = "shield";
@@ -5007,6 +5085,8 @@ export function mountCampaign(
             e.cd = 0.18;
           } else {
             e.state = "leap";
+            e.hitPlayerThisAttack = false;
+            setEnemyFsmState(e, "ATTACK", 0.28);
             e.vy = -140;
             e.vx = e.facing * 140;
             e.wind = 0.28;
@@ -5017,6 +5097,7 @@ export function mountCampaign(
           if (!canEnemyAttack(e)) {
             e.cd = 0.16;
           } else {
+            setEnemyFsmState(e, "WINDUP", 0.22);
             e.wind = 0.22; // Fast 220ms ravenous claw swipe
             e.cd = 0.52;
             e.state = "slash";
@@ -5031,12 +5112,14 @@ export function mountCampaign(
             w: 40,
             h: 38,
           };
-          if (overlap(clawBox, player)) {
+          if (!e.hitPlayerThisAttack && overlap(clawBox, getPlayerHurtbox(player))) {
+            e.hitPlayerThisAttack = true;
             hurtPlayer(1, e.x, "slash");
           }
           if (e.grounded && e.vy >= 0) {
             e.state = "idle";
-            e.postAttackT = 0.16;
+            e.postAttackT = postPauseDur;
+            setEnemyFsmState(e, "RECOVERY", postPauseDur);
           }
         } else if (e.wind > 0) {
           e.wind -= dt;
@@ -5049,9 +5132,10 @@ export function mountCampaign(
               w: 44,
               h: 38,
             };
-            if (overlap(box, player)) hurtPlayer(1, e.x, "slash");
+            if (overlap(box, getPlayerHurtbox(player))) hurtPlayer(1, e.x, "slash");
             e.state = "idle";
-            e.postAttackT = 0.15;
+            e.postAttackT = postPauseDur;
+            setEnemyFsmState(e, "RECOVERY", postPauseDur);
           }
         } else {
           e.state = "idle";
@@ -5068,6 +5152,7 @@ export function mountCampaign(
             e.cd = 0.18;
           } else {
             e.attackVariant = 0; // Melee shadow claw
+            setEnemyFsmState(e, "WINDUP", 0.22);
             e.wind = 0.22;
             e.cd = 0.54;
             e.state = "slash";
@@ -5078,6 +5163,7 @@ export function mountCampaign(
             e.cd = 0.20;
           } else {
             e.attackVariant = 1; // Ranged blood orb
+            setEnemyFsmState(e, "WINDUP", 0.26);
             e.state = "slash";
             e.wind = 0.26;
             e.cd = 0.88;
@@ -5095,7 +5181,7 @@ export function mountCampaign(
               w: 52,
               h: 38,
             };
-            if (overlap(box, player)) {
+            if (overlap(box, getPlayerHurtbox(player))) {
               hurtPlayer(2, e.x, "slash");
             } else if (e.attackVariant === 1 || dist > 58) {
               fire({
@@ -5113,7 +5199,8 @@ export function mountCampaign(
               });
             }
             e.state = "idle";
-            e.postAttackT = 0.15;
+            e.postAttackT = postPauseDur;
+            setEnemyFsmState(e, "RECOVERY", postPauseDur);
           }
         } else {
           e.state = "idle";
@@ -5127,6 +5214,7 @@ export function mountCampaign(
         // Red Arremer Evasion: If player attacks nearby OR gets too close on ground, demon leap into air!
         const playerThreat = (player.attackT > 0 && dist < 115) || (dist < 85 && e.cd <= 0.15);
         if (playerThreat && e.grounded && e.cd <= 0 && (e.postAttackT ?? 0) <= 0 && e.wind <= 0 && e.state !== "leap" && e.state !== "hover" && e.state !== "dive") {
+          setEnemyFsmState(e, "DODGE", 0.25);
           e.state = "leap";
           e.vy = -230;
           e.vx = -e.facing * 80;
@@ -5136,6 +5224,7 @@ export function mountCampaign(
           if (!canEnemyAttack(e)) {
             e.cd = 0.18;
           } else {
+            setEnemyFsmState(e, "WINDUP", 0.24);
             e.wind = 0.24;
             e.cd = 0.56;
             e.state = "slash";
@@ -5180,6 +5269,8 @@ export function mountCampaign(
           // Predatory dive-bomb attack!
           if ((e.hoverT ?? 0) >= 0.70) {
             e.state = "dive";
+            e.hitPlayerThisAttack = false;
+            setEnemyFsmState(e, "ATTACK", 0.45);
             e.vx = Math.sign(dx) * 185;
             e.vy = 265;
             sound.playEnemyAlert("gargoyle");
@@ -5188,21 +5279,23 @@ export function mountCampaign(
           // Swooping dive-bomb claw attack
           e.vx = Math.sign(dx) * 185;
           e.vy = 265;
-          // Claw attack hitbox during dive
+          // Claw attack hitbox during dive (single-hit per dive!)
           const diveBox = {
             x: e.x - 4,
             y: e.y,
             w: e.w + 8,
             h: e.h + 6,
           };
-          if (overlap(diveBox, player)) {
+          if (!e.hitPlayerThisAttack && overlap(diveBox, getPlayerHurtbox(player))) {
+            e.hitPlayerThisAttack = true;
             hurtPlayer(2, e.x, "slash");
           }
           if (e.grounded) {
             // Slam into stone floor with screenshake!
             e.state = "idle";
             e.cd = 0.52;
-            e.postAttackT = 0.18;
+            e.postAttackT = postPauseDur;
+            setEnemyFsmState(e, "RECOVERY", postPauseDur);
             e.vx = 0;
             shake = Math.max(shake, 3.5);
             sound.playSfx("slashHeavy");
@@ -5218,9 +5311,10 @@ export function mountCampaign(
               w: 50,
               h: 38,
             };
-            if (overlap(box, player)) hurtPlayer(2, e.x, "slash"); // Stone claw swipe deals 2 DMG
+            if (overlap(box, getPlayerHurtbox(player))) hurtPlayer(2, e.x, "slash"); // Stone claw swipe deals 2 DMG
             e.state = "idle";
-            e.postAttackT = 0.16;
+            e.postAttackT = postPauseDur;
+            setEnemyFsmState(e, "RECOVERY", postPauseDur);
           }
         } else {
           e.state = "idle";
@@ -5238,53 +5332,14 @@ export function mountCampaign(
       }
     }
 
-    // =========================================================================
-    // PHYSICAL SOLID BODY RESOLUTION BETWEEN ENEMY AND ALDRIC:
-    // Enemies must NOT penetrate Aldric's body space or slip behind him!
-    // Classic Contact Damage: Touching a live, non-stunned enemy hurts Aldric
-    // (no free frontal invincibility just from mashing Attack!).
-    // =========================================================================
-    if (!e.dead && !e.dying && !player.dead && !player.dying && e.kind !== "bat") {
-      const pTop = player.y;
-      const pBot = player.y + player.h;
-      const eTop = e.y;
-      const eBot = e.y + e.h;
-      const vertOverlap = Math.min(pBot, eBot) - Math.max(pTop, eTop);
-
-      // Only block horizontally when at the same ground elevation (allows jumping/pogoing over)
-      if (vertOverlap > 12) {
-        const eCenterX = e.x + e.w / 2;
-        const pCenterX = player.x + player.w / 2;
-        const minDistance = (e.w + player.w) / 2;
-        const distToPlayer = Math.abs(pCenterX - eCenterX);
-
-        if (distToPlayer < minDistance) {
-          if (e.hurt <= 0 && !e.staggered && player.specialT <= 0) {
-            const heavyContact = e.boss || e.kind === "knight" || e.kind === "gargoyle";
-            hurtPlayer(heavyContact ? 2 : 1, eCenterX, "slash");
-          }
-
-          if (eCenterX < pCenterX) {
-            // Enemy is on the LEFT of player: clamp enemy to player's left edge
-            e.x = player.x - e.w;
-            if (e.vx > 0) e.vx = 0;
-            if (player.vx < 0) player.vx = 0;
-          } else {
-            // Enemy is on the RIGHT of player: clamp enemy to player's right edge
-            e.x = player.x + player.w;
-            if (e.vx < 0) e.vx = 0;
-            if (player.vx > 0) player.vx = 0;
-          }
-        }
-      }
-    } else if (!e.dead && !e.dying && e.kind === "bat" && !player.dead && !player.dying) {
+    // Aerial Bat dive attack check (ground body separation is handled centrally by resolveCombatBodyCollisions)
+    if (!e.dead && !e.dying && e.kind === "bat" && !player.dead && !player.dying) {
       const pCenterX = player.x + player.w / 2;
       const eCenterX = e.x + e.w / 2;
       const horizDist = Math.abs(pCenterX - eCenterX);
       const minHorizDist = (e.w + player.w) / 2;
       const headTop = player.y;
 
-      // Check if bat is close to Aldric's head perimeter to deliver its attack
       const nearHeadHoriz = horizDist <= minHorizDist + 6;
       const nearHeadVert = e.y + e.h >= headTop - 6 && e.y <= headTop + 14;
 
@@ -5293,33 +5348,9 @@ export function mountCampaign(
           hurtPlayer(1, eCenterX, "slash");
           sound.playSfx("slice");
           shake = Math.max(shake, 1.5);
-          e.cd = 0.95; // Recovery cooldown before next dive
-          e.vy = -160; // Upward flap
-          e.vx = -e.facing * 75; // Flap away
-        }
-      }
-
-      // STRICT SOLID EXCLUSION: The bat must NEVER occupy the same space as Aldric!
-      // 1. Vertical head clamp: bat cannot penetrate below the top of Aldric's head
-      if (e.x + e.w > player.x && e.x < player.x + player.w) {
-        if (e.y + e.h > headTop) {
-          e.y = headTop - e.h;
-          if (e.vy > 0) e.vy = 0;
-        }
-      }
-
-      // 2. Horizontal body clamp: bat cannot penetrate into Aldric's torso from either side
-      if (e.y + e.h > headTop && e.y < player.y + player.h) {
-        if (eCenterX < pCenterX) {
-          if (e.x + e.w > player.x) {
-            e.x = player.x - e.w;
-            if (e.vx > 0) e.vx = 0;
-          }
-        } else {
-          if (e.x < player.x + player.w) {
-            e.x = player.x + player.w;
-            if (e.vx < 0) e.vx = 0;
-          }
+          e.cd = 0.95;
+          e.vy = -160;
+          e.vx = -e.facing * 75;
         }
       }
     }
@@ -6343,29 +6374,31 @@ export function mountCampaign(
         }
       }
 
-      // Attack telegraph warning indicator (! above head with crimson pulse aura)
+      // Attack telegraph warning indicator (! for WINDUP, ⚡ for COUNTER)
       if (e.wind > 0 && !e.dead && !e.dying) {
         const ex = Math.round(e.x + e.w / 2 - camX);
         const ey = Math.round(e.y - camY - 14);
+        const isCounterWindup = e.fsmState === "COUNTER";
         g.save();
         const pulse = 0.65 + Math.sin(time * 24) * 0.35;
-        g.fillStyle = `rgba(225, 29, 72, ${pulse * 0.55})`;
+        g.fillStyle = isCounterWindup
+          ? `rgba(250, 204, 21, ${pulse * 0.65})`
+          : `rgba(225, 29, 72, ${pulse * 0.55})`;
         g.beginPath();
         g.arc(ex, ey, 9, 0, Math.PI * 2);
         g.fill();
         g.font = "bold 13px 'Cinzel', serif, monospace";
         g.textAlign = "center";
         g.textBaseline = "middle";
-        // Crisp drop-shadow without costly Gaussian blur
         g.fillStyle = "rgba(0, 0, 0, 0.9)";
-        g.fillText("!", ex + 1, ey + 1);
-        g.fillStyle = "#ffffff";
-        g.fillText("!", ex, ey);
+        g.fillText(isCounterWindup ? "⚡" : "!", ex + 1, ey + 1);
+        g.fillStyle = isCounterWindup ? "#fef08a" : "#ffffff";
+        g.fillText(isCounterWindup ? "⚡" : "!", ex, ey);
         g.restore();
       }
 
-      // Stagger / Posture Broken indicator above Boss (+25% Vulnerable Window!)
-      if (e.staggered && e.hurt > 0 && !e.dead && !e.dying) {
+      // Stagger / Guard Broken / Stunned indicator above Enemies & Bosses
+      if ((e.staggered || e.fsmState === "STUNNED" || e.fsmState === "GUARD_BROKEN") && e.hurt > 0 && !e.dead && !e.dying) {
         const ex = Math.round(e.x + e.w / 2 - camX);
         const ey = Math.round(e.y - camY - 16);
         g.save();
@@ -6379,9 +6412,10 @@ export function mountCampaign(
         g.font = "bold 7.5px monospace";
         g.textAlign = "center";
         g.fillStyle = "rgba(0, 0, 0, 0.9)";
-        g.fillText("⚡ VULNERÁVEL!", ex + 1, ey - 7);
+        const statusText = e.fsmState === "GUARD_BROKEN" ? "⚡ GUARDA QUEBRADA!" : "⚡ VULNERÁVEL!";
+        g.fillText(statusText, ex + 1, ey - 7);
         g.fillStyle = "#fde047";
-        g.fillText("⚡ VULNERÁVEL!", ex, ey - 8);
+        g.fillText(statusText, ex, ey - 8);
         g.restore();
       }
     }
