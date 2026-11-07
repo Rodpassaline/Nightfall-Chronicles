@@ -1227,9 +1227,13 @@ export function GameScreen() {
             type="button"
             data-action-btn="attack"
             className={`pointer-events-auto touch-none after:content-[''] after:absolute after:-inset-2.5 after:rounded-full absolute bottom-[54px] right-[92px] sm:bottom-[64px] sm:right-[108px] h-[78px] w-[78px] sm:h-[86px] sm:w-[86px] rounded-full border-2 flex flex-col items-center justify-center transition-all duration-75 active:scale-90 shadow-2xl ${
-              heldActions.has("attack")
-                ? "border-red-400 bg-red-600/80 scale-90 shadow-[0_0_26px_rgba(239,68,68,0.95)] text-white"
-                : "border-white/45 bg-black/45 backdrop-blur-[2px] text-white hover:border-white/70 shadow-[0_4px_18px_rgba(0,0,0,0.65)]"
+              hud.charge >= 1
+                ? "border-amber-300 bg-gradient-to-br from-amber-500/90 via-yellow-500/85 to-cyan-500/85 scale-95 shadow-[0_0_32px_rgba(250,204,21,0.98)] text-white animate-pulse"
+                : hud.charge > 0.25
+                  ? "border-cyan-300 bg-cyan-600/75 scale-95 shadow-[0_0_24px_rgba(56,189,248,0.9)] text-white"
+                  : heldActions.has("attack")
+                    ? "border-red-400 bg-red-600/80 scale-90 shadow-[0_0_26px_rgba(239,68,68,0.95)] text-white"
+                    : "border-white/45 bg-black/45 backdrop-blur-[2px] text-white hover:border-white/70 shadow-[0_4px_18px_rgba(0,0,0,0.65)]"
             }`}
             onTouchStart={(e) => handleActionDown(e, "attack")}
             onTouchEnd={(e) => handleActionUp(e, "attack")}
@@ -1239,10 +1243,14 @@ export function GameScreen() {
             onPointerCancel={(e) => handleActionUp(e, "attack")}
             onPointerLeave={(e) => handleActionUp(e, "attack")}
           >
-            <div className="pointer-events-none absolute inset-1.5 rounded-full border border-white/20" />
+            <div
+              className={`pointer-events-none absolute inset-1.5 rounded-full border ${
+                hud.charge >= 1 ? "border-amber-200/80" : hud.charge > 0.25 ? "border-cyan-200/70" : "border-white/20"
+              }`}
+            />
             <Sword className="pointer-events-none h-8 w-8 sm:h-9 sm:w-9 -rotate-45 text-white drop-shadow-[0_2px_4px_rgba(0,0,0,0.9)]" />
-            <span className="pointer-events-none text-[8.5px] font-display font-bold tracking-wider leading-none mt-0.5 text-white/90">
-              ATAQUE
+            <span className="pointer-events-none text-[8px] font-display font-bold tracking-wider leading-none mt-0.5 text-white/95">
+              {hud.charge >= 1 ? "⚡ MAGIA!" : hud.charge > 0.25 ? "CARREGANDO" : "ATAQUE"}
             </span>
           </button>
 
@@ -1487,6 +1495,28 @@ export function GameScreen() {
                 }`}
                 style={{ width: `${(hud.bossHp / Math.max(1, hud.bossMax)) * 100}%` }}
               />
+            </div>
+            {/* Boss Posture / Poise Bar (Break posture to Stagger the Boss & open +25% Crit Window!) */}
+            <div className="mt-1 flex items-center gap-1.5 w-full">
+              <span className="font-display text-[7px] sm:text-[7.5px] uppercase tracking-wider font-bold text-amber-300/90 shrink-0 leading-none">
+                {hud.bossStaggered ? "⚡ POSTURA QUEBRADA!" : "POSTURA"}
+              </span>
+              <div className="h-1 flex-1 bg-zinc-900/90 rounded-full overflow-hidden border border-amber-500/35">
+                <div
+                  className={`h-full transition-all duration-150 ${
+                    hud.bossStaggered
+                      ? "bg-cyan-400 animate-pulse shadow-[0_0_8px_rgba(56,189,248,0.95)]"
+                      : "bg-gradient-to-r from-amber-500 to-yellow-300 shadow-[0_0_6px_rgba(250,204,21,0.8)]"
+                  }`}
+                  style={{
+                    width: `${
+                      hud.bossStaggered
+                        ? 100
+                        : ((hud.bossPoise ?? 14) / Math.max(1, hud.bossMaxPoise ?? 14)) * 100
+                    }%`,
+                  }}
+                />
+              </div>
             </div>
           </div>
         ) : hud.gameMode === "horde" ? (
