@@ -2945,7 +2945,7 @@ export function mountCampaign(
           });
         }
 
-        // Enter full Charged Energy Stance ("wind") at 0.36s
+        // Enter full Charged Energy Stance ("wind") at 0.36s and HOLD IT until the player releases the button!
         if (player.holdT >= 0.36 && player.charge !== "wind") {
           player.charge = "wind";
           sound.playSfx("chargeWind");
@@ -2964,15 +2964,6 @@ export function mountCampaign(
               pulse: Math.random() * Math.PI * 2,
             });
           }
-        }
-
-        // Peak Overcharge Auto-Release at 0.62s (smooth single charge -> fire cycle without fake release)
-        if (player.holdT >= 0.62 && player.attackLock <= 0) {
-          unleashChargedMagic();
-          attackRoutine.lockedUntilRelease = true;
-          attackRoutine.pendingTapSlash = false;
-          attackRoutine.holdDuration = 0;
-          player.attackBuffer = 0;
         }
       }
     } else {
