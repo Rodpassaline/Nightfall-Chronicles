@@ -1,4 +1,4 @@
-import { writeFileSync, unlinkSync, existsSync } from "node:fs";
+import { writeFileSync, unlinkSync, existsSync, cpSync, rmSync } from "node:fs";
 import { execSync } from "node:child_process";
 import { join } from "node:path";
 
@@ -36,6 +36,22 @@ try {
   writeFileSync(indexHtmlPath, mobileIndexHtml, "utf-8");
   execSync("npx vite build --config vite.capacitor.config.ts", { stdio: "inherit" });
   console.log("[build-mobile] Bundle mobile concluído com sucesso em dist-mobile/!");
+
+  // Sincroniza automaticamente com D:\Nightfall se existir (onde o Android Studio gera o APK)
+  const dNightfall = "D:\\Nightfall";
+  if (existsSync(dNightfall)) {
+    console.log("[build-mobile] Sincronizando com D:\\Nightfall...");
+    const dDist = join(dNightfall, "dist-mobile");
+    const dAssets = join(dNightfall, "android", "app", "src", "main", "assets", "public");
+    
+    // Limpa assets antigos para garantir substituição limpa dos bundles com hash
+    if (existsSync(dAssets)) {
+      rmSync(dAssets, { recursive: true, force: true });
+    }
+    cpSync(join(rootDir, "dist-mobile"), dDist, { recursive: true, force: true });
+    cpSync(join(rootDir, "dist-mobile"), dAssets, { recursive: true, force: true });
+    console.log("[build-mobile] Sincronização com D:\\Nightfall concluída com sucesso!");
+  }
 } finally {
   if (existsSync(indexHtmlPath)) {
     unlinkSync(indexHtmlPath);
