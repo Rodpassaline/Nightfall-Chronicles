@@ -38,6 +38,32 @@ export type EnemyArchetype =
   | "aerial"
   | "boss";
 
+export type NightfallEnemyClass =
+  | "SKELETON_WARRIOR"   // Classe 1: Guerreiro Esqueleto (Combate equilibrado, bloqueia ataques repetitivos, recua se pressionado, contra-ataca aberturas)
+  | "AGILE_PREDATOR"     // Classe 2: Criatura Ágil / Predador (Aproximação rápida, ataque curto, recuo automático hit-and-run após atacar)
+  | "HEAVY_WARRIOR"      // Classe 3: Guerreiro Pesado (Alta postura/poise, ataques lentos telegrafados que quebram guarda passiva, recuperação longa)
+  | "AERIAL_CREATURE"    // Classe 4: Criatura Aérea (Controle de altura acima do nível da espada, ataque em mergulho, janela vulnerável pós-mergulho)
+  | "BOSS_STRATEGIST";   // Classe 5: Chefes em 3 Fases (Observação 100-66%, Pressão 65-34%, Desespero <=33%)
+
+export function getNightfallEnemyClass(kind: Kind): NightfallEnemyClass {
+  switch (kind) {
+    case "skeleton":
+    case "redSkeleton":
+    case "armoredSkeleton":
+      return "SKELETON_WARRIOR";
+    case "zombie":
+    case "vampire":
+      return "AGILE_PREDATOR";
+    case "knight":
+      return "HEAVY_WARRIOR";
+    case "bat":
+    case "gargoyle":
+      return "AERIAL_CREATURE";
+    default:
+      return "BOSS_STRATEGIST";
+  }
+}
+
 export type PlayerAttackCategory = "LIGHT" | "NORMAL" | "HEAVY" | "SPECIAL";
 
 export interface PlayerAttackProfile {
@@ -231,7 +257,7 @@ export const ENEMY_COMBAT_CONFIG: Record<Kind, EnemyCombatConfig> = {
     guardBreakDuration: 0.45,
     stunResistance: 0.85,
     interruptMultiplier: 1.0,
-    blockChance: 0.05,
+    blockChance: 0.26,
     dodgeChance: 0.42,
     counterChance: 0.38,
     aggression: 0.6,
@@ -259,7 +285,7 @@ export const ENEMY_COMBAT_CONFIG: Record<Kind, EnemyCombatConfig> = {
     guardBreakDuration: 0.45,
     stunResistance: 0.95,
     interruptMultiplier: 0.9,
-    blockChance: 0.12,
+    blockChance: 0.36,
     dodgeChance: 0.48,
     counterChance: 0.45,
     aggression: 0.75,
@@ -302,11 +328,11 @@ export const ENEMY_COMBAT_CONFIG: Record<Kind, EnemyCombatConfig> = {
     rangedAttackRange: 250, // charge range
     preferredDistance: 48,
     retreatDistance: 24,
-    moveSpeed: 56,
-    attackCooldown: 0.72,
-    windupDuration: 0.26,
-    activeDuration: 0.16,
-    recoveryDuration: 0.34,
+    moveSpeed: 54,
+    attackCooldown: 0.78,
+    windupDuration: 0.34,
+    activeDuration: 0.18,
+    recoveryDuration: 0.46,
     maxPoise: 18,
     impactResistance: 0.52,
     poiseRegenDelay: 1.25,
@@ -689,6 +715,8 @@ export interface CombatEntityView {
   slotOffsetX?: number;
   attackPhase?: AttackWindowPhase;
   phaseTimer?: number;
+  activeTimer?: number;
+  impactShakeT?: number;
   hitPlayerThisAttack?: boolean;
   poise?: number;
   maxPoise?: number;
@@ -867,11 +895,36 @@ export class CombatDirector {
 // FASE 2 & FASE 5 — FSM CONTROLLER & 3-STAGE ATTACK WINDOWS (WINDUP -> ACTIVE -> RECOVERY)
 // ============================================================================
 
+/**
+ * Validates FSM state transitions so contradictory states never overlap:
+ * - DEAD cannot transition to any state.
+ * - STUNNED / GUARD_BROKEN cannot transition to movement/attack while e.hurt > 0 unless force === true.
+ * - Active ATTACK / COUNTER cannot be downgraded to IDLE / OBSERVE / APPROACH while activeTimer > 0 unless interrupted.
+ */
 export function setEnemyFsmState(
   e: CombatEntityView,
   nextState: EnemyFsmState,
   duration = 0,
+  force = false,
 ): void {
+  if (e.fsmState === "DEAD" && !force) return;
+
+  if (!force && (e.fsmState === "STUNNED" || e.fsmState === "GUARD_BROKEN") && e.hurt > 0) {
+    if (nextState !== "DEAD" && nextState !== "STUNNED" && nextState !== "GUARD_BROKEN") {
+      return;
+    }
+  }
+
+  if (
+    !force &&
+    (e.fsmState === "ATTACK" || e.fsmState === "COUNTER") &&
+    (e.activeTimer ?? 0) > 0 &&
+    (nextState === "IDLE" || nextState === "OBSERVE" || nextState === "APPROACH")
+  ) {
+    return;
+  }
+
+  const cfg = ENEMY_COMBAT_CONFIG[e.kind] ?? ENEMY_COMBAT_CONFIG.skeleton;
   e.fsmState = nextState;
   e.phaseTimer = duration;
 
@@ -879,16 +932,21 @@ export function setEnemyFsmState(
     case "IDLE":
     case "OBSERVE":
     case "APPROACH":
+      e.attackPhase = "NONE";
+      e.activeTimer = 0;
       if (e.state !== "shield" && e.state !== "hover") {
         e.state = "idle";
       }
       break;
     case "DEFEND":
+      e.attackPhase = "NONE";
+      e.activeTimer = 0;
       e.state = "shield";
       break;
     case "WINDUP":
       e.attackPhase = "WINDUP";
       e.wind = duration;
+      e.activeTimer = 0;
       e.hitPlayerThisAttack = false;
       if (e.state !== "charge" && e.state !== "leap" && e.state !== "dive" && e.state !== "smash") {
         e.state = "slash";
@@ -897,6 +955,7 @@ export function setEnemyFsmState(
     case "ATTACK":
     case "COUNTER":
       e.attackPhase = "ACTIVE";
+      e.activeTimer = duration > 0 ? duration : cfg.activeDuration;
       if (e.state !== "charge" && e.state !== "leap" && e.state !== "dive" && e.state !== "smash") {
         e.state = "slash";
       }
@@ -904,6 +963,7 @@ export function setEnemyFsmState(
     case "RECOVERY":
       e.attackPhase = "RECOVERY";
       e.wind = 0;
+      e.activeTimer = 0;
       if (e.state !== "hover") {
         e.state = "idle";
       }
@@ -912,18 +972,21 @@ export function setEnemyFsmState(
     case "RETREAT":
       e.attackPhase = "NONE";
       e.wind = 0;
+      e.activeTimer = 0;
       e.state = "retreat";
       break;
     case "STUNNED":
     case "GUARD_BROKEN":
       e.attackPhase = "NONE";
       e.wind = 0;
+      e.activeTimer = 0;
       e.hurt = Math.max(e.hurt, duration);
       e.state = "idle";
       break;
     case "DEAD":
       e.attackPhase = "NONE";
       e.wind = 0;
+      e.activeTimer = 0;
       e.state = "dying";
       break;
   }
@@ -943,6 +1006,8 @@ export function updateEnemyPoiseAndFsmTimers(e: CombatEntityView, dt: number): v
   e.blockCooldown = Math.max(0, (e.blockCooldown ?? 0) - dt);
   e.dodgeCooldown = Math.max(0, (e.dodgeCooldown ?? 0) - dt);
   e.poiseRegenTimer = Math.max(0, (e.poiseRegenTimer ?? 0) - dt);
+  e.impactShakeT = Math.max(0, (e.impactShakeT ?? 0) - dt);
+  e.activeTimer = Math.max(0, (e.activeTimer ?? 0) - dt);
 
   // Gradual Poise recovery after poiseRegenDelay without taking hits
   if ((e.poiseRegenTimer ?? 0) <= 0 && e.hurt <= 0 && !e.dead && !e.dying) {
@@ -956,7 +1021,7 @@ export function updateEnemyPoiseAndFsmTimers(e: CombatEntityView, dt: number): v
   if ((e.fsmState === "STUNNED" || e.fsmState === "GUARD_BROKEN") && e.hurt <= 0) {
     e.poise = e.maxPoise;
     e.antiStunTimer = Math.max(e.antiStunTimer ?? 0, cfg.stunResistance);
-    setEnemyFsmState(e, "IDLE", 0);
+    setEnemyFsmState(e, "IDLE", 0, true);
   }
 }
 
@@ -1010,15 +1075,16 @@ export function evaluatePoiseImpact(
     poiseDelta *= 0.55;
   }
 
-  // Apply poise damage
+  // Apply poise damage and trigger visual impact shudder even if not interrupted
   e.poise = Math.max(0, (e.poise ?? e.maxPoise) - poiseDelta);
+  e.impactShakeT = 0.14;
 
   // 1. Check Guard Break on shielding enemy hit by a Guard-Breaking attack (NORMAL finisher/pogo, HEAVY, SPECIAL)
   if (wasShieldingFront && attackProfile.canBreakGuard) {
     e.poise = e.maxPoise;
     e.consecutiveStuns = (e.consecutiveStuns ?? 0) + 1;
     e.antiStunTimer = cfg.guardBreakDuration + cfg.stunResistance;
-    setEnemyFsmState(e, "GUARD_BROKEN", cfg.guardBreakDuration);
+    setEnemyFsmState(e, "GUARD_BROKEN", cfg.guardBreakDuration, true);
     return {
       interrupted: true,
       guardBroken: true,
@@ -1030,7 +1096,7 @@ export function evaluatePoiseImpact(
     };
   }
 
-  // 2. Check Full Poise Break -> STUNNED / GUARD_BROKEN
+  // 2. Check Full Poise Break -> GUARD_BROKEN (opens Contextual Execution window)
   if ((e.poise ?? 0) <= 0 && !hasAntiStunArmor) {
     const maxConsecutive = e.boss ? 1 : 2;
     const stuns = (e.consecutiveStuns ?? 0) + 1;
@@ -1053,11 +1119,10 @@ export function evaluatePoiseImpact(
     }
 
     const diffMult = difficulty === "easy" ? 1.15 : difficulty === "hard" ? 0.82 : 1.0;
-    const stunDur = cfg.stunDuration * diffMult;
+    const stunDur = Math.max(cfg.stunDuration, cfg.guardBreakDuration) * diffMult;
     e.antiStunTimer = stunDur + cfg.stunResistance;
-    const nextState: EnemyFsmState =
-      cfg.archetype === "defensive" || cfg.archetype === "heavy" ? "GUARD_BROKEN" : "STUNNED";
-    setEnemyFsmState(e, nextState, stunDur);
+    const nextState: EnemyFsmState = e.kind === "bat" ? "STUNNED" : "GUARD_BROKEN";
+    setEnemyFsmState(e, nextState, stunDur, true);
 
     return {
       interrupted: true,
@@ -1075,6 +1140,7 @@ export function evaluatePoiseImpact(
   // HEAVY / SPECIAL attacks can interrupt non-boss enemies even before poise hits 0.
   const isCommittedAttack =
     e.wind > 0 ||
+    (e.activeTimer ?? 0) > 0 ||
     e.fsmState === "WINDUP" ||
     e.fsmState === "ATTACK" ||
     e.fsmState === "COUNTER" ||
@@ -1083,7 +1149,7 @@ export function evaluatePoiseImpact(
     e.state === "dive";
 
   if (!e.boss && (attackProfile.category === "HEAVY" || attackProfile.category === "SPECIAL") && !hasAntiStunArmor) {
-    setEnemyFsmState(e, "STUNNED", cfg.stunDuration * 0.75);
+    setEnemyFsmState(e, "STUNNED", cfg.stunDuration * 0.75, true);
     e.antiStunTimer = cfg.stunResistance;
     return {
       interrupted: true,
@@ -1126,6 +1192,23 @@ export function evaluatePoiseImpact(
 // ============================================================================
 
 /**
+ * Identifies whether an entity is currently an airborne / flying creature
+ * that should NOT be subjected to ground-based horizontal body blocking.
+ */
+export function isAerialCreature(e: CombatEntityView): boolean {
+  if (e.kind === "bat" || e.kind === "bossNocturne" || e.kind === "bossSeraphine") {
+    return true;
+  }
+  if (
+    e.kind === "gargoyle" &&
+    (!e.grounded || e.state === "hover" || e.state === "dive" || e.state === "leap")
+  ) {
+    return true;
+  }
+  return false;
+}
+
+/**
  * Resolves physical BODY COLLIDERS between Player and Enemies, and between Enemy pairs,
  * without oscillations, without blocking vertical jumps/platforming, and WITHOUT applying
  * unfair passive contact damage when an enemy is not executing an attack.
@@ -1148,12 +1231,13 @@ export function resolveCombatBodyCollisions(
     const cfg1 = ENEMY_COMBAT_CONFIG[e1.kind] ?? ENEMY_COMBAT_CONFIG.skeleton;
     const eBody1 = getBodyCollider(e1, cfg1.bodyInsetX, cfg1.bodyInsetY);
     const e1MidX = eBody1.x + eBody1.w / 2;
+    const e1Aerial = isAerialCreature(e1);
 
     // 1. Player vs Enemy Physical Body Separation
     // Skip horizontal body blocking if the player is actively dashing through with i-frames
     const isPlayerPhasing = player.dashT > 0 && player.iframes > 0;
     if (!isPlayerPhasing) {
-      if (e1.kind !== "bat") {
+      if (!e1Aerial) {
         const vertOverlap = Math.min(pBody.y + pBody.h, eBody1.y + eBody1.h) - Math.max(pBody.y, eBody1.y);
         // Only separate horizontally when bodies are on the same vertical plane (preserves jumping over enemies)
         if (vertOverlap > 12) {
@@ -1183,7 +1267,7 @@ export function resolveCombatBodyCollisions(
             }
           }
         }
-      } else {
+      } else if (e1.kind === "bat") {
         // Aerial Bat vs Player Head Boundary
         const headTop = player.y;
         if (e1.x + e1.w > player.x && e1.x < player.x + player.w) {
@@ -1199,6 +1283,7 @@ export function resolveCombatBodyCollisions(
     for (let j = i + 1; j < enemies.length; j++) {
       const e2 = enemies[j];
       if (e2.dead || e2.dying || e2.state === "emerge") continue;
+      const e2Aerial = isAerialCreature(e2);
 
       if (e1.kind === "bat" && e2.kind === "bat") {
         const bdx = (e2.x + e2.w / 2) - (e1.x + e1.w / 2);
@@ -1214,7 +1299,7 @@ export function resolveCombatBodyCollisions(
           e1.x -= nx * push;
           e1.y -= ny * push;
         }
-      } else if (e1.kind !== "bat" && e2.kind !== "bat" && !e1.boss && !e2.boss) {
+      } else if (!e1Aerial && !e2Aerial && !e1.boss && !e2.boss) {
         const vertOverlap = Math.min(e1.y + e1.h, e2.y + e2.h) - Math.max(e1.y, e2.y);
         if (vertOverlap > 14) {
           const cfg2 = ENEMY_COMBAT_CONFIG[e2.kind] ?? ENEMY_COMBAT_CONFIG.skeleton;
@@ -1243,6 +1328,7 @@ export interface AdaptiveModifiers {
   dodgeBonus: number;
   counterBonus: number;
   chaseSpeedMult: number;
+  dodgeFreqScore: number;
   forceOffensiveInitiative: boolean;
   playerTelegraphingHeavy: boolean;
   playerJustFinishedCombo: boolean;
@@ -1252,11 +1338,13 @@ export class PlayerBehaviorTracker {
   public mashScore = 0;            // 0..1: rapid repeated attacks
   public heavyScore = 0;           // 0..1: frequent charged/heavy attacks
   public retreatScore = 0;         // 0..1: frequent backing away / kiting
+  public dodgeScore = 0;           // 0..1: frequent dash/evade usage
   public recoveryPunishScore = 0;  // 0..1: hitting enemies during RECOVERY
   public passiveTime = 0;          // seconds player stayed idle/passive
   private lastAttackTime = -10;
   private prevPlayerX = 0;
   private prevAttackT = 0;
+  private prevDashT = 0;
   public comboJustEndedTimer = 0;
   public observableChargeTime = 0; // tracks how long player has been visibly charging (human reaction delay)
 
@@ -1264,9 +1352,11 @@ export class PlayerBehaviorTracker {
     this.mashScore = 0;
     this.heavyScore = 0;
     this.retreatScore = 0;
+    this.dodgeScore = 0;
     this.recoveryPunishScore = 0;
     this.passiveTime = 0;
     this.lastAttackTime = -10;
+    this.prevDashT = 0;
     this.comboJustEndedTimer = 0;
     this.observableChargeTime = 0;
   }
@@ -1292,8 +1382,16 @@ export class PlayerBehaviorTracker {
     this.mashScore *= decay;
     this.heavyScore *= decay;
     this.retreatScore *= decay;
+    this.dodgeScore *= decay;
     this.recoveryPunishScore *= decay;
     this.comboJustEndedTimer = Math.max(0, this.comboJustEndedTimer - dt);
+
+    // Detect newly started dash/dodge
+    if (player.dashT > 0.08 && this.prevDashT <= 0.01) {
+      this.dodgeScore = Math.min(1, this.dodgeScore + 0.34);
+      this.passiveTime = 0;
+    }
+    this.prevDashT = player.dashT;
 
     // Detect newly started attack swing
     if (player.attackT > 0.14 && this.prevAttackT <= 0.02) {
@@ -1355,13 +1453,14 @@ export class PlayerBehaviorTracker {
 
   public getModifiers(): AdaptiveModifiers {
     return {
-      blockBonus: this.mashScore > 0.42 ? Math.min(0.32, (this.mashScore - 0.35) * 0.5) : 0,
-      dodgeBonus: this.heavyScore > 0.35 ? Math.min(0.35, (this.heavyScore - 0.25) * 0.5) : 0,
+      blockBonus: this.mashScore > 0.38 ? Math.min(0.35, (this.mashScore - 0.32) * 0.55) : 0,
+      dodgeBonus: this.heavyScore > 0.32 ? Math.min(0.38, (this.heavyScore - 0.22) * 0.55) : 0,
       counterBonus:
-        this.mashScore > 0.45 || this.recoveryPunishScore > 0.4
-          ? Math.min(0.35, Math.max(this.mashScore, this.recoveryPunishScore) * 0.45)
+        this.mashScore > 0.42 || this.recoveryPunishScore > 0.38 || this.dodgeScore > 0.45
+          ? Math.min(0.38, Math.max(this.mashScore, this.recoveryPunishScore, this.dodgeScore) * 0.48)
           : 0,
-      chaseSpeedMult: this.retreatScore > 0.45 ? 1.0 + Math.min(0.22, (this.retreatScore - 0.4) * 0.38) : 1.0,
+      chaseSpeedMult: this.retreatScore > 0.42 ? 1.0 + Math.min(0.24, (this.retreatScore - 0.38) * 0.42) : 1.0,
+      dodgeFreqScore: this.dodgeScore,
       forceOffensiveInitiative: this.passiveTime >= 1.25,
       // Only true after the player has been visibly glowing/charging for >= 0.32s (fair human reaction time)
       playerTelegraphingHeavy: this.observableChargeTime >= 0.32,
@@ -1372,7 +1471,7 @@ export class PlayerBehaviorTracker {
 
 /**
  * Evaluates whether an enemy in neutral/observe/approach should proactively DODGE, DEFEND, or COUNTER
- * based on its archetype config, cooldowns, arena bounds, and the player's adaptive behavior profile.
+ * based on its NightfallEnemyClass, archetype config, cooldowns, arena bounds, and the player's adaptive behavior profile.
  */
 export function evaluateAdaptiveTacticalAction(
   e: CombatEntityView & { facing: 1 | -1; attackVariant?: number },
@@ -1380,25 +1479,34 @@ export function evaluateAdaptiveTacticalAction(
   stageW: number,
   mods: AdaptiveModifiers,
 ): "DODGE" | "DEFEND" | "COUNTER" | "NONE" {
-  if (e.dead || e.dying || e.hurt > 0 || e.wind > 0 || (e.postAttackT ?? 0) > 0) {
+  if (
+    e.dead ||
+    e.dying ||
+    e.hurt > 0 ||
+    e.wind > 0 ||
+    (e.activeTimer ?? 0) > 0 ||
+    (e.postAttackT ?? 0) > 0
+  ) {
     return "NONE";
   }
 
   const cfg = ENEMY_COMBAT_CONFIG[e.kind] ?? ENEMY_COMBAT_CONFIG.skeleton;
+  const enemyClass = getNightfallEnemyClass(e.kind);
 
   // 1. Adaptive Dodge when player visibly charges a Heavy Attack within threat range
   if (
     mods.playerTelegraphingHeavy &&
-    dist <= 155 &&
+    dist <= 160 &&
     (e.dodgeCooldown ?? 0) <= 0 &&
     e.grounded &&
-    cfg.dodgeChance > 0.15
+    cfg.dodgeChance > 0.12
   ) {
     const retreatDir = -e.facing;
     const targetX = e.x + retreatDir * 68;
     const hasArenaSpace = targetX > 36 && targetX < stageW - e.w - 36;
-    if (hasArenaSpace && Math.random() < Math.min(0.78, cfg.dodgeChance + mods.dodgeBonus)) {
-      e.dodgeCooldown = e.boss ? 2.4 : 2.1;
+    const classDodgeBoost = enemyClass === "AGILE_PREDATOR" ? 0.15 : 0;
+    if (hasArenaSpace && Math.random() < Math.min(0.82, cfg.dodgeChance + mods.dodgeBonus + classDodgeBoost)) {
+      e.dodgeCooldown = e.boss ? 2.4 : 2.0;
       return "DODGE";
     }
   }
@@ -1406,19 +1514,24 @@ export function evaluateAdaptiveTacticalAction(
   // 2. Opportunistic Counter-Attack right as the player finishes a combo / whiffs at close range
   if (
     mods.playerJustFinishedCombo &&
-    dist <= cfg.attackRange + 18 &&
-    e.cd <= 0.22 &&
-    Math.random() < Math.min(0.80, cfg.counterChance + mods.counterBonus)
+    dist <= cfg.attackRange + 22 &&
+    e.cd <= 0.25 &&
+    Math.random() < Math.min(0.82, cfg.counterChance + mods.counterBonus)
   ) {
     return "COUNTER";
   }
 
   // 3. Adaptive Guard / Defend when player is mashing attacks at close-to-mid range
+  // Applies to SKELETON_WARRIOR (Classe 1), HEAVY_WARRIOR (Classe 3), and defensive Bosses
   if (
-    mods.blockBonus > 0.08 &&
-    dist <= cfg.attackRange + 28 &&
+    mods.blockBonus > 0.06 &&
+    dist <= cfg.attackRange + 32 &&
     (e.blockCooldown ?? 0) <= 0 &&
-    (cfg.archetype === "defensive" || cfg.archetype === "heavy")
+    (enemyClass === "SKELETON_WARRIOR" ||
+      enemyClass === "HEAVY_WARRIOR" ||
+      cfg.archetype === "defensive" ||
+      cfg.archetype === "heavy") &&
+    Math.random() < Math.min(0.78, cfg.blockChance + mods.blockBonus)
   ) {
     return "DEFEND";
   }

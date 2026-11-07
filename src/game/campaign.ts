@@ -258,6 +258,8 @@ type Enemy = Body & {
   slotOffsetX?: number;
   attackPhase?: AttackWindowPhase;
   phaseTimer?: number;
+  activeTimer?: number;
+  impactShakeT?: number;
   hitPlayerThisAttack?: boolean;
   poiseRegenTimer?: number;
   antiStunTimer?: number;
@@ -1800,10 +1802,62 @@ export function mountCampaign(
     }
   }
 
-  function hurtPlayer(dmg: number, fromX: number, hitSource: "slash" | "spell" = "slash") {
+  function hurtPlayer(
+    dmg: number,
+    fromX: number,
+    hitSource: "slash" | "spell" = "slash",
+    isHeavyAttack = false,
+  ) {
     if (player.iframes > 0 || player.dead || player.won) return;
     if (player.guard && (fromX - (player.x + player.w / 2)) * player.facing > -6) {
       const isPerfectParry = player.guardT <= 0.26;
+
+      // Condição 3: Ataques pesados quebram a guarda PASSIVA, mas o Perfect Parry (guardT <= 0.26) continua funcionando integralmente!
+      if (!isPerfectParry && isHeavyAttack) {
+        player.guard = false;
+        player.guardT = 0;
+        player.controlLock = Math.max(player.controlLock, 0.34);
+        player.iframes = Math.max(player.iframes, 0.45);
+        player.hurtT = 0.14;
+        player.vx = -player.facing * 165;
+        player.vy = -85;
+        hitstop = T.hitstopHeavy;
+        shake = Math.max(shake, 6.5);
+        sound.playSfx("slashHeavy");
+        sound.playSfx("hurt");
+        if (player.hp > 1) {
+          player.hp -= 1;
+        }
+        player.toast = "💥 GUARDA PASSIVA QUEBRADA! Use APARAR PERFEITO no instante do golpe pesado!";
+        player.toastT = 2.4;
+        damageNumbers.push({
+          id: nextId++,
+          text: "QUEBRA DE GUARDA! -1",
+          x: player.x + player.w / 2,
+          y: player.y - 8,
+          vy: -42,
+          life: 0.78,
+          maxLife: 0.78,
+          isCrit: true,
+          color: "#f97316",
+        });
+        for (let i = 0; i < 14; i++) {
+          particles.push({
+            x: player.x + player.w / 2 + player.facing * 12,
+            y: player.y + player.h / 2,
+            vx: (Math.random() - 0.5) * 130,
+            vy: (Math.random() - 0.5) * 100 - 20,
+            size: 2.5,
+            alpha: 1,
+            maxAlpha: 1,
+            color: i % 2 === 0 ? "#f97316" : "#ef4444",
+            depth: "fg",
+            pulse: Math.random() * Math.PI * 2,
+          });
+        }
+        return;
+      }
+
       player.iframes = Math.max(player.iframes, isPerfectParry ? 0.38 : 0.22);
       player.vx = -player.facing * (isPerfectParry ? 85 : 125);
       player.guardFlash = isPerfectParry ? 0.30 : 0.18;
@@ -1841,11 +1895,14 @@ export function mountCampaign(
           e.vx = e.recoilVx;
           if (isPerfectParry) {
             e.wind = 0;
+            e.activeTimer = 0;
             if (!e.boss) {
               e.hurt = 0.55;
               e.cd = Math.max(e.cd, 0.75);
+              setEnemyFsmState(e, "GUARD_BROKEN", 0.55, true);
+              e.staggered = true;
             } else {
-              e.poise = Math.max(0, (e.poise ?? 14) - 5.5);
+              e.poise = Math.max(0, (e.poise ?? 14) - 6.0);
               e.cd = Math.max(e.cd, 0.50);
               if (e.poise <= 0) {
                 const staggerDur = difficulty === "easy" ? 1.15 : difficulty === "hard" ? 0.75 : 0.95;
@@ -1853,6 +1910,7 @@ export function mountCampaign(
                 e.poise = e.maxPoise ?? 14;
                 e.hurt = staggerDur;
                 e.state = "idle";
+                setEnemyFsmState(e, "GUARD_BROKEN", staggerDur, true);
               }
             }
           }
@@ -1943,6 +2001,48 @@ export function mountCampaign(
     const isCharged = dmg >= T.chargeDamage;
     const isSpecial = player.specialT > 0;
     const isGuardBreakMove = pogo || isCharged || isSpecial || player.combo === 2;
+
+    // Classe 1 (Guerreiro Esqueleto — skeleton / redSkeleton) reactive blade parry when in DEFEND ("shield") state
+    if ((e.kind === "skeleton" || e.kind === "redSkeleton") && e.state === "shield" && !isGuardBreakMove) {
+      const isFrontal = (player.x - (e.x + e.w / 2)) * e.facing < 0;
+      if (isFrontal) {
+        e.lastSwing = player.swingId;
+        sound.playSfx("slash");
+        player.vx = -player.facing * 75;
+        e.recoilT = 0.16;
+        e.recoilVx = knockDir * 62;
+        e.vx = e.recoilVx;
+        e.poise = Math.max(1, (e.poise ?? 8) - 2.5);
+        e.comboHits = (e.comboHits ?? 0) + 1;
+        e.blockCooldown = 1.65;
+        damageNumbers.push({
+          id: nextId++,
+          text: e.comboHits >= 2 ? "CONTRA-ATAQUE!" : "BLOQUEIO!",
+          x: e.x + e.w / 2,
+          y: e.y - 6,
+          vy: -34,
+          life: 0.55,
+          maxLife: 0.55,
+          isCrit: e.comboHits >= 2,
+          color: e.comboHits >= 2 ? "#fde047" : "#93c5fd",
+        });
+        if (e.comboHits >= 2) {
+          e.comboHits = 0;
+          setEnemyFsmState(e, "COUNTER", 0.18, true);
+          e.state = "slash";
+          e.wind = 0.18;
+          e.cd = 0.50;
+        } else {
+          setEnemyFsmState(e, "DODGE", 0.26, true);
+          e.state = "retreat";
+          e.vy = -115;
+          e.vx = knockDir * 130;
+          e.cd = 0.18;
+        }
+        shake = 2.2;
+        return;
+      }
+    }
 
     // Armored Skeleton buckler shield deflection (broken by Pogo, Charged Wave, Special, or 3rd-hit Finisher!)
     if (e.kind === "armoredSkeleton" && e.state === "shield" && !isGuardBreakMove) {
@@ -2102,16 +2202,57 @@ export function mountCampaign(
     }
 
     const wasShielding =
-      (e.kind === "armoredSkeleton" || e.kind === "knight" || (e.kind === "bossValerius" && (e.phase ?? 1) < 2)) &&
+      (e.kind === "armoredSkeleton" ||
+        e.kind === "knight" ||
+        e.kind === "skeleton" ||
+        e.kind === "redSkeleton" ||
+        (e.kind === "bossValerius" && (e.phase ?? 1) < 2)) &&
       e.state === "shield" &&
       (player.x - (e.x + e.w / 2)) * e.facing < 0;
 
     const wasCounterHit = e.wind > 0;
-    const isStaggeredHit = !!e.staggered && e.hurt > 0;
+    const isGuardBrokenWindow = (e.fsmState === "GUARD_BROKEN" || !!e.staggered) && e.hurt > 0;
+    const isContextualExecution =
+      isGuardBrokenWindow && (hitSource === "slash" || isCharged || isSpecial);
 
     let effectiveDmg = hitSource === "slash" ? Math.max(1, Math.round(dmg * bladeDmgMultiplier)) : dmg;
-    if (isStaggeredHit) {
-      effectiveDmg = Math.max(effectiveDmg + 1, Math.ceil(effectiveDmg * 1.25));
+    if (isContextualExecution) {
+      // Condição 4: Execução Contextual com balanceamento próprio — significativa em inimigos comuns (+60%),
+      // mas justa/limitada em Chefes (+1 a +2 HP de bônus) para nunca eliminar chefes de forma desproporcional!
+      if (e.boss) {
+        const bossExecBonus = Math.min(2, Math.max(1, Math.round(effectiveDmg * 0.35)));
+        effectiveDmg += bossExecBonus;
+      } else {
+        effectiveDmg = Math.max(effectiveDmg + 2, Math.ceil(effectiveDmg * 1.6));
+      }
+
+      // Recompensa tática da Execução Contextual + encerramento imediato da janela GUARD_BROKEN
+      player.mana = Math.min(T.maxMana, player.mana + 12);
+      player.special = Math.min(100, player.special + 8);
+      e.staggered = false;
+      e.poise = e.maxPoise ?? 14;
+      e.antiStunTimer = 1.45;
+      e.hurt = 0.16;
+      setEnemyFsmState(e, "RECOVERY", 0.28, true);
+      sound.playSfx("relic");
+      sound.playSfx("slashHeavy");
+      player.toast = "⚔️ EXECUÇÃO CRÍTICA! +12 Mana · +8 Especial!";
+      player.toastT = 2.1;
+
+      for (let i = 0; i < 16; i++) {
+        particles.push({
+          x: e.x + e.w / 2 + (Math.random() - 0.5) * 18,
+          y: e.y + e.h - Math.random() * e.h,
+          vx: (Math.random() - 0.5) * 70,
+          vy: -45 - Math.random() * 95,
+          size: 2.6,
+          alpha: 1,
+          maxAlpha: 1,
+          color: i % 2 === 0 ? "#fde047" : "#f97316",
+          depth: "fg",
+          pulse: Math.random() * Math.PI * 2,
+        });
+      }
     }
 
     const isFatal = e.hp <= effectiveDmg;
@@ -2119,11 +2260,12 @@ export function mountCampaign(
     e.hp -= effectiveDmg;
     e.hurtFlash = 0.09;
 
-    const isCrit = isCharged || isSpecial || isStaggeredHit || player.combo === 2 || wasCounterHit;
+    const isCrit =
+      isCharged || isSpecial || isContextualExecution || player.combo === 2 || wasCounterHit;
 
     if (isCrit) {
-      hitstop = Math.max(hitstop, 0.055);
-      shake = Math.max(shake, 4.5);
+      hitstop = Math.max(hitstop, isContextualExecution ? 0.08 : 0.055);
+      shake = Math.max(shake, isContextualExecution ? 7.0 : 4.5);
     }
 
     if (wasShielding && isGuardBreakMove) {
@@ -2143,8 +2285,8 @@ export function mountCampaign(
 
     damageNumbers.push({
       id: nextId++,
-      text: isStaggeredHit
-        ? `CRÍTICO -${effectiveDmg}!`
+      text: isContextualExecution
+        ? `⚔️ EXECUÇÃO -${effectiveDmg}!`
         : wasCounterHit
           ? `CONTRA -${effectiveDmg}!`
           : isCrit
@@ -2152,11 +2294,11 @@ export function mountCampaign(
             : `-${effectiveDmg}`,
       x: e.x + e.w / 2 + (Math.random() - 0.5) * 8,
       y: e.y + 2,
-      vy: -36,
-      life: 0.65,
-      maxLife: 0.65,
+      vy: isContextualExecution ? -44 : -36,
+      life: isContextualExecution ? 0.82 : 0.65,
+      maxLife: isContextualExecution ? 0.82 : 0.65,
       isCrit,
-      color: isStaggeredHit ? "#38bdf8" : isCrit ? "#fde047" : "#ef4444",
+      color: isContextualExecution ? "#f97316" : isCrit ? "#fde047" : "#ef4444",
     });
 
     if (isFatal) {
@@ -2230,6 +2372,19 @@ export function mountCampaign(
       }
     }
 
+    if (isContextualExecution) {
+      e.recoilT = 0.22;
+      e.recoilVx = knockDir * (e.boss ? 95 : 135);
+      e.vx = e.recoilVx;
+      if (pogo) {
+        player.vy = -T.pogoV;
+        player.jumps = 1;
+        player.grounded = false;
+        sound.playSfx("pogo");
+      }
+      return;
+    }
+
     const attackProfile = resolvePlayerAttackProfile(
       dmg,
       pogo,
@@ -2247,13 +2402,14 @@ export function mountCampaign(
 
     if (e.boss) {
       if (poiseEval.stunned || poiseEval.guardBroken) {
-        // ⚡ POISE BREAK / BOSS STAGGER (Punish window, then Boss gains anti-stunlock armor & counters!)
+        // ⚡ POISE BREAK / BOSS STAGGER (Punish window for Contextual Execution, then Boss gains anti-stunlock armor & counters!)
         const staggerDur = poiseEval.stunDuration;
         e.staggered = true;
         e.superArmor = staggerDur + 1.35;
         e.hurt = staggerDur;
         e.wind = 0;
-        setEnemyFsmState(e, poiseEval.guardBroken ? "GUARD_BROKEN" : "STUNNED", staggerDur);
+        e.activeTimer = 0;
+        setEnemyFsmState(e, "GUARD_BROKEN", staggerDur, true);
         e.attackVariant = 0;
         e.cd = 0;
         e.postAttackT = 0;
@@ -2265,7 +2421,7 @@ export function mountCampaign(
         shake = Math.max(shake, 8);
         sound.playSfx("thunder");
         sound.playSfx("bossHurt");
-        player.toast = `⚡ POSTURA DE ${e.name.split(",")[0].toUpperCase()} QUEBRADA! (+25% Dano)!`;
+        player.toast = `⚡ POSTURA DE ${e.name.split(",")[0].toUpperCase()} QUEBRADA! Ataque para EXECUÇÃO CRÍTICA!`;
         player.toastT = 2.2;
 
         damageNumbers.push({
@@ -3954,21 +4110,20 @@ export function mountCampaign(
     }
 
     // =========================================================================
-    // BOSS PHASE TRANSFORMATION & MUTATION SYSTEM:
-    // Bosses 1–6 mutate into Phase 2 at <= 55% HP.
-    // Final Boss Dracula transitions to Phase 2 at <= 68% HP and mutates into his
-    // colossal Winged True Demon Form (Phase 3) at <= 38% HP!
+    // BOSS 3-PHASE STRATEGIC TRANSFORMATION SYSTEM (Etapa 9 / Condições 2 e 5):
+    // Fase 1 — Observação (100% a 66% HP)
+    // Fase 2 — Pressão    (65% a 34% HP)
+    // Fase 3 — Desespero  (<= 33% HP)
     // =========================================================================
     if (e.boss && !e.dead && !e.dying) {
       const curPhase = e.phase ?? 1;
       const isDracula = e.kind === "bossDracula" || e.kind === "dracula";
       const hpRatio = e.hp / e.max;
       let targetPhase = curPhase;
-      if (isDracula) {
-        if (hpRatio <= 0.38 && curPhase < 3) targetPhase = 3;
-        else if (hpRatio <= 0.50 && curPhase < 2) targetPhase = 2;
-      } else {
-        if (hpRatio <= 0.50 && curPhase < 2) targetPhase = 2;
+      if (hpRatio <= 0.33 && curPhase < 3) {
+        targetPhase = 3;
+      } else if (hpRatio <= 0.65 && curPhase < 2) {
+        targetPhase = 2;
       }
 
       // Reinforcements on Hard mode at <= 25% HP
@@ -3981,20 +4136,21 @@ export function mountCampaign(
 
       if (targetPhase > curPhase) {
         e.phase = targetPhase;
-        e.transformT = 1.0; // 1.0s invulnerability
+        e.transformT = targetPhase === 3 && !isDracula ? 0.75 : 1.0; // Invulnerability roar
         e.hurt = 0;
         e.wind = 0;
+        e.activeTimer = 0;
         e.vx = 0;
         e.vy = 0;
-        e.cd = 1.1;
+        e.cd = 0.95;
         e.state = "transform";
         bossEnragedAnnounced = true;
-        shake = Math.max(shake, 16);
+        shake = Math.max(shake, targetPhase === 3 ? 18 : 15);
         hitstop = Math.max(hitstop, 0.06);
         sound.playSfx("thunder");
         sound.playSfx("bossHurt");
 
-        if (!e.guardsSpawnedPhase2) {
+        if (targetPhase === 2 && !e.guardsSpawnedPhase2) {
           e.guardsSpawnedPhase2 = true;
           spawnBossGuards(e);
         }
@@ -4010,31 +4166,47 @@ export function mountCampaign(
           player.iframes = Math.max(player.iframes, 0.85);
         }
 
-        // Update Boss Title & Toast Announcement per Boss Mutation
-        if (e.kind === "bossPetros") {
-          e.name = "Petros Desperto, Titã de Magma";
-          player.toast = "🌋 FASE II: O núcleo de magma de Petros rachou a rocha! Cuidado com a chuva vulcânica!";
-        } else if (e.kind === "bossValerius") {
-          e.name = "Valerius, Berserker das Asas de Sangue";
-          player.toast = "🩸 FASE II: Valerius descartou o escudo e despertou suas asas demoníacas e espada colossal!";
-        } else if (e.kind === "bossSeraphine") {
-          e.name = "Seraphine, Serafim Carmesim de Seis Asas";
-          player.toast = "👑 FASE II: Seraphine ascendeu à forma de Serafim de Sangue! Lanças divinas caem do céu!";
-        } else if (e.kind === "bossNocturne") {
-          e.name = "Nocturne, Fera Strigoi Abissal";
-          player.toast = "🦇 FASE II: Nocturne sofreu mutação em Strigoi de Quatro Asas! Ondas sônicas triplas!";
-        } else if (e.kind === "bossVeyne") {
-          e.name = "Lorde Veyne, Arquilich Soberano do Vazio";
-          player.toast = "💀 FASE II: Veyne rasgou o véu mortal e revelou sua forma de Arquilich! Tempestade arcana!";
-        } else if (e.kind === "bossCalx") {
-          e.name = "Calx, Behemoth de Sobrecarga Mutagênica";
-          player.toast = "🧪 FASE II: Os tanques de Calx explodiram em cristais tóxicos gigantes! Fúria mutagênica!";
-        } else if (isDracula && targetPhase === 2) {
-          e.name = "Conde Drácula, Senhor das Trevas";
-          player.toast = "🔥 FASE II: Drácula libera o Fogo do Inferno Carmesim e Esferas do Vazio!";
-        } else if (isDracula && targetPhase === 3) {
-          e.name = "Drácula, Demônio Primordial Supremo";
-          player.toast = "👿 FORMA DEMONÍACA VERDADEIRA! Drácula assumiu sua forma colossal de Demônio Alado!";
+        // Update Boss Title & Toast Announcement per Boss Phase (2: Pressão, 3: Desespero)
+        if (targetPhase === 2) {
+          if (e.kind === "bossPetros") {
+            e.name = "Petros Desperto, Titã de Magma";
+            player.toast = "🌋 FASE II (PRESSÃO): O núcleo de magma de Petros rachou a rocha! Cuidado com a chuva vulcânica!";
+          } else if (e.kind === "bossValerius") {
+            e.name = "Valerius, Berserker das Asas de Sangue";
+            player.toast = "🩸 FASE II (PRESSÃO): Valerius descartou o escudo e despertou suas asas demoníacas!";
+          } else if (e.kind === "bossSeraphine") {
+            e.name = "Seraphine, Serafim Carmesim de Seis Asas";
+            player.toast = "👑 FASE II (PRESSÃO): Seraphine ascendeu à forma de Serafim de Sangue! Lanças divinas caem do céu!";
+          } else if (e.kind === "bossNocturne") {
+            e.name = "Nocturne, Fera Strigoi Abissal";
+            player.toast = "🦇 FASE II (PRESSÃO): Nocturne sofreu mutação em Strigoi de Quatro Asas! Ondas sônicas triplas!";
+          } else if (e.kind === "bossVeyne") {
+            e.name = "Lorde Veyne, Arquilich Soberano do Vazio";
+            player.toast = "💀 FASE II (PRESSÃO): Veyne rasgou o véu mortal e revelou sua forma de Arquilich!";
+          } else if (e.kind === "bossCalx") {
+            e.name = "Calx, Behemoth de Sobrecarga Mutagênica";
+            player.toast = "🧪 FASE II (PRESSÃO): Os tanques de Calx explodiram em cristais tóxicos gigantes!";
+          } else if (isDracula) {
+            e.name = "Conde Drácula, Senhor das Trevas";
+            player.toast = "🔥 FASE II (PRESSÃO): Drácula libera o Fogo do Inferno Carmesim e Esferas do Vazio!";
+          }
+        } else if (targetPhase === 3) {
+          if (e.kind === "bossPetros") {
+            player.toast = "🔥 FASE III (DESESPERO): Petros entra em Cataclismo Sísmico! Chuva quádrupla de magma!";
+          } else if (e.kind === "bossValerius") {
+            player.toast = "⚔️ FASE III (DESESPERO): Valerius usa Passo Sombrio e Golpes Quebra-Guarda!";
+          } else if (e.kind === "bossSeraphine") {
+            player.toast = "🩸 FASE III (DESESPERO): Santuário Carmesim! Minas duplas de sangue e tempestade celeste!";
+          } else if (e.kind === "bossNocturne") {
+            player.toast = "🌑 FASE III (DESESPERO): Eclipse Predatório! Rasantes supersônicos e ondas quádruplas!";
+          } else if (e.kind === "bossVeyne") {
+            player.toast = "⚡ FASE III (DESESPERO): Convergência do Vazio! Lanças duplas e teletransporte ofensivo!";
+          } else if (e.kind === "bossCalx") {
+            player.toast = "☣️ FASE III (DESESPERO): Reação Alquímica em Cadeia! Bombardeio ácido total!";
+          } else if (isDracula) {
+            e.name = "Drácula, Demônio Primordial Supremo";
+            player.toast = "👿 FASE III (FORMA DEMONÍACA VERDADEIRA): Drácula assumiu sua forma colossal de Demônio Alado!";
+          }
         }
         player.toastT = 4.2;
 
@@ -4240,11 +4412,26 @@ export function mountCampaign(
           isCrit: true,
           color: "#fde047",
         });
+      } else if (tacticalChoice === "DEFEND") {
+        setEnemyFsmState(e, "DEFEND", 0.42);
+        e.state = "shield";
+        e.blockCooldown = 1.5;
+        damageNumbers.push({
+          id: nextId++,
+          text: "DEFESA!",
+          x: e.x + e.w / 2,
+          y: e.y - 6,
+          vy: -32,
+          life: 0.5,
+          maxLife: 0.5,
+          isCrit: false,
+          color: "#93c5fd",
+        });
       }
     }
 
     // =========================================================================
-    // 1. BAT (Hunting formation: undulating sine-wave flight & rapid head dives)
+    // 1. BAT (Classe 4: Criatura Aérea — Controle de altitude e mergulhos rápidos)
     // =========================================================================
     if (e.kind === "bat") {
       const headTop = player.y;
@@ -4274,7 +4461,7 @@ export function mountCampaign(
             sound.playEnemyAlert("bat");
           }
           if (dist < 36 && e.cd <= 0) {
-            e.cd = 0.65; // Faster recovery cooldown
+            e.cd = 0.65; // Post-dive vulnerability & ascent cooldown
           }
         }
       } else {
@@ -4287,27 +4474,28 @@ export function mountCampaign(
       e.y = clamp(e.y, 16, GROUND_Y - 22);
     }
     // =========================================================================
-    // UNIVERSAL PHASE 2 BOSS MECHANICS (Ground Shockwave & Shadow Rush Combo)
+    // UNIVERSAL PHASE 2 & 3 BOSS MECHANICS (Ground Shockwave & Shadow Rush Combo)
     // =========================================================================
     else if (e.boss && (e.phase ?? 1) >= 2 && !e.dead && !e.dying && (e.transformT ?? 0) <= 0 && (e.attackVariant === 98 || e.attackVariant === 99 || ((e.phase2ShockwaveCd ?? 0) <= 0 && e.cd <= 0 && e.state === "idle" && dist > 50) || ((e.phase2DashCd ?? 0) <= 0 && e.cd <= 0 && e.state === "idle" && dist > 75 && dist < 320))) {
+      const isDesperation = (e.phase ?? 1) >= 3;
       e.phase2ShockwaveCd = Math.max(0, (e.phase2ShockwaveCd ?? 3.0) - dt);
       e.phase2DashCd = Math.max(0, (e.phase2DashCd ?? 4.0) - dt);
 
       // 1. Ground Shockwave Attack (forces player to jump [W] or dodge [K])
       if (e.cd <= 0 && (e.phase2ShockwaveCd ?? 0) <= 0 && e.state === "idle" && dist > 50) {
         e.state = "slash";
-        e.wind = 0.40; // 400ms telegraph warning
-        e.cd = 1.35;
-        e.phase2ShockwaveCd = difficulty === "hard" ? 3.0 : 4.5;
+        e.wind = isDesperation ? 0.34 : 0.40;
+        e.cd = isDesperation ? 1.15 : 1.35;
+        e.phase2ShockwaveCd = difficulty === "hard" ? 2.8 : 4.2;
         e.attackVariant = 99;
         sound.playSfx("slashHeavy");
       }
       // 2. Double Combo / Shadow Dash Rush across arena
       else if (e.cd <= 0 && (e.phase2DashCd ?? 0) <= 0 && e.state === "idle" && dist > 75 && dist < 320) {
         e.state = "slash";
-        e.wind = 0.40; // 400ms telegraph warning
-        e.cd = 1.5;
-        e.phase2DashCd = difficulty === "hard" ? 3.4 : 5.0;
+        e.wind = isDesperation ? 0.34 : 0.40;
+        e.cd = isDesperation ? 1.25 : 1.5;
+        e.phase2DashCd = difficulty === "hard" ? 3.2 : 4.8;
         e.attackVariant = 98;
         sound.playSfx("dash");
       }
@@ -4324,13 +4512,28 @@ export function mountCampaign(
               y: GROUND_Y - 22,
               w: 24,
               h: 22,
-              vx: e.facing * 260,
+              vx: e.facing * (isDesperation ? 285 : 260),
               vy: 0,
               life: 1.6,
               dmg: 1,
               friendly: false,
               sprite: "slash",
             });
+            if (isDesperation) {
+              // Phase 3 Desperation: Bidirectional Ground Shockwave!
+              fire({
+                x: e.x + (e.facing > 0 ? -28 : e.w + 4),
+                y: GROUND_Y - 22,
+                w: 24,
+                h: 22,
+                vx: -e.facing * 240,
+                vy: 0,
+                life: 1.4,
+                dmg: 1,
+                friendly: false,
+                sprite: "slash",
+              });
+            }
             e.state = "idle";
             e.attackVariant = 0;
             e.postAttackT = postPauseDur;
@@ -4342,7 +4545,7 @@ export function mountCampaign(
         if (e.wind > 0) {
           e.wind -= dt;
           // Plants feet during first 60% of warning telegraph, then dashes forward!
-          e.vx = e.wind > 0.16 ? 0 : (dist > (e.w + player.w) / 2 + 6 ? e.facing * 270 : 0);
+          e.vx = e.wind > 0.16 ? 0 : (dist > (e.w + player.w) / 2 + 6 ? e.facing * (isDesperation ? 295 : 270) : 0);
           if (e.wind <= 0) {
             const box = {
               x: e.facing > 0 ? e.x + e.w - 4 : e.x - 48,
@@ -4350,8 +4553,8 @@ export function mountCampaign(
               w: 52,
               h: 46,
             };
-            if (overlap(box, player)) {
-              hurtPlayer(2, e.x, "slash");
+            if (overlap(box, getPlayerHurtbox(player))) {
+              hurtPlayer(2, e.x, "slash", true); // Heavy attack: crushes passive guard, rewards Perfect Parry!
             }
             shake = Math.max(shake, 4);
             sound.playSfx("slashHeavy");
@@ -4366,70 +4569,80 @@ export function mountCampaign(
       }
     }
     // =========================================================================
-    // 2. BOSS 1: Petros, Gárgula Colossal de Pedra -> Fase 2: Titã de Magma (Os Portões)
+    // 2. BOSS 1: Petros, Gárgula Colossal -> F1: Observação | F2: Pressão | F3: Desespero
     // =========================================================================
     else if (e.kind === "bossPetros") {
-      const isEnraged = (e.phase ?? 1) >= 2;
+      const bossPhase = e.phase ?? 1;
+      const isEnraged = bossPhase >= 2;
+      const isDesperation = bossPhase >= 3;
       if (e.cd <= 0 && dist > 85 && e.state !== "dive") {
         // High demon leap and crushing dive smash
         e.state = "dive";
-        e.vy = isEnraged ? -285 : -220;
-        e.cd = isEnraged ? 1.15 : 1.65;
+        e.vy = isDesperation ? -300 : isEnraged ? -285 : -220;
+        e.cd = isDesperation ? 0.95 : isEnraged ? 1.15 : 1.65;
         sound.playBossAttack(1, 2); // Salto e impacto sísmico
       }
       if (e.state === "dive") {
         // Target a spot slightly in front of Aldric rather than landing inside his hitbox
         const targetDist = (e.w + player.w) / 2 + 12;
-        e.vx = dist > targetDist ? Math.sign(dx) * (isEnraged ? 150 : 115) : 0;
+        e.vx = dist > targetDist ? Math.sign(dx) * (isDesperation ? 168 : isEnraged ? 150 : 115) : 0;
         if (e.grounded || e.y >= e.homeY - 8) {
           e.state = "idle";
           e.vx = 0;
-          e.postAttackT = postPauseDur;
-          shake = isEnraged ? 9 : 6;
+          e.postAttackT = isDesperation ? postPauseDur * 0.72 : postPauseDur;
+          shake = isDesperation ? 11 : isEnraged ? 9 : 6;
           sound.playBossAttack(1, 2); // Impacto estrondoso de pedra/magma no solo
-          const shockSpeed = isEnraged ? 215 : 175;
+          const shockSpeed = isDesperation ? 235 : isEnraged ? 215 : 175;
           fire({ x: e.x - 20, y: e.y + e.h - 18, w: 16, h: 18, vx: -shockSpeed, vy: 0, life: 1.3, dmg: 1, friendly: false, sprite: "spell" });
           fire({ x: e.x + e.w + 4, y: e.y + e.h - 18, w: 16, h: 18, vx: shockSpeed, vy: 0, life: 1.3, dmg: 1, friendly: false, sprite: "spell" });
           if (isEnraged) {
-            // Phase 2 Volcanic Eruption: Triple falling magma meteors + horizontal fire breath!
-            for (let r = 0; r < 3; r++) {
+            // Phase 2 (3 meteors) / Phase 3 Desperation (4 cross-angled volcanic meteors + immediate claw follow-up if close!)
+            const meteorCount = isDesperation ? 4 : 3;
+            for (let r = 0; r < meteorCount; r++) {
               fire({
-                x: player.x + (r - 1) * 55 + (Math.random() - 0.5) * 20,
+                x: player.x + (r - (meteorCount - 1) / 2) * 52 + (Math.random() - 0.5) * 18,
                 y: -10,
                 w: 16,
                 h: 20,
-                vx: (Math.random() - 0.5) * 30,
-                vy: 235,
+                vx: (Math.random() - 0.5) * 35,
+                vy: isDesperation ? 255 : 235,
                 life: 1.8,
                 dmg: 1,
                 friendly: false,
                 sprite: "blood",
               });
             }
+            if (isDesperation && dist <= 78) {
+              // Phase 3 Strategic Change: Chains landing slam directly into a fast magma claw sweep!
+              e.state = "slash";
+              e.wind = 0.22;
+              e.cd = 0.60;
+              e.postAttackT = 0;
+            }
           }
         }
       } else {
         if (dist <= 68 && e.cd <= 0 && (e.postAttackT ?? 0) <= 0) {
-          e.wind = isEnraged ? 0.24 : 0.30;
-          e.cd = isEnraged ? 0.65 : 0.82;
+          e.wind = isDesperation ? 0.21 : isEnraged ? 0.24 : 0.30;
+          e.cd = isDesperation ? 0.56 : isEnraged ? 0.65 : 0.82;
           e.state = "slash";
           sound.playBossAttack(1, 1); // Ataque 1: Garra / Sopro de magma colossal
         }
         if (e.wind > 0) {
           e.wind -= dt;
           const minStep = (e.w + player.w) / 2 + 10;
-          e.vx = e.wind <= 0.08 && dist > minStep ? e.facing * (isEnraged ? 75 : 50) : 0;
+          e.vx = e.wind <= 0.08 && dist > minStep ? e.facing * (isDesperation ? 90 : isEnraged ? 75 : 50) : 0;
           if (e.wind <= 0) {
             const box = { x: e.facing > 0 ? e.x + e.w : e.x - 46, y: e.y + 12, w: 50, h: 52 };
-            if (overlap(box, player)) hurtPlayer(2, e.x, "slash");
+            if (overlap(box, getPlayerHurtbox(player))) hurtPlayer(2, e.x, "slash", true);
             if (isEnraged) {
-              // Phase 2 Molten Fire-Breath Wave!
+              // Phase 2 & 3 Molten Fire-Breath Wave!
               fire({
                 x: e.x + (e.facing > 0 ? e.w + 6 : -24),
                 y: e.y + 16,
                 w: 22,
                 h: 24,
-                vx: e.facing * 205,
+                vx: e.facing * (isDesperation ? 225 : 205),
                 vy: -12,
                 life: 1.1,
                 dmg: 1,
@@ -4441,7 +4654,7 @@ export function mountCampaign(
                 y: e.y + 28,
                 w: 20,
                 h: 22,
-                vx: e.facing * 175,
+                vx: e.facing * (isDesperation ? 195 : 175),
                 vy: 15,
                 life: 1.1,
                 dmg: 1,
@@ -4454,42 +4667,53 @@ export function mountCampaign(
           }
         } else {
           e.state = "idle";
-          e.vx = getTacticalMoveVx(e, dist, dx, isEnraged ? 78 : 54, 44);
+          e.vx = getTacticalMoveVx(e, dist, dx, isDesperation ? 88 : isEnraged ? 78 : 54, 44);
         }
       }
       e.vy = Math.min(e.vy + T.gravDown * dt, T.terminal);
       resolve(e, dt, false);
     }
     // =========================================================================
-    // 3. BOSS 2: Valerius, Cavaleiro Sombrio -> Fase 2: Berserker das Asas de Sangue
+    // 3. BOSS 2: Valerius -> F1: Observação (Escudo) | F2: Pressão | F3: Desespero (Passo Sombrio)
     // =========================================================================
     else if (e.kind === "bossValerius") {
-      const isEnraged = (e.phase ?? 1) >= 2;
-      if (isEnraged && dist > 85 && dist < 240 && e.cd <= 0 && (e.postAttackT ?? 0) <= 0 && e.state !== "slash") {
+      const bossPhase = e.phase ?? 1;
+      const isEnraged = bossPhase >= 2;
+      const isDesperation = bossPhase >= 3;
+      if (isDesperation && dist > 95 && dist < 260 && e.cd <= 0 && (e.postAttackT ?? 0) <= 0 && e.state !== "slash") {
+        // Phase 3 Strategic Feint: Shadow-Step Reposition right to sword range before heavy cleave!
+        e.x = clamp(player.x - e.facing * 52, e.homeX - 165, e.homeX + 165);
+        e.facing = player.x + player.w / 2 >= e.x + e.w / 2 ? 1 : -1;
+        e.state = "slash";
+        e.wind = 0.24;
+        e.cd = 0.78;
+        sound.playSfx("dash");
+        sound.playBossAttack(2, 1);
+      } else if (isEnraged && dist > 85 && dist < 240 && e.cd <= 0 && (e.postAttackT ?? 0) <= 0 && e.state !== "slash") {
         e.state = "slash";
         e.wind = 0.28;
         e.cd = 0.92;
         sound.playBossAttack(2, 1);
       } else if (dist <= 66 && e.cd <= 0 && (e.postAttackT ?? 0) <= 0) {
         e.state = "slash";
-        e.wind = isEnraged ? 0.22 : 0.28;
-        e.cd = isEnraged ? 0.62 : 0.78;
+        e.wind = isDesperation ? 0.20 : isEnraged ? 0.22 : 0.28;
+        e.cd = isDesperation ? 0.55 : isEnraged ? 0.62 : 0.78;
         sound.playBossAttack(2, 1); // Ataque 1: Investida com lâmina pesada
       }
       if (e.wind > 0) {
         e.wind -= dt;
         const minStep = (e.w + player.w) / 2 + 10;
-        e.vx = e.wind <= 0.09 && dist > minStep ? e.facing * (isEnraged ? 185 : 135) : 0;
+        e.vx = e.wind <= 0.09 && dist > minStep ? e.facing * (isDesperation ? 205 : isEnraged ? 185 : 135) : 0;
         if (e.wind <= 0) {
           const box = { x: e.facing > 0 ? e.x + e.w : e.x - 46, y: e.y + 12, w: 52, h: 48 };
-          if (overlap(box, player)) hurtPlayer(2, e.x, "slash");
+          if (overlap(box, getPlayerHurtbox(player))) hurtPlayer(2, e.x, "slash", true); // Heavy blade cleave
           sound.playBossAttack(2, 2); // Ataque 2: Onda de corte crescente sombrio
           fire({
             x: e.x + (e.facing > 0 ? e.w : -24),
             y: e.y + e.h - 32,
             w: 24,
             h: 32,
-            vx: e.facing * (isEnraged ? 235 : 190),
+            vx: e.facing * (isDesperation ? 255 : isEnraged ? 235 : 190),
             vy: 0,
             life: 1.2,
             dmg: 1,
@@ -4497,7 +4721,7 @@ export function mountCampaign(
             sprite: "slash",
           });
           if (isEnraged) {
-            // Twin Blood Crescent Wave + Skyward Blood-Judgment Lightning Pillar!
+            // Twin Blood Crescent Wave + Skyward Blood-Judgment Lightning Pillars!
             fire({
               x: e.x + (e.facing > 0 ? e.w : -24),
               y: e.y + e.h - 46,
@@ -4510,35 +4734,40 @@ export function mountCampaign(
               friendly: false,
               sprite: "slash",
             });
-            fire({
-              x: player.x + (Math.random() - 0.5) * 30,
-              y: -12,
-              w: 16,
-              h: 28,
-              vx: 0,
-              vy: 250,
-              life: 1.5,
-              dmg: 1,
-              friendly: false,
-              sprite: "blood",
-            });
+            const pillarCount = isDesperation ? 2 : 1;
+            for (let p = 0; p < pillarCount; p++) {
+              fire({
+                x: player.x + (p === 0 ? 0 : e.facing * 52) + (Math.random() - 0.5) * 24,
+                y: -12,
+                w: 16,
+                h: 28,
+                vx: 0,
+                vy: 255,
+                life: 1.5,
+                dmg: 1,
+                friendly: false,
+                sprite: "blood",
+              });
+            }
           }
           e.state = isEnraged ? "idle" : "shield";
           e.postAttackT = postPauseDur;
         }
       } else {
         e.state = isEnraged ? "idle" : "shield";
-        e.vx = getTacticalMoveVx(e, dist, dx, isEnraged ? 80 : 52, 44);
+        e.vx = getTacticalMoveVx(e, dist, dx, isDesperation ? 90 : isEnraged ? 80 : 52, 44);
       }
       e.vy = Math.min(e.vy + T.gravDown * dt, T.terminal);
       resolve(e, dt, false);
     }
     // =========================================================================
-    // 4. BOSS 3: Seraphine -> Fase 2: Serafim Carmesim de Seis Asas (A Capela Sagrada)
+    // 4. BOSS 3: Seraphine -> F1: Observação | F2: Pressão | F3: Desespero (Santuário Carmesim)
     // =========================================================================
     else if (e.kind === "bossSeraphine") {
-      const isEnraged = (e.phase ?? 1) >= 2;
-      const hoverFreq = isEnraged ? 4.6 : 3.2;
+      const bossPhase = e.phase ?? 1;
+      const isEnraged = bossPhase >= 2;
+      const isDesperation = bossPhase >= 3;
+      const hoverFreq = isDesperation ? 5.2 : isEnraged ? 4.6 : 3.2;
       e.y = e.homeY + Math.sin(e.t * hoverFreq) * (isEnraged ? 20 : 14);
       if (dist < 68) {
         if (e.cd <= 0.45) {
@@ -4559,11 +4788,26 @@ export function mountCampaign(
             friendly: false,
             sprite: "blood",
           });
-          e.cd = isEnraged ? 0.72 : 1.1;
+          if (isDesperation) {
+            // Phase 3 Strategic Change: Leaves a twin blood trap at midpoint on teleport!
+            fire({
+              x: (oldX + e.x) / 2,
+              y: oldY + 12,
+              w: 20,
+              h: 20,
+              vx: 0,
+              vy: 0,
+              life: 1.0,
+              dmg: 1,
+              friendly: false,
+              sprite: "blood",
+            });
+          }
+          e.cd = isDesperation ? 0.58 : isEnraged ? 0.72 : 1.1;
         }
       }
       if (e.cd <= 0) {
-        e.cd = isEnraged ? 0.85 : 1.35;
+        e.cd = isDesperation ? 0.72 : isEnraged ? 0.85 : 1.35;
         e.state = "slash";
         e.wind = 0.22;
         sound.playBossAttack(3, 1); // Ataque 1: Tempestade de lanças e orbes de sangue
@@ -4575,7 +4819,7 @@ export function mountCampaign(
             y: e.y + 20,
             w: 14,
             h: 14,
-            vx: e.facing * (isEnraged ? 185 : 135),
+            vx: e.facing * (isDesperation ? 205 : isEnraged ? 185 : 135),
             vy: spreadY,
             life: 1.8,
             dmg: 1,
@@ -4584,14 +4828,15 @@ export function mountCampaign(
           });
         }
         if (isEnraged) {
-          for (let l = 0; l < 3; l++) {
+          const spearCount = isDesperation ? 4 : 3;
+          for (let l = 0; l < spearCount; l++) {
             fire({
-              x: player.x + (l - 1) * 48 + (Math.random() - 0.5) * 18,
+              x: player.x + (l - (spearCount - 1) / 2) * 46 + (Math.random() - 0.5) * 16,
               y: -10,
               w: 12,
               h: 26,
               vx: 0,
-              vy: 235,
+              vy: isDesperation ? 255 : 235,
               life: 1.6,
               dmg: 1,
               friendly: false,
@@ -4606,37 +4851,39 @@ export function mountCampaign(
       }
     }
     // =========================================================================
-    // 5. BOSS 4: Nocturne -> Fase 2: Fera Strigoi Abissal de Quatro Asas (As Catacumbas)
+    // 5. BOSS 4: Nocturne -> F1: Observação | F2: Pressão | F3: Desespero (Eclipse Predatório)
     // =========================================================================
     else if (e.kind === "bossNocturne") {
-      const isEnraged = (e.phase ?? 1) >= 2;
-      const flyFreq = isEnraged ? 3.8 : 2.8;
+      const bossPhase = e.phase ?? 1;
+      const isEnraged = bossPhase >= 2;
+      const isDesperation = bossPhase >= 3;
+      const flyFreq = isDesperation ? 4.4 : isEnraged ? 3.8 : 2.8;
       // Orbit at tactical flanking distance and swoop in for claw strikes
-      const orbitSide = Math.sin(e.t * 1.4) >= 0 ? 1 : -1;
-      const tx = clamp(player.x + orbitSide * (isEnraged ? 54 : 62) + Math.sin(e.t * flyFreq) * 28, e.homeX - 180, e.homeX + 180);
+      const orbitSide = Math.sin(e.t * (isDesperation ? 1.85 : 1.4)) >= 0 ? 1 : -1;
+      const tx = clamp(player.x + orbitSide * (isDesperation ? 48 : isEnraged ? 54 : 62) + Math.sin(e.t * flyFreq) * 28, e.homeX - 180, e.homeX + 180);
       const ty = clamp(player.y - 36 + Math.cos(e.t * (flyFreq + 0.6)) * 22, 20, GROUND_Y - 46);
-      e.x += (tx - e.x) * Math.min(1, dt * (isEnraged ? 3.6 : 2.6));
-      e.y += (ty - e.y) * Math.min(1, dt * (isEnraged ? 3.6 : 2.6));
+      e.x += (tx - e.x) * Math.min(1, dt * (isDesperation ? 4.2 : isEnraged ? 3.6 : 2.6));
+      e.y += (ty - e.y) * Math.min(1, dt * (isDesperation ? 4.2 : isEnraged ? 3.6 : 2.6));
 
       if (dist <= 66 && e.cd <= 0 && (e.postAttackT ?? 0) <= 0) {
         e.state = "slash";
-        e.wind = 0.24;
-        e.cd = isEnraged ? 0.72 : 0.98;
+        e.wind = isDesperation ? 0.20 : 0.24;
+        e.cd = isDesperation ? 0.58 : isEnraged ? 0.72 : 0.98;
         sound.playBossAttack(4, 2); // Ataque 2: Rasante predatório de garras duplas carmesim
       } else if (e.cd <= 0 && (e.postAttackT ?? 0) <= 0) {
-        e.cd = isEnraged ? 0.88 : 1.25;
+        e.cd = isDesperation ? 0.74 : isEnraged ? 0.88 : 1.25;
         e.state = "smash";
         e.wind = 0.22;
         sound.playBossAttack(4, 1); // Ataque 1: Supernova sônica abissal
-        const sonicCount = isEnraged ? 3 : 1;
+        const sonicCount = isDesperation ? 4 : isEnraged ? 3 : 1;
         for (let s = 0; s < sonicCount; s++) {
-          const vy = (s - Math.floor(sonicCount / 2)) * 42;
+          const vy = (s - (sonicCount - 1) / 2) * 38;
           fire({
             x: e.x + (e.facing > 0 ? e.w : -16),
             y: e.y + e.h / 2 - 8,
             w: 22,
             h: 22,
-            vx: e.facing * (isEnraged ? 220 : 165),
+            vx: e.facing * (isDesperation ? 240 : isEnraged ? 220 : 165),
             vy,
             life: 1.5,
             dmg: 1,
@@ -4650,8 +4897,12 @@ export function mountCampaign(
         if (e.wind <= 0) {
           if (e.state === "slash") {
             const clawBox = { x: e.x - 14, y: e.y + 4, w: e.w + 28, h: e.h + 16 };
-            if (overlap(clawBox, player)) {
+            if (overlap(clawBox, getPlayerHurtbox(player))) {
               hurtPlayer(2, e.x, "slash");
+            }
+            if (isDesperation) {
+              // Phase 3 Hit-and-Run Ascent after claw strike
+              e.y = Math.max(22, e.y - 38);
             }
           }
           e.state = "idle";
@@ -4660,25 +4911,27 @@ export function mountCampaign(
       }
     }
     // =========================================================================
-    // 6. BOSS 5: Lorde Veyne -> Fase 2: Arquilich Soberano do Vazio (A Grande Biblioteca)
+    // 6. BOSS 5: Lorde Veyne -> F1: Observação | F2: Pressão | F3: Desespero (Convergência do Vazio)
     // =========================================================================
     else if (e.kind === "bossVeyne") {
-      const isEnraged = (e.phase ?? 1) >= 2;
+      const bossPhase = e.phase ?? 1;
+      const isEnraged = bossPhase >= 2;
+      const isDesperation = bossPhase >= 3;
       if (dist <= 62 && e.cd <= 0 && (e.postAttackT ?? 0) <= 0) {
         // Close range bone vortex barrier & panic blink
-        e.cd = isEnraged ? 0.62 : 0.82;
+        e.cd = isDesperation ? 0.54 : isEnraged ? 0.62 : 0.82;
         e.state = "slash";
-        e.wind = isEnraged ? 0.20 : 0.26;
+        e.wind = isDesperation ? 0.18 : isEnraged ? 0.20 : 0.26;
         sound.playBossAttack(5, 2); // Ataque 2: Vórtice de ossos e caveiras arcanas
       } else if (dist > 62 && e.cd <= 0 && (e.postAttackT ?? 0) <= 0) {
-        e.cd = isEnraged ? 0.82 : 1.25;
+        e.cd = isDesperation ? 0.68 : isEnraged ? 0.82 : 1.25;
         e.state = "slash";
-        e.wind = isEnraged ? 0.20 : 0.26;
+        e.wind = isDesperation ? 0.18 : isEnraged ? 0.20 : 0.26;
         sound.playBossAttack(5, 1); // Ataque 1: Crânios flamejantes + relâmpagos do vazio
-        const skullCount = isEnraged ? 3 : 1;
+        const skullCount = isDesperation ? 4 : isEnraged ? 3 : 1;
         for (let k = 0; k < skullCount; k++) {
-          const vx = e.facing * (isEnraged ? (110 + k * 38) : 130);
-          const vy = -120 - k * 30;
+          const vx = e.facing * (isEnraged ? (105 + k * 34) : 130);
+          const vy = -120 - k * 28;
           fire({
             x: e.x + (e.facing > 0 ? e.w : -16),
             y: e.y + 14,
@@ -4700,13 +4953,28 @@ export function mountCampaign(
             y: e.y + e.h - 22,
             w: 22,
             h: 18,
-            vx: e.facing * 205,
+            vx: e.facing * (isDesperation ? 230 : 205),
             vy: 0,
             life: 1.3,
             dmg: 1,
             friendly: false,
             sprite: "blood",
           });
+          if (isDesperation) {
+            // Phase 3 Strategic Change: Upper Void Spear preventing mindless jump-ins!
+            fire({
+              x: e.x + (e.facing > 0 ? e.w : -20),
+              y: e.y + 12,
+              w: 22,
+              h: 18,
+              vx: e.facing * 195,
+              vy: 0,
+              life: 1.3,
+              dmg: 1,
+              friendly: false,
+              sprite: "blood",
+            });
+          }
         }
       }
 
@@ -4715,8 +4983,8 @@ export function mountCampaign(
         e.vx = 0;
         if (e.wind <= 0) {
           const box = { x: e.facing > 0 ? e.x + e.w : e.x - 44, y: e.y + 8, w: 48, h: 48 };
-          if (overlap(box, player)) hurtPlayer(2, e.x, "spell");
-          if (isEnraged && dist < 52) {
+          if (overlap(box, getPlayerHurtbox(player))) hurtPlayer(2, e.x, "spell");
+          if (isEnraged && dist < (isDesperation ? 70 : 52)) {
             e.x = clamp(player.x + (player.x < e.homeX ? 115 : -115), e.homeX - 145, e.homeX + 145);
           }
           e.state = "idle";
@@ -4724,25 +4992,27 @@ export function mountCampaign(
         }
       } else {
         e.state = "idle";
-        e.vx = getTacticalMoveVx(e, dist, dx, isEnraged ? 70 : 48, 46);
+        e.vx = getTacticalMoveVx(e, dist, dx, isDesperation ? 80 : isEnraged ? 70 : 48, 46);
       }
       e.vy = Math.min(e.vy + T.gravDown * dt, T.terminal);
       resolve(e, dt, false);
     }
     // =========================================================================
-    // 7. BOSS 6: Calx -> Fase 2: Behemoth de Sobrecarga Mutagênica (Laboratório de Alquimia)
+    // 7. BOSS 6: Calx -> F1: Observação | F2: Pressão | F3: Desespero (Reação Alquímica)
     // =========================================================================
     else if (e.kind === "bossCalx") {
-      const isEnraged = (e.phase ?? 1) >= 2;
+      const bossPhase = e.phase ?? 1;
+      const isEnraged = bossPhase >= 2;
+      const isDesperation = bossPhase >= 3;
       if (dist <= 68 && e.cd <= 0 && (e.postAttackT ?? 0) <= 0) {
         // Seismic Double-Claw Crystal Slam & Toxic Shockwave (telegraphed!)
         e.state = "smash";
         e.attackVariant = 1;
-        e.wind = isEnraged ? 0.24 : 0.30;
-        e.cd = isEnraged ? 0.80 : 1.15;
+        e.wind = isDesperation ? 0.21 : isEnraged ? 0.24 : 0.30;
+        e.cd = isDesperation ? 0.68 : isEnraged ? 0.80 : 1.15;
         sound.playBossAttack(6, 1); // Ataque 1: Pisotão sísmico de cristais tóxicos
       } else if (dist > 68 && e.cd <= 0 && (e.postAttackT ?? 0) <= 0) {
-        e.cd = isEnraged ? 0.90 : 1.35;
+        e.cd = isDesperation ? 0.74 : isEnraged ? 0.90 : 1.35;
         e.state = "slash";
         e.attackVariant = 2;
         e.wind = 0.24;
@@ -4754,22 +5024,23 @@ export function mountCampaign(
         e.vx = 0;
         if (e.wind <= 0) {
           if (e.attackVariant === 1) {
-            shake = isEnraged ? 9 : 6;
+            shake = isDesperation ? 11 : isEnraged ? 9 : 6;
             if (player.grounded && dist < 88) {
-              hurtPlayer(1, e.x, "slash");
+              hurtPlayer(1, e.x, "slash", true); // Heavy crystal slam
             }
-            const waveSpeed = isEnraged ? 205 : 160;
+            const waveSpeed = isDesperation ? 230 : isEnraged ? 205 : 160;
             fire({ x: e.x - 18, y: e.y + e.h - 16, w: 16, h: 16, vx: -waveSpeed, vy: 0, life: 1.3, dmg: 1, friendly: false, sprite: "spell" });
             fire({ x: e.x + e.w + 4, y: e.y + e.h - 16, w: 16, h: 16, vx: waveSpeed, vy: 0, life: 1.3, dmg: 1, friendly: false, sprite: "spell" });
             if (isEnraged) {
-              for (let a = 0; a < 3; a++) {
+              const dropCount = isDesperation ? 4 : 3;
+              for (let a = 0; a < dropCount; a++) {
                 fire({
-                  x: player.x + (a - 1) * 45 + (Math.random() - 0.5) * 20,
+                  x: player.x + (a - (dropCount - 1) / 2) * 44 + (Math.random() - 0.5) * 18,
                   y: -10,
                   w: 14,
                   h: 20,
                   vx: 0,
-                  vy: 235,
+                  vy: isDesperation ? 255 : 235,
                   life: 1.7,
                   dmg: 1,
                   friendly: false,
@@ -4778,10 +5049,10 @@ export function mountCampaign(
               }
             }
           } else {
-            const flaskCount = isEnraged ? 3 : 1;
+            const flaskCount = isDesperation ? 4 : isEnraged ? 3 : 1;
             for (let f = 0; f < flaskCount; f++) {
-              const vx = e.facing * (isEnraged ? (105 + f * 38) : 125);
-              const vy = -115 - f * 25;
+              const vx = e.facing * (isEnraged ? (95 + f * 36) : 125);
+              const vy = -115 - f * 24;
               fire({
                 x: e.x + (e.facing > 0 ? e.w : -14),
                 y: e.y + 12,
@@ -4802,13 +5073,13 @@ export function mountCampaign(
         }
       } else {
         e.state = "idle";
-        e.vx = getTacticalMoveVx(e, dist, dx, isEnraged ? 72 : 48, 46);
+        e.vx = getTacticalMoveVx(e, dist, dx, isDesperation ? 82 : isEnraged ? 72 : 48, 46);
       }
       e.vy = Math.min(e.vy + T.gravDown * dt, T.terminal);
       resolve(e, dt, false);
     }
     // =========================================================================
-    // 8. FINAL BOSS: Conde Drácula -> Fase 2: Senhor das Trevas -> Fase 3: Demônio Primordial Supremo
+    // 8. FINAL BOSS: Conde Drácula -> F1: Observação | F2: Pressão | F3: Demônio Primordial
     // =========================================================================
     else if (e.kind === "bossDracula" || e.kind === "dracula") {
       const draculaPhase = e.phase ?? 1;
@@ -4833,7 +5104,7 @@ export function mountCampaign(
         if (e.wind <= 0) {
           if (e.state === "slash") {
             const box = { x: e.facing > 0 ? e.x + e.w : e.x - 48, y: e.y + e.h - 74, w: 54, h: 52 };
-            if (overlap(box, player)) hurtPlayer(2, e.x, "slash");
+            if (overlap(box, getPlayerHurtbox(player))) hurtPlayer(2, e.x, "slash", draculaPhase >= 2);
             if (draculaPhase === 3) {
               // True Demon Form: Unleashes a demonic crescent shockwave on claw slash!
               fire({
@@ -4924,16 +5195,19 @@ export function mountCampaign(
     // 9. REGULAR GROUND ENEMIES (Armored Skeleton, Red Skeleton, Skeleton, Knight, Zombie, Vampire, Gargoyle)
     // =========================================================================
     else {
+      const cfg = ENEMY_COMBAT_CONFIG[e.kind] ?? ENEMY_COMBAT_CONFIG.skeleton;
+
       // -----------------------------------------------------------------------
-      // A. ARMORED SKELETON: Frontal Brass Shield Guard & Lethal Gladius Thrust
+      // A. ARMORED SKELETON (Classe 1: Guerreiro Esqueleto — Escudo + Estocada Gladius)
       // -----------------------------------------------------------------------
       if (e.kind === "armoredSkeleton") {
-        if (dist <= 58 && e.cd <= 0 && (e.postAttackT ?? 0) <= 0 && e.wind <= 0) {
+        if (dist <= 58 && e.cd <= 0 && (e.postAttackT ?? 0) <= 0 && e.wind <= 0 && (e.activeTimer ?? 0) <= 0) {
           if (!canEnemyAttack(e)) {
             e.cd = 0.18;
           } else {
-            e.wind = 0.24; // Crisp 240ms telegraphed gladius thrust
-            e.cd = 0.58;
+            setEnemyFsmState(e, "WINDUP", cfg.windupDuration);
+            e.wind = cfg.windupDuration;
+            e.cd = cfg.attackCooldown;
             e.state = "slash";
           }
         }
@@ -4942,15 +5216,26 @@ export function mountCampaign(
           e.wind -= dt;
           e.vx = e.wind <= 0.12 && dist > (e.w + player.w) / 2 + 2 ? e.facing * 75 : 0;
           if (e.wind <= 0) {
-            const box = {
-              x: e.facing > 0 ? e.x + e.w - 6 : e.x - 46,
-              y: e.y + 8,
-              w: 50,
-              h: 38,
-            };
-            if (overlap(box, player)) hurtPlayer(2, e.x, "slash");
+            setEnemyFsmState(e, "ATTACK", cfg.activeDuration);
+            e.state = "slash";
+          }
+        } else if ((e.activeTimer ?? 0) > 0) {
+          e.vx = 0;
+          e.state = "slash";
+          const box = {
+            x: e.facing > 0 ? e.x + e.w - 6 : e.x - 46,
+            y: e.y + 8,
+            w: 50,
+            h: 38,
+          };
+          if (!e.hitPlayerThisAttack && overlap(box, getPlayerHurtbox(player))) {
+            e.hitPlayerThisAttack = true;
+            hurtPlayer(2, e.x, "slash");
+          }
+          if ((e.activeTimer ?? 0) <= dt) {
             e.state = "shield";
-            e.postAttackT = 0.16;
+            e.postAttackT = postPauseDur;
+            setEnemyFsmState(e, "RECOVERY", postPauseDur);
           }
         } else {
           e.state = "shield";
@@ -4958,7 +5243,7 @@ export function mountCampaign(
         }
       }
       // -----------------------------------------------------------------------
-      // B. RED SKELETON: Cursed Double Bone Volley, Agile Backflip & Blood Cleave
+      // B. RED SKELETON (Classe 1: Guerreiro Esqueleto — Combate Equilibrado, Bloqueio & Recuo)
       // -----------------------------------------------------------------------
       else if (e.kind === "redSkeleton") {
         if (e.state === "retreat") {
@@ -4966,25 +5251,28 @@ export function mountCampaign(
           if (e.grounded && e.vy >= 0) {
             e.state = "slash";
             e.attackVariant = 1;
+            setEnemyFsmState(e, "WINDUP", 0.14);
             e.wind = 0.14;
             e.cd = 0.75;
           }
-        } else if (dist <= 60 && e.cd <= 0 && (e.postAttackT ?? 0) <= 0 && e.wind <= 0) {
+        } else if (dist <= 60 && e.cd <= 0 && (e.postAttackT ?? 0) <= 0 && e.wind <= 0 && (e.activeTimer ?? 0) <= 0) {
           if (!canEnemyAttack(e)) {
             e.cd = 0.18;
           } else {
-            e.state = "slash";
             e.attackVariant = 0;
-            e.wind = 0.24;
-            e.cd = 0.55;
+            setEnemyFsmState(e, "WINDUP", cfg.windupDuration);
+            e.state = "slash";
+            e.wind = cfg.windupDuration;
+            e.cd = cfg.attackCooldown;
           }
-        } else if (dist <= 400 && e.cd <= 0 && (e.postAttackT ?? 0) <= 0 && e.wind <= 0) {
+        } else if (dist <= 400 && e.cd <= 0 && (e.postAttackT ?? 0) <= 0 && e.wind <= 0 && (e.activeTimer ?? 0) <= 0) {
           if (!canEnemyAttack(e)) {
             e.cd = 0.22;
           } else {
             e.cd = 0.95;
-            e.state = "slash";
             e.attackVariant = 1;
+            setEnemyFsmState(e, "WINDUP", 0.26);
+            e.state = "slash";
             e.wind = 0.26;
           }
         }
@@ -4995,13 +5283,8 @@ export function mountCampaign(
             e.vx = e.attackVariant === 0 && e.wind <= 0.12 && dist > (e.w + player.w) / 2 + 2 ? e.facing * 75 : 0;
             if (e.wind <= 0) {
               if (e.attackVariant === 0) {
-                const box = {
-                  x: e.facing > 0 ? e.x + e.w - 6 : e.x - 48,
-                  y: e.y + 8,
-                  w: 52,
-                  h: 38,
-                };
-                if (overlap(box, player)) hurtPlayer(2, e.x, "slash");
+                setEnemyFsmState(e, "ATTACK", cfg.activeDuration);
+                e.state = "slash";
               } else {
                 fire({
                   x: e.x + (e.facing > 0 ? e.w : -12),
@@ -5029,39 +5312,61 @@ export function mountCampaign(
                   friendly: false,
                   sprite: "spell",
                 });
+                e.state = "idle";
+                e.postAttackT = postPauseDur;
+                setEnemyFsmState(e, "RECOVERY", postPauseDur);
               }
+            }
+          } else if ((e.activeTimer ?? 0) > 0) {
+            e.vx = 0;
+            e.state = "slash";
+            const box = {
+              x: e.facing > 0 ? e.x + e.w - 6 : e.x - 48,
+              y: e.y + 8,
+              w: 52,
+              h: 38,
+            };
+            if (!e.hitPlayerThisAttack && overlap(box, getPlayerHurtbox(player))) {
+              e.hitPlayerThisAttack = true;
+              hurtPlayer(2, e.x, "slash");
+            }
+            if ((e.activeTimer ?? 0) <= dt) {
               e.state = "idle";
-              e.postAttackT = 0.15;
+              e.postAttackT = postPauseDur;
+              setEnemyFsmState(e, "RECOVERY", postPauseDur);
             }
           } else {
-            e.state = "idle";
+            if (e.fsmState !== "DEFEND") e.state = "idle";
             e.vx = getTacticalMoveVx(e, dist, dx, 68, (e.w + player.w) / 2 + 4);
           }
         }
       }
       // -----------------------------------------------------------------------
-      // C. SKELETON: Tactical Sniper Recoil & Alternating Artillery/Skimming Bone Volley
+      // C. SKELETON (Classe 1: Guerreiro Esqueleto — Recuo Tático & Salva de Ossos)
       // -----------------------------------------------------------------------
       else if (e.kind === "skeleton") {
-        if (dist <= 52 && e.cd <= 0 && (e.postAttackT ?? 0) <= 0 && e.wind <= 0 && e.state !== "retreat") {
+        if (dist <= 52 && e.cd <= 0 && (e.postAttackT ?? 0) <= 0 && e.wind <= 0 && (e.activeTimer ?? 0) <= 0 && e.state !== "retreat") {
           if (!canEnemyAttack(e)) {
             e.cd = 0.18;
           } else {
-            e.state = "slash";
             e.attackVariant = 2; // melee stab
-            e.wind = 0.22;
-            e.cd = 0.55;
+            setEnemyFsmState(e, "WINDUP", cfg.windupDuration);
+            e.state = "slash";
+            e.wind = cfg.windupDuration;
+            e.cd = 0.58;
           }
-        } else if (dist < 82 && e.grounded && e.cd <= 0.20 && e.wind <= 0 && e.state !== "slash" && e.state !== "retreat") {
+        } else if (dist < 82 && e.grounded && e.cd <= 0.20 && e.wind <= 0 && (e.activeTimer ?? 0) <= 0 && e.state !== "slash" && e.state !== "retreat") {
+          setEnemyFsmState(e, "RETREAT", 0.30);
           e.state = "retreat";
           e.vy = -130;
           e.vx = -e.facing * 115;
           e.cd = 0.45;
-        } else if (dist <= 390 && e.cd <= 0 && (e.postAttackT ?? 0) <= 0 && e.wind <= 0 && e.state !== "retreat") {
+        } else if (dist <= 390 && e.cd <= 0 && (e.postAttackT ?? 0) <= 0 && e.wind <= 0 && (e.activeTimer ?? 0) <= 0 && e.state !== "retreat") {
           if (!canEnemyAttack(e)) {
             e.cd = 0.22;
           } else {
             e.attackVariant = ((e.attackVariant ?? 0) + 1) % 2;
+            setEnemyFsmState(e, "WINDUP", 0.26);
             e.state = "slash";
             e.wind = 0.26;
             e.cd = e.attackVariant === 0 ? 0.82 : 0.72;
@@ -5072,8 +5377,9 @@ export function mountCampaign(
           e.vx = -e.facing * 110;
           if (e.grounded && e.vy >= 0) {
             // Immediately counter-fire a skimming bone upon landing from backflip!
-            e.state = "slash";
             e.attackVariant = 1;
+            setEnemyFsmState(e, "WINDUP", 0.14);
+            e.state = "slash";
             e.wind = 0.14;
             e.cd = 0.65;
           }
@@ -5082,13 +5388,8 @@ export function mountCampaign(
           e.vx = e.attackVariant === 2 && e.wind <= 0.12 && dist > (e.w + player.w) / 2 + 2 ? e.facing * 65 : 0;
           if (e.wind <= 0) {
             if (e.attackVariant === 2) {
-              const box = {
-                x: e.facing > 0 ? e.x + e.w - 6 : e.x - 42,
-                y: e.y + 8,
-                w: 46,
-                h: 36,
-              };
-              if (overlap(box, player)) hurtPlayer(1, e.x, "slash");
+              setEnemyFsmState(e, "ATTACK", cfg.activeDuration);
+              e.state = "slash";
             } else {
               if (e.attackVariant === 0) {
                 fire({
@@ -5119,20 +5420,39 @@ export function mountCampaign(
                   sprite: "spell",
                 });
               }
+              e.state = "idle";
+              e.postAttackT = postPauseDur;
+              setEnemyFsmState(e, "RECOVERY", postPauseDur);
             }
+          }
+        } else if ((e.activeTimer ?? 0) > 0) {
+          e.vx = 0;
+          e.state = "slash";
+          const box = {
+            x: e.facing > 0 ? e.x + e.w - 6 : e.x - 42,
+            y: e.y + 8,
+            w: 46,
+            h: 36,
+          };
+          if (!e.hitPlayerThisAttack && overlap(box, getPlayerHurtbox(player))) {
+            e.hitPlayerThisAttack = true;
+            hurtPlayer(1, e.x, "slash");
+          }
+          if ((e.activeTimer ?? 0) <= dt) {
             e.state = "idle";
-            e.postAttackT = 0.15;
+            e.postAttackT = postPauseDur;
+            setEnemyFsmState(e, "RECOVERY", postPauseDur);
           }
         } else {
-          e.state = "idle";
+          if (e.fsmState !== "DEFEND") e.state = "idle";
           e.vx = getTacticalMoveVx(e, dist, dx, 55, (e.w + player.w) / 2 + 4);
         }
       }
       // -----------------------------------------------------------------------
-      // D. KNIGHT: Tower Shield Deflection, Heavy Halberd Cleave & Armored Halberd Charge
+      // D. KNIGHT (Classe 3: Guerreiro Pesado — Alta Postura, Golpes Pesados Quebra-Guarda & Recuperação Longa)
       // -----------------------------------------------------------------------
       else if (e.kind === "knight") {
-        if (dist > 78 && dist < 260 && e.cd <= 0 && (e.postAttackT ?? 0) <= 0 && e.wind <= 0 && e.grounded && e.state !== "charge") {
+        if (dist > 78 && dist < 260 && e.cd <= 0 && (e.postAttackT ?? 0) <= 0 && e.wind <= 0 && (e.activeTimer ?? 0) <= 0 && e.grounded && e.state !== "charge") {
           if (!canEnemyAttack(e)) {
             e.cd = 0.20;
           } else {
@@ -5143,13 +5463,13 @@ export function mountCampaign(
             e.cd = 1.45;
             sound.playEnemyAlert("knight");
           }
-        } else if (dist <= 66 && e.cd <= 0 && (e.postAttackT ?? 0) <= 0 && e.wind <= 0 && e.state !== "charge") {
+        } else if (dist <= 66 && e.cd <= 0 && (e.postAttackT ?? 0) <= 0 && e.wind <= 0 && (e.activeTimer ?? 0) <= 0 && e.state !== "charge") {
           if (!canEnemyAttack(e)) {
             e.cd = 0.18;
           } else {
-            setEnemyFsmState(e, "WINDUP", 0.25);
-            e.wind = 0.25; // Crisp 250ms halberd cleave
-            e.cd = 0.62;
+            setEnemyFsmState(e, "WINDUP", cfg.windupDuration);
+            e.wind = cfg.windupDuration; // Telegraphed heavy halberd startup
+            e.cd = cfg.attackCooldown;
             e.state = "slash";
           }
         }
@@ -5165,7 +5485,7 @@ export function mountCampaign(
           };
           if (!e.hitPlayerThisAttack && overlap(chargeBox, getPlayerHurtbox(player))) {
             e.hitPlayerThisAttack = true;
-            hurtPlayer(2, e.x, "slash");
+            hurtPlayer(2, e.x, "slash", true); // Heavy attack: crushes passive guard, parriable by Perfect Parry!
             e.wind = 0;
           }
           if (e.wind <= 0) {
@@ -5177,27 +5497,44 @@ export function mountCampaign(
           e.wind -= dt;
           e.vx = e.wind <= 0.12 && dist > (e.w + player.w) / 2 + 2 ? e.facing * 75 : 0;
           if (e.wind <= 0) {
-            const box = {
-              x: e.facing > 0 ? e.x + e.w - 6 : e.x - 54,
-              y: e.y + 6,
-              w: 58,
-              h: 38,
-            };
-            if (overlap(box, getPlayerHurtbox(player))) hurtPlayer(2, e.x, "slash");
+            setEnemyFsmState(e, "ATTACK", cfg.activeDuration);
+            e.state = "slash";
+          }
+        } else if ((e.activeTimer ?? 0) > 0) {
+          e.vx = 0;
+          e.state = "slash";
+          const box = {
+            x: e.facing > 0 ? e.x + e.w - 6 : e.x - 54,
+            y: e.y + 6,
+            w: 58,
+            h: 38,
+          };
+          if (!e.hitPlayerThisAttack && overlap(box, getPlayerHurtbox(player))) {
+            e.hitPlayerThisAttack = true;
+            hurtPlayer(2, e.x, "slash", true); // Heavy halberd cleave: crushes passive guard, parriable by Perfect Parry!
+          }
+          if ((e.activeTimer ?? 0) <= dt) {
             e.state = "shield";
             e.postAttackT = postPauseDur;
             setEnemyFsmState(e, "RECOVERY", postPauseDur);
           }
         } else {
           e.state = "shield";
-          e.vx = getTacticalMoveVx(e, dist, dx, 55, (e.w + player.w) / 2 + 4);
+          e.vx = getTacticalMoveVx(e, dist, dx, 54, (e.w + player.w) / 2 + 4);
         }
       }
       // -----------------------------------------------------------------------
-      // E. ZOMBIE: GnG Hungry Ghoul Sprint & Sudden Leaping Claw Strike
+      // E. ZOMBIE (Classe 2: Criatura Ágil / Predador — Investida Rápida & Recuo Hit-and-Run)
       // -----------------------------------------------------------------------
       else if (e.kind === "zombie") {
-        if (dist >= 62 && dist <= 145 && e.cd <= 0 && (e.postAttackT ?? 0) <= 0 && e.wind <= 0 && e.grounded && e.state !== "leap") {
+        if (e.state === "retreat") {
+          e.vx = -e.facing * 105;
+          if (e.grounded && e.vy >= 0) {
+            e.state = "idle";
+            e.postAttackT = postPauseDur * 0.7;
+            setEnemyFsmState(e, "RECOVERY", postPauseDur * 0.7);
+          }
+        } else if (dist >= 62 && dist <= 145 && e.cd <= 0 && (e.postAttackT ?? 0) <= 0 && e.wind <= 0 && (e.activeTimer ?? 0) <= 0 && e.grounded && e.state !== "leap") {
           if (!canEnemyAttack(e)) {
             e.cd = 0.18;
           } else {
@@ -5210,13 +5547,13 @@ export function mountCampaign(
             e.cd = 0.95;
             sound.playEnemyAlert("zombie");
           }
-        } else if (dist <= 52 && e.cd <= 0 && (e.postAttackT ?? 0) <= 0 && e.wind <= 0 && e.state !== "leap") {
+        } else if (dist <= 52 && e.cd <= 0 && (e.postAttackT ?? 0) <= 0 && e.wind <= 0 && (e.activeTimer ?? 0) <= 0 && e.state !== "leap") {
           if (!canEnemyAttack(e)) {
             e.cd = 0.16;
           } else {
-            setEnemyFsmState(e, "WINDUP", 0.22);
-            e.wind = 0.22; // Fast 220ms ravenous claw swipe
-            e.cd = 0.52;
+            setEnemyFsmState(e, "WINDUP", cfg.windupDuration);
+            e.wind = cfg.windupDuration; // Fast ravenous claw swipe
+            e.cd = cfg.attackCooldown;
             e.state = "slash";
           }
         }
@@ -5238,44 +5575,71 @@ export function mountCampaign(
             e.postAttackT = postPauseDur;
             setEnemyFsmState(e, "RECOVERY", postPauseDur);
           }
-        } else if (e.wind > 0) {
-          e.wind -= dt;
-          const minStop = (e.w + player.w) / 2 + 2;
-          e.vx = e.wind <= 0.12 && dist > minStop ? e.facing * 70 : 0;
-          if (e.wind <= 0) {
+        } else if (e.state !== "retreat") {
+          if (e.wind > 0) {
+            e.wind -= dt;
+            const minStop = (e.w + player.w) / 2 + 2;
+            e.vx = e.wind <= 0.12 && dist > minStop ? e.facing * 70 : 0;
+            if (e.wind <= 0) {
+              setEnemyFsmState(e, "ATTACK", cfg.activeDuration);
+              e.state = "slash";
+            }
+          } else if ((e.activeTimer ?? 0) > 0) {
+            e.vx = 0;
+            e.state = "slash";
             const box = {
               x: e.facing > 0 ? e.x + e.w - 6 : e.x - 40,
               y: e.y + 8,
               w: 44,
               h: 38,
             };
-            if (overlap(box, getPlayerHurtbox(player))) hurtPlayer(1, e.x, "slash");
+            if (!e.hitPlayerThisAttack && overlap(box, getPlayerHurtbox(player))) {
+              e.hitPlayerThisAttack = true;
+              hurtPlayer(1, e.x, "slash");
+            }
+            if ((e.activeTimer ?? 0) <= dt) {
+              // Classe 2 (Predador Ágil): Recuo automático Hit-and-Run após atacar!
+              if (e.grounded && Math.random() < 0.65) {
+                setEnemyFsmState(e, "RETREAT", 0.24);
+                e.state = "retreat";
+                e.vy = -90;
+                e.vx = -e.facing * 105;
+              } else {
+                e.state = "idle";
+                e.postAttackT = postPauseDur;
+                setEnemyFsmState(e, "RECOVERY", postPauseDur);
+              }
+            }
+          } else {
             e.state = "idle";
-            e.postAttackT = postPauseDur;
-            setEnemyFsmState(e, "RECOVERY", postPauseDur);
+            const sprintSpeed = dist < 220 ? 94 : 52;
+            e.vx = getTacticalMoveVx(e, dist, dx, sprintSpeed, (e.w + player.w) / 2 + 3);
           }
-        } else {
-          e.state = "idle";
-          const sprintSpeed = dist < 220 ? 94 : 52;
-          e.vx = getTacticalMoveVx(e, dist, dx, sprintSpeed, (e.w + player.w) / 2 + 3);
         }
       }
       // -----------------------------------------------------------------------
-      // F. VAMPIRE: High-Speed Stalker, Shadow Claw Rush & Blood Orbs
+      // F. VAMPIRE (Classe 2: Criatura Ágil / Predador — Garra Sombria, Hit-and-Run & Orbes de Sangue)
       // -----------------------------------------------------------------------
       else if (e.kind === "vampire") {
-        if (dist <= 62 && e.cd <= 0 && (e.postAttackT ?? 0) <= 0 && e.wind <= 0) {
+        if (e.state === "retreat") {
+          e.vx = -e.facing * 130;
+          if (e.grounded && e.vy >= 0) {
+            e.state = "idle";
+            e.postAttackT = postPauseDur * 0.7;
+            setEnemyFsmState(e, "RECOVERY", postPauseDur * 0.7);
+          }
+        } else if (dist <= 62 && e.cd <= 0 && (e.postAttackT ?? 0) <= 0 && e.wind <= 0 && (e.activeTimer ?? 0) <= 0) {
           if (!canEnemyAttack(e)) {
             e.cd = 0.18;
           } else {
             e.attackVariant = 0; // Melee shadow claw
-            setEnemyFsmState(e, "WINDUP", 0.22);
-            e.wind = 0.22;
-            e.cd = 0.54;
+            setEnemyFsmState(e, "WINDUP", cfg.windupDuration);
+            e.wind = cfg.windupDuration;
+            e.cd = cfg.attackCooldown;
             e.state = "slash";
             sound.playEnemyAlert("vampire");
           }
-        } else if (dist > 62 && dist <= 390 && e.cd <= 0 && (e.postAttackT ?? 0) <= 0 && e.wind <= 0) {
+        } else if (dist > 62 && dist <= 390 && e.cd <= 0 && (e.postAttackT ?? 0) <= 0 && e.wind <= 0 && (e.activeTimer ?? 0) <= 0) {
           if (!canEnemyAttack(e)) {
             e.cd = 0.20;
           } else {
@@ -5287,63 +5651,86 @@ export function mountCampaign(
           }
         }
 
-        if (e.wind > 0) {
-          e.wind -= dt;
-          const minStop = (e.w + player.w) / 2 + 2;
-          e.vx = e.attackVariant === 0 && e.wind <= 0.12 && dist > minStop ? e.facing * 95 : 0;
-          if (e.wind <= 0) {
+        if (e.state !== "retreat") {
+          if (e.wind > 0) {
+            e.wind -= dt;
+            const minStop = (e.w + player.w) / 2 + 2;
+            e.vx = e.attackVariant === 0 && e.wind <= 0.12 && dist > minStop ? e.facing * 95 : 0;
+            if (e.wind <= 0) {
+              if (e.attackVariant === 0 && dist <= 76) {
+                setEnemyFsmState(e, "ATTACK", cfg.activeDuration);
+                e.state = "slash";
+              } else {
+                fire({
+                  x: e.x,
+                  y: e.y + e.h - 60,
+                  w: 16,
+                  h: 28,
+                  vx: e.facing * 165,
+                  vy: 4,
+                  life: 1.6,
+                  dmg: 1,
+                  friendly: false,
+                  sprite: "blood",
+                  drawCenterY: e.y + e.h - 54,
+                });
+                e.state = "idle";
+                e.postAttackT = postPauseDur;
+                setEnemyFsmState(e, "RECOVERY", postPauseDur);
+              }
+            }
+          } else if ((e.activeTimer ?? 0) > 0) {
+            e.vx = 0;
+            e.state = "slash";
             const box = {
               x: e.facing > 0 ? e.x + e.w - 6 : e.x - 48,
               y: e.y + 8,
               w: 52,
               h: 38,
             };
-            if (overlap(box, getPlayerHurtbox(player))) {
+            if (!e.hitPlayerThisAttack && overlap(box, getPlayerHurtbox(player))) {
+              e.hitPlayerThisAttack = true;
               hurtPlayer(2, e.x, "slash");
-            } else if (e.attackVariant === 1 || dist > 58) {
-              fire({
-                x: e.x,
-                y: e.y + e.h - 60,
-                w: 16,
-                h: 28,
-                vx: e.facing * 165,
-                vy: 4,
-                life: 1.6,
-                dmg: 1,
-                friendly: false,
-                sprite: "blood",
-                drawCenterY: e.y + e.h - 54,
-              });
             }
+            if ((e.activeTimer ?? 0) <= dt) {
+              // Classe 2 (Predador Ágil): Recua automaticamente após atacar (Hit-and-Run)!
+              if (e.grounded && Math.random() < 0.72) {
+                setEnemyFsmState(e, "RETREAT", 0.24);
+                e.state = "retreat";
+                e.vy = -105;
+                e.vx = -e.facing * 130;
+              } else {
+                e.state = "idle";
+                e.postAttackT = postPauseDur;
+                setEnemyFsmState(e, "RECOVERY", postPauseDur);
+              }
+            }
+          } else {
             e.state = "idle";
-            e.postAttackT = postPauseDur;
-            setEnemyFsmState(e, "RECOVERY", postPauseDur);
+            e.vx = getTacticalMoveVx(e, dist, dx, 92, (e.w + player.w) / 2 + 4);
           }
-        } else {
-          e.state = "idle";
-          e.vx = getTacticalMoveVx(e, dist, dx, 92, (e.w + player.w) / 2 + 4);
         }
       }
       // -----------------------------------------------------------------------
-      // G. GARGOYLE: Red Arremer Demon Leap, Mid-Air Hover & Predatory Dive-Bomb
+      // G. GARGOYLE (Classe 4: Criatura Aérea — Controle de Altitude, Mergulho & Vulnerabilidade Pós-Mergulho)
       // -----------------------------------------------------------------------
       else {
         // Red Arremer Evasion: If player attacks nearby OR gets too close on ground, demon leap into air!
         const playerThreat = (player.attackT > 0 && dist < 115) || (dist < 85 && e.cd <= 0.15);
-        if (playerThreat && e.grounded && e.cd <= 0 && (e.postAttackT ?? 0) <= 0 && e.wind <= 0 && e.state !== "leap" && e.state !== "hover" && e.state !== "dive") {
+        if (playerThreat && e.grounded && e.cd <= 0 && (e.postAttackT ?? 0) <= 0 && e.wind <= 0 && (e.activeTimer ?? 0) <= 0 && e.state !== "leap" && e.state !== "hover" && e.state !== "dive") {
           setEnemyFsmState(e, "DODGE", 0.25);
           e.state = "leap";
           e.vy = -230;
           e.vx = -e.facing * 80;
           e.cd = 0.25;
           sound.playSfx("jump");
-        } else if (dist <= 58 && e.cd <= 0 && (e.postAttackT ?? 0) <= 0 && e.wind <= 0 && e.state === "idle") {
+        } else if (dist <= 58 && e.cd <= 0 && (e.postAttackT ?? 0) <= 0 && e.wind <= 0 && (e.activeTimer ?? 0) <= 0 && e.state === "idle") {
           if (!canEnemyAttack(e)) {
             e.cd = 0.18;
           } else {
-            setEnemyFsmState(e, "WINDUP", 0.24);
-            e.wind = 0.24;
-            e.cd = 0.56;
+            setEnemyFsmState(e, "WINDUP", cfg.windupDuration);
+            e.wind = cfg.windupDuration;
+            e.cd = cfg.attackCooldown;
             e.state = "slash";
           }
         }
@@ -5408,11 +5795,11 @@ export function mountCampaign(
             hurtPlayer(2, e.x, "slash");
           }
           if (e.grounded) {
-            // Slam into stone floor with screenshake!
+            // Slam into stone floor with screenshake & post-dive vulnerability window!
             e.state = "idle";
-            e.cd = 0.52;
-            e.postAttackT = postPauseDur;
-            setEnemyFsmState(e, "RECOVERY", postPauseDur);
+            e.cd = 0.56;
+            e.postAttackT = postPauseDur * 1.25;
+            setEnemyFsmState(e, "RECOVERY", postPauseDur * 1.25);
             e.vx = 0;
             shake = Math.max(shake, 3.5);
             sound.playSfx("slashHeavy");
@@ -5422,13 +5809,23 @@ export function mountCampaign(
           const minStop = (e.w + player.w) / 2 + 2;
           e.vx = e.wind <= 0.12 && dist > minStop ? e.facing * 80 : 0;
           if (e.wind <= 0) {
-            const box = {
-              x: e.facing > 0 ? e.x + e.w - 6 : e.x - 46,
-              y: e.y + 8,
-              w: 50,
-              h: 38,
-            };
-            if (overlap(box, getPlayerHurtbox(player))) hurtPlayer(2, e.x, "slash"); // Stone claw swipe deals 2 DMG
+            setEnemyFsmState(e, "ATTACK", cfg.activeDuration);
+            e.state = "slash";
+          }
+        } else if ((e.activeTimer ?? 0) > 0) {
+          e.vx = 0;
+          e.state = "slash";
+          const box = {
+            x: e.facing > 0 ? e.x + e.w - 6 : e.x - 46,
+            y: e.y + 8,
+            w: 50,
+            h: 38,
+          };
+          if (!e.hitPlayerThisAttack && overlap(box, getPlayerHurtbox(player))) {
+            e.hitPlayerThisAttack = true;
+            hurtPlayer(2, e.x, "slash"); // Stone claw swipe deals 2 DMG
+          }
+          if ((e.activeTimer ?? 0) <= dt) {
             e.state = "idle";
             e.postAttackT = postPauseDur;
             setEnemyFsmState(e, "RECOVERY", postPauseDur);
@@ -6376,7 +6773,13 @@ export function mountCampaign(
         frame = Math.floor(time * 10) % 2 === 0 ? 1 : 3;
       } else if (e.hurt > 0) {
         frame = 3;
-      } else if (e.state === "slash" || e.wind > 0 || e.state === "smash" || e.state === "charge") {
+      } else if (
+        e.state === "slash" ||
+        e.wind > 0 ||
+        (e.activeTimer ?? 0) > 0 ||
+        e.state === "smash" ||
+        e.state === "charge"
+      ) {
         frame = 2;
       } else if (e.state === "dive" || e.state === "leap") {
         frame = 2;
@@ -6407,6 +6810,8 @@ export function mountCampaign(
 
       const isP2Sprite = spriteKey !== e.kind && !e.dying;
       const feet = e.y + e.h + (isP2Sprite ? 3 : (FEET_OFF[e.kind] ?? 0));
+      const impactShakeX = (e.impactShakeT ?? 0) > 0 ? Math.sin(time * 78) * 2.5 : 0;
+      const drawCenterX = e.x + e.w / 2 + impactShakeX;
 
       // Transformation energy pillar & shockwave ring when boss is mutating!
       if (e.boss && (e.transformT ?? 0) > 0) {
@@ -6441,11 +6846,18 @@ export function mountCampaign(
           e.kind === "bossVeyne" ? "#a855f7" :
           e.kind === "bossPetros" ? "#f97316" : "#ef4444";
         g.save();
-        g.globalAlpha = 0.42 + Math.sin(time * 9) * 0.18;
+        g.globalAlpha = (curPhase >= 3 ? 0.56 : 0.42) + Math.sin(time * (curPhase >= 3 ? 14 : 9)) * 0.18;
         g.fillStyle = auraColor;
         g.beginPath();
-        g.ellipse(bx, by, e.w * 1.05, 11, 0, 0, Math.PI * 2);
+        g.ellipse(bx, by, e.w * (curPhase >= 3 ? 1.25 : 1.05), curPhase >= 3 ? 13 : 11, 0, 0, Math.PI * 2);
         g.fill();
+        if (curPhase >= 3) {
+          g.strokeStyle = "rgba(253, 224, 71, 0.85)";
+          g.lineWidth = 1.6;
+          g.beginPath();
+          g.ellipse(bx, by, e.w * 1.38 + Math.sin(time * 16) * 4, 14, 0, 0, Math.PI * 2);
+          g.stroke();
+        }
         g.restore();
       }
       if (e.state === "emerge") {
@@ -6458,7 +6870,7 @@ export function mountCampaign(
         g.beginPath();
         g.rect(Math.round(e.x - camX - 40), 0, e.w + 80, groundScreenY);
         g.clip();
-        blit(art[spriteKey], frame, e.x + e.w / 2, feet, tall, e.facing);
+        blit(art[spriteKey], frame, drawCenterX, feet, tall, e.facing);
         g.restore();
 
         // Draw cracked stone mound / dust puff at emergence point
@@ -6484,10 +6896,10 @@ export function mountCampaign(
         if ((e.hurtFlash ?? 0) > 0) {
           g.save();
           g.globalCompositeOperation = "lighter";
-          blit(art[spriteKey], frame, e.x + e.w / 2, feet, tall, e.facing);
+          blit(art[spriteKey], frame, drawCenterX, feet, tall, e.facing);
           g.restore();
         } else {
-          blit(art[spriteKey], frame, e.x + e.w / 2, feet, tall, e.facing);
+          blit(art[spriteKey], frame, drawCenterX, feet, tall, e.facing);
         }
       }
 
@@ -6514,7 +6926,7 @@ export function mountCampaign(
         g.restore();
       }
 
-      // Stagger / Guard Broken / Stunned indicator above Enemies & Bosses
+      // Stagger / Guard Broken / Contextual Execution indicator above Enemies & Bosses
       if ((e.staggered || e.fsmState === "STUNNED" || e.fsmState === "GUARD_BROKEN") && e.hurt > 0 && !e.dead && !e.dying) {
         const ex = Math.round(e.x + e.w / 2 - camX);
         const ey = Math.round(e.y - camY - 16);
@@ -6523,13 +6935,16 @@ export function mountCampaign(
           const ang = time * 8 + i * ((Math.PI * 2) / 3);
           const sx = ex + Math.cos(ang) * 14;
           const sy = ey + Math.sin(ang) * 4;
-          g.fillStyle = i % 2 === 0 ? "#fde047" : "#38bdf8";
+          g.fillStyle = i % 2 === 0 ? "#fde047" : "#f97316";
           g.fillRect(Math.round(sx - 1.5), Math.round(sy - 1.5), 3, 3);
         }
         g.font = "bold 7.5px monospace";
         g.textAlign = "center";
         g.fillStyle = "rgba(0, 0, 0, 0.9)";
-        const statusText = e.fsmState === "GUARD_BROKEN" ? "⚡ GUARDA QUEBRADA!" : "⚡ VULNERÁVEL!";
+        const statusText =
+          e.fsmState === "GUARD_BROKEN" || e.staggered
+            ? "⚔️ EXECUÇÃO! [ATAQUE]"
+            : "⚡ VULNERÁVEL!";
         g.fillText(statusText, ex + 1, ey - 7);
         g.fillStyle = "#fde047";
         g.fillText(statusText, ex, ey - 8);
