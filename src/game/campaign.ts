@@ -2972,7 +2972,7 @@ export function mountCampaign(
     // =========================================================================
     // ETAPA 1: MÁQUINA DE ESTADOS DO ATAQUE BÁSICO (TIMER ÚNICO E SEQUENCIAL)
     // - 0.00s até 0.08s (STARTUP): Hitbox OFF, Arco OFF, vx = 0 (chão), inclinação -5 graus
-    // - 0.08s até 0.18s (ACTIVE - dura 0.10s): Impulso de lunge único (25-30px), Hitbox ON (1 hit/inimigo), Arco ON
+    // - 0.08s até 0.18s (ACTIVE - dura 0.10s): SEM lunge (vx = 0 no chão), Hitbox ON (1 hit/inimigo), Arco ON
     // - 0.18s até 0.38s (RECOVERY - dura 0.20s): Hitbox OFF, Arco OFF, vx = 0 (chão)
     // - Passou de 0.38s: attackPhase = 'NONE' e libera o personagem para andar ou atacar
     // =========================================================================
@@ -2989,15 +2989,8 @@ export function mountCampaign(
         // --- De 0.08s até 0.18s: ACTIVE (dura 0.10s) ---
         player.attackPhase = "ACTIVE";
         player.attackHitboxActive = true;
-
-        // Impulso horizontal curto aplicado em 1 ÚNICO FRAME na transição
-        if (!player.lungeApplied) {
-          player.lungeApplied = true;
-          if (player.grounded) {
-            // Impulso inicial único para cobrir 25 a 30 pixels com desaceleração rápida por atrito
-            player.vx = player.facing * 520;
-          }
-        }
+        // LUNGE REMOVIDO 100%: personagem estático no eixo X durante todo o ataque no chão
+        if (player.grounded) player.vx = 0;
       } else if (player.attackTimer < 0.38) {
         // --- De 0.18s até 0.38s: RECOVERY (dura 0.20s) ---
         player.attackPhase = "RECOVERY";
@@ -3426,18 +3419,9 @@ export function mountCampaign(
         player.vx = 0;
         if (dir !== 0 && player.controlLock <= 0) player.facing = dir as 1 | -1;
       } else if (player.attackPhase !== "NONE" && player.grounded) {
-        // =====================================================================
-        // ETAPA 1: CONTROLE DE MOVIMENTO DURANTE O ATAQUE
-        // - STARTUP (0.00s a 0.08s): vx = 0
-        // - ACTIVE (0.08s a 0.18s): desaceleração rápida com atrito (friction) até zerar (total 25-30px)
-        // - RECOVERY (0.18s a 0.38s): vx = 0 (personagem fica plantado no chão)
-        // =====================================================================
-        if (player.attackPhase === "ACTIVE") {
-          player.vx *= Math.max(0, 1 - 20 * dt);
-          if (Math.abs(player.vx) < 8) player.vx = 0;
-        } else {
-          player.vx = 0;
-        }
+        // ATAQUE NO CHÃO: personagem 100% estático no eixo X em TODAS as fases
+        // (STARTUP, ACTIVE e RECOVERY). Nenhum lunge, nenhuma aceleração.
+        player.vx = 0;
       } else {
         // Movimento normal livre apenas quando attackPhase === "NONE" (ou no ar)
         const accel = player.grounded ? T.accelGround : T.accelAir;
@@ -3506,6 +3490,11 @@ export function mountCampaign(
       player.vy = Math.min(player.vy + grav * dt, T.terminal);
     }
 
+    // TRAVA FINAL DE FÍSICA: imediatamente antes de mover o personagem,
+    // força vx = 0 em todos os frames do ataque no chão (nenhum código acima pode vazar velocidade).
+    if (player.attackPhase !== "NONE" && player.grounded) {
+      player.vx = 0;
+    }
     resolve(player, dt, player.dropT > 0);
     if (player.grounded) {
       player.coyote = T.coyote;
