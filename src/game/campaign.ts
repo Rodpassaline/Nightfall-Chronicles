@@ -1049,6 +1049,15 @@ export function mountCampaign(
     player.vx = 0;
     player.attackT = 0;
     player.attackLock = 0;
+    player.attackPhase = "idle";
+    player.attackPhaseTimer = 0;
+    player.attackBuffered = false;
+    player.attackHitboxActive = false;
+    player.attackLungeVx = 0;
+    player.comboStep = 1;
+    player.combo = 0;
+    player.comboResetTimer = 0;
+    player.isHeavyExecution = false;
     player.castT = 0;
     player.specialT = 0;
     player.dashT = 0;
@@ -1156,6 +1165,19 @@ export function mountCampaign(
     attackKind: "side" as "side" | "up" | "down" | "crouch",
     combo: 0,
     comboWindow: 0,
+    // Frame Data (60 FPS) & Advanced Combat System fields
+    attackPhase: "idle" as "idle" | "startup" | "active" | "recovery",
+    attackPhaseTimer: 0,
+    attackStartupDuration: 5 / 60,
+    attackActiveDuration: 6 / 60,
+    attackRecoveryDuration: 12 / 60,
+    attackTotalDuration: 0,
+    attackBuffered: false,
+    attackHitboxActive: false,
+    attackLungeVx: 0,
+    comboStep: 1 as 1 | 2 | 3,
+    comboResetTimer: 0,
+    isHeavyExecution: false,
     swingId: 0,
     holdT: 0,
     charge: "idle" as "idle" | "wind",
@@ -1608,6 +1630,15 @@ export function mountCampaign(
     player.hurtT = 0;
     player.attackT = 0;
     player.attackLock = 0;
+    player.attackPhase = "idle";
+    player.attackPhaseTimer = 0;
+    player.attackBuffered = false;
+    player.attackHitboxActive = false;
+    player.attackLungeVx = 0;
+    player.comboStep = 1;
+    player.combo = 0;
+    player.comboResetTimer = 0;
+    player.isHeavyExecution = false;
     player.castT = 0;
     player.castFired = false;
     player.dashT = 0;
@@ -1836,8 +1867,8 @@ export function mountCampaign(
           x: player.x + player.w / 2,
           y: player.y - 8,
           vy: -42,
-          life: 0.78,
-          maxLife: 0.78,
+          life: 0.546,
+          maxLife: 0.546,
           isCrit: true,
           color: "#f97316",
         });
@@ -1876,8 +1907,8 @@ export function mountCampaign(
           x: player.x + player.w / 2,
           y: player.y - 6,
           vy: -42,
-          life: 0.75,
-          maxLife: 0.75,
+          life: 0.525,
+          maxLife: 0.525,
           isCrit: true,
           color: "#38bdf8",
         });
@@ -1941,6 +1972,12 @@ export function mountCampaign(
     player.charge = "idle";
     player.holdT = 0;
     player.attackT = 0;
+    player.attackLock = 0;
+    player.attackPhase = "idle";
+    player.attackPhaseTimer = 0;
+    player.attackBuffered = false;
+    player.attackHitboxActive = false;
+    player.attackLungeVx = 0;
     if (player.castT > 0 && !player.castFired) player.mana = Math.min(T.maxMana, player.mana + T.spellCost);
     player.castT = 0;
     player.castFired = false;
@@ -2021,8 +2058,8 @@ export function mountCampaign(
           x: e.x + e.w / 2,
           y: e.y - 6,
           vy: -34,
-          life: 0.55,
-          maxLife: 0.55,
+          life: 0.385,
+          maxLife: 0.385,
           isCrit: e.comboHits >= 2,
           color: e.comboHits >= 2 ? "#fde047" : "#93c5fd",
         });
@@ -2062,8 +2099,8 @@ export function mountCampaign(
           x: e.x + e.w / 2,
           y: e.y - 6,
           vy: -34,
-          life: 0.55,
-          maxLife: 0.55,
+          life: 0.385,
+          maxLife: 0.385,
           isCrit: e.comboHits >= 2,
           color: e.comboHits >= 2 ? "#fde047" : "#93c5fd",
         });
@@ -2116,8 +2153,8 @@ export function mountCampaign(
           x: e.x + e.w / 2,
           y: e.y - 8,
           vy: -36,
-          life: 0.6,
-          maxLife: 0.6,
+          life: 0.42,
+          maxLife: 0.42,
           isCrit: e.comboHits >= 2,
           color: e.comboHits >= 2 ? "#fde047" : "#93c5fd",
         });
@@ -2155,8 +2192,8 @@ export function mountCampaign(
           x: e.x + e.w / 2,
           y: e.y - 6,
           vy: -34,
-          life: 0.55,
-          maxLife: 0.55,
+          life: 0.385,
+          maxLife: 0.385,
           isCrit: e.comboHits >= 2,
           color: e.comboHits >= 2 ? "#fde047" : "#93c5fd",
         });
@@ -2229,6 +2266,13 @@ export function mountCampaign(
       // Recompensa tática da Execução Contextual + encerramento imediato da janela GUARD_BROKEN
       player.mana = Math.min(T.maxMana, player.mana + 12);
       player.special = Math.min(100, player.special + 8);
+      player.isHeavyExecution = true;
+      if (player.attackPhase === "active" || player.attackPhase === "recovery") {
+        player.attackRecoveryDuration = 0.45; // 27 frames @ 60 FPS (impacto visceral)
+        if (player.attackPhase === "recovery") {
+          player.attackPhaseTimer = Math.max(player.attackPhaseTimer, 0.45);
+        }
+      }
       e.staggered = false;
       e.poise = e.maxPoise ?? 14;
       e.antiStunTimer = 1.45;
@@ -2263,6 +2307,10 @@ export function mountCampaign(
     const isCrit =
       isCharged || isSpecial || isContextualExecution || player.combo === 2 || wasCounterHit;
 
+    if (wasCounterHit && (player.attackPhase === "active" || player.attackPhase === "recovery")) {
+      player.attackRecoveryDuration = Math.max(player.attackRecoveryDuration, 0.35);
+    }
+
     if (isCrit) {
       hitstop = Math.max(hitstop, isContextualExecution ? 0.08 : 0.055);
       shake = Math.max(shake, isContextualExecution ? 7.0 : 4.5);
@@ -2276,8 +2324,8 @@ export function mountCampaign(
         x: e.x + e.w / 2,
         y: e.y - 10,
         vy: -42,
-        life: 0.7,
-        maxLife: 0.7,
+        life: 0.49,
+        maxLife: 0.49,
         isCrit: true,
         color: "#38bdf8",
       });
@@ -2295,8 +2343,8 @@ export function mountCampaign(
       x: e.x + e.w / 2 + (Math.random() - 0.5) * 8,
       y: e.y + 2,
       vy: isContextualExecution ? -44 : -36,
-      life: isContextualExecution ? 0.82 : 0.65,
-      maxLife: isContextualExecution ? 0.82 : 0.65,
+      life: isContextualExecution ? 0.574 : 0.455,
+      maxLife: isContextualExecution ? 0.574 : 0.455,
       isCrit,
       color: isContextualExecution ? "#f97316" : isCrit ? "#fde047" : "#ef4444",
     });
@@ -2430,8 +2478,8 @@ export function mountCampaign(
           x: e.x + e.w / 2,
           y: e.y - 12,
           vy: -45,
-          life: 0.9,
-          maxLife: 0.9,
+          life: 0.63,
+          maxLife: 0.63,
           isCrit: true,
           color: "#38bdf8",
         });
@@ -2650,6 +2698,71 @@ export function mountCampaign(
   ) {
     const o = cellLocal(anchorX, anchorY, height);
     blit(img, frame, worldX - facing * o.dx, worldY + o.up, height, facing);
+  }
+
+  // ===========================================================================
+  // RENDER WHITE SLASH ARC EFFECT (Golpes 1, 2, 3 e Direcionais)
+  // - Golpe 1: Arco horizontal padrão (direita para esquerda)
+  // - Golpe 2: Arco horizontal invertido (espelhado verticalmente com escala Y negativa)
+  // - Golpe 3: Finalizador Overhead (de cima para baixo)
+  // ===========================================================================
+  function renderSlashArc(kind: string, comboStep: number, cx: number, cy: number, facing: number) {
+    if (!art.slash || !art.slash.complete || art.slash.naturalWidth <= 0) return;
+    const img = art.slash;
+    const cols = 2;
+    const sw = img.width / cols;
+    const sh = img.height / 2;
+
+    g.save();
+    g.translate(Math.round(cx - camX), Math.round(cy - camY));
+
+    if (kind === "up") {
+      g.scale(facing, 1);
+      const frame = 0;
+      const col = frame % cols;
+      const row = Math.floor(frame / cols) % 2;
+      const height = 56;
+      const dw = height * (sw / sh);
+      g.drawImage(img, col * sw, row * sh, sw, sh, -dw / 2, -height, dw, height);
+    } else if (kind === "down") {
+      g.scale(facing, 1);
+      const frame = 3;
+      const col = frame % cols;
+      const row = Math.floor(frame / cols) % 2;
+      const height = 44;
+      const dw = height * (sw / sh);
+      g.drawImage(img, col * sw, row * sh, sw, sh, -dw / 2, -height, dw, height);
+    } else {
+      if (comboStep === 2) {
+        // Golpe 2: Arco horizontal invertido (esquerda para direita -> espelha verticalmente via escala Y = -1)
+        g.scale(facing, -1);
+        const frame = 2;
+        const col = frame % cols;
+        const row = Math.floor(frame / cols) % 2;
+        const height = 58;
+        const dw = height * (sw / sh);
+        g.drawImage(img, col * sw, row * sh, sw, sh, -dw / 2, -height * 0.45, dw, height);
+      } else if (comboStep === 3) {
+        // Golpe 3: Finalizador Overhead (de cima para baixo)
+        g.scale(facing, 1);
+        const frame = 3;
+        const col = frame % cols;
+        const row = Math.floor(frame / cols) % 2;
+        const height = 64;
+        const dw = height * (sw / sh);
+        g.drawImage(img, col * sw, row * sh, sw, sh, -dw * 0.25, -height * 0.85, dw, height);
+      } else {
+        // Golpe 1: Arco horizontal padrão
+        g.scale(facing, 1);
+        const frame = 2;
+        const col = frame % cols;
+        const row = Math.floor(frame / cols) % 2;
+        const height = 58;
+        const dw = height * (sw / sh);
+        g.drawImage(img, col * sw, row * sh, sw, sh, -dw / 2, -height * 0.75, dw, height);
+      }
+    }
+    g.restore();
   }
 
   function step(dt: number, press: { jump: boolean; attack: boolean; dash: boolean; spell: boolean; special?: boolean }, held: Set<Action>) {
@@ -2918,13 +3031,117 @@ export function mountCampaign(
     if (press.spell) player.spellBuffer = 0.16;
     else player.spellBuffer = Math.max(0, player.spellBuffer - dt);
 
-    if (player.attackT > 0) {
-      player.attackT = Math.max(0, Math.min(0.35, player.attackT - dt));
-      if (player.attackT <= 0.06 && player.castT <= 0) {
-        player.comboWindow = Math.max(player.comboWindow, 0.24);
+    const startSwordAttack = (forcedStep?: 1 | 2 | 3) => {
+      let step: 1 | 2 | 3 = 1;
+      if (forcedStep) {
+        step = forcedStep;
+      } else if (player.comboResetTimer > 0 && player.comboStep >= 1 && player.comboStep < 3) {
+        step = (player.comboStep + 1) as 2 | 3;
+      } else {
+        step = 1;
+      }
+
+      player.comboStep = step;
+      player.combo = (step - 1) as 0 | 1 | 2;
+      player.comboResetTimer = 0;
+      player.attackBuffered = false;
+      player.attackPhase = "startup";
+      player.attackStartupDuration = 5 / 60; // 5 frames @ 60 FPS = 0.0833s (~0.08s)
+      player.attackActiveDuration = 6 / 60;  // 6 frames @ 60 FPS = 0.10s
+      // Recovery: 12 frames (0.20s) nos Golpes 1 e 2; 18 frames (0.30s) no Golpe 3 (Finalizador Overhead)
+      player.attackRecoveryDuration = step === 3 ? 18 / 60 : 12 / 60;
+      player.attackPhaseTimer = player.attackStartupDuration;
+      player.attackTotalDuration = player.attackStartupDuration + player.attackActiveDuration + player.attackRecoveryDuration;
+      player.attackT = player.attackTotalDuration;
+      player.attackLock = player.attackTotalDuration;
+      player.attackHitboxActive = false;
+      player.attackLungeVx = 0;
+      player.isHeavyExecution = false;
+
+      const down = aimDown && !player.grounded && !player.crouching;
+      player.attackKind = down ? "down" : aimUp ? "up" : player.crouching ? "crouch" : "side";
+      player.swingId++;
+
+      if (step === 3) {
+        sound.playSfx("slashHeavy");
+      } else {
+        sound.playSfx("slash");
+      }
+    };
+
+    // =========================================================================
+    // ADVANCED SWORD COMBAT: 3-PHASE TIMING & COMBO INPUT BUFFER (60 FPS)
+    // - Startup (5 frames / 0.08s): Recuo de -3px, sem hitbox
+    // - Active (6 frames / 0.10s): Hitbox de dano ativa, arco branco, lunge terrestre (30px / 45px)
+    // - Recovery (12 frames / 0.20s; 18 frames / 0.30s no Golpe 3): Hitbox desativada, pose de recuperação
+    // - Input Buffer: Pressionar ataque nos últimos 0.12s do Recovery engatilha o próximo golpe imediatamente!
+    // =========================================================================
+    if (player.attackPhase !== "idle") {
+      player.attackPhaseTimer -= dt;
+      player.attackT = Math.max(0, player.attackT - dt);
+      player.attackLock = Math.max(0, player.attackLock - dt);
+
+      // Input Buffer de Combo: Durante os últimos 0.12s do Recovery, registra a intenção
+      if (player.attackPhase === "recovery" && player.attackPhaseTimer <= 0.12) {
+        if (press.attack) {
+          player.attackBuffered = true;
+        }
+      }
+
+      if (player.attackPhaseTimer <= 0) {
+        if (player.attackPhase === "startup") {
+          // Transição: Startup -> Active (6 frames = 0.10s)
+          player.attackPhase = "active";
+          player.attackPhaseTimer = player.attackActiveDuration;
+          player.attackHitboxActive = true;
+
+          // Lunge terrestre: impulso para frente (30px no Golpe 1 e 2; 45px no Golpe 3)
+          if (player.grounded) {
+            player.attackLungeVx = player.facing * (player.comboStep === 3 ? 970 : 650);
+            player.vx = player.attackLungeVx;
+          }
+        } else if (player.attackPhase === "active") {
+          // Transição: Active -> Recovery
+          player.attackPhase = "recovery";
+          player.attackHitboxActive = false;
+          // Se foi execução pesada, recovery é 0.45s (27 frames); senão, 12 frames (0.20s) ou 18 frames (0.30s)
+          const recoveryDuration = player.isHeavyExecution ? 0.45 : player.attackRecoveryDuration;
+          player.attackPhaseTimer = recoveryDuration;
+          player.attackT = recoveryDuration;
+          player.attackLock = recoveryDuration;
+        } else if (player.attackPhase === "recovery") {
+          // Fim do Recovery
+          if (player.attackBuffered && player.comboStep < 3) {
+            startSwordAttack((player.comboStep + 1) as 2 | 3);
+          } else {
+            player.attackPhase = "idle";
+            player.attackPhaseTimer = 0;
+            player.attackT = 0;
+            player.attackLock = 0;
+            player.attackHitboxActive = false;
+            player.attackLungeVx = 0;
+            player.attackBuffered = false;
+
+            if (player.comboStep === 3) {
+              player.comboStep = 1;
+              player.combo = 0;
+              player.comboResetTimer = 0;
+            } else {
+              player.comboResetTimer = 0.60; // Timer de 0.60s inicia após o Recovery
+            }
+          }
+        }
+      }
+    } else {
+      if (player.comboResetTimer > 0) {
+        player.comboResetTimer -= dt;
+        if (player.comboResetTimer <= 0) {
+          player.comboStep = 1;
+          player.combo = 0;
+          player.comboResetTimer = 0;
+        }
       }
     }
-    if (player.attackT <= 0 && player.attackLock > 0 && player.castT <= 0) player.comboWindow = Math.max(player.comboWindow, 0.24);
     if (player.castT > 0) {
       const before = player.castT;
       player.castT = Math.max(0, Math.min(0.35, player.castT - dt));
@@ -3037,6 +3254,9 @@ export function mountCampaign(
       const isMultiPress =
         attackRoutine.multiPressComboWindow > 0 ||
         attackRoutine.timeSinceLastPress < 0.36 ||
+        player.comboResetTimer > 0 ||
+        player.attackBuffered ||
+        (player.attackPhase === "recovery" && player.attackPhaseTimer <= 0.12) ||
         player.comboWindow > 0;
       const isAirDirectional = !player.grounded && (aimDown || aimUp);
 
@@ -3073,6 +3293,12 @@ export function mountCampaign(
           player.comboWindow = 0;
           if (player.attackT < 0.18) {
             player.attackT = 0;
+    player.attackLock = 0;
+    player.attackPhase = "idle";
+    player.attackPhaseTimer = 0;
+    player.attackBuffered = false;
+    player.attackHitboxActive = false;
+    player.attackLungeVx = 0;
           }
         }
 
@@ -3169,6 +3395,12 @@ export function mountCampaign(
       player.specialDuration = 0.85;
       player.iframes = Math.max(player.iframes, 0.95);
       player.attackT = 0;
+    player.attackLock = 0;
+    player.attackPhase = "idle";
+    player.attackPhaseTimer = 0;
+    player.attackBuffered = false;
+    player.attackHitboxActive = false;
+    player.attackLungeVx = 0;
       player.attackLock = 0.85;
       player.attackBuffer = 0;
       player.castT = 0;
@@ -3219,31 +3451,19 @@ export function mountCampaign(
       if (player.grounded) player.vy = 0;
     } else if (player.hurtT <= 0) {
       if (
-        (triggerSwordSwing || player.attackBuffer > 0) &&
+        (triggerSwordSwing || player.attackBuffer > 0 || player.attackBuffered) &&
         !player.guard &&
         player.castT <= 0 &&
         player.charge !== "wind" &&
         !attackRoutine.pendingTapSlash &&
         !attackRoutine.lockedUntilRelease &&
-        attackRoutine.holdDuration < 0.14 &&
-        (player.attackLock <= 0 || player.comboWindow > 0)
+        attackRoutine.holdDuration < 0.14
       ) {
         player.attackBuffer = 0;
-        player.swingId++;
-        const down = aimDown && !player.grounded && !player.crouching;
-        player.attackKind = down ? "down" : aimUp ? "up" : player.crouching ? "crouch" : "side";
-        player.combo =
-          (player.attackKind === "side" || player.attackKind === "crouch") &&
-          (player.comboWindow > 0 || attackRoutine.multiPressComboWindow > 0)
-            ? (player.combo + 1) % 3
-            : 0;
-        player.attackT = player.combo === 2 ? 0.22 : 0.20;
-        player.attackLock = player.combo === 2 ? 0.20 : 0.18;
-        player.comboWindow = 0;
-        if (player.combo === 2) {
-          sound.playSfx("slashHeavy");
-        } else {
-          sound.playSfx("slash");
+        if (player.attackPhase === "idle") {
+          startSwordAttack();
+        } else if (player.attackPhase === "recovery" && player.attackPhaseTimer <= 0.12) {
+          player.attackBuffered = true;
         }
       }
       if ((press.spell || player.spellBuffer > 0) && !player.guard && player.castT <= 0) {
@@ -3256,13 +3476,24 @@ export function mountCampaign(
           player.castT = 0.28 * spellCdMultiplier;
           player.castFired = false;
           player.attackT = 0;
+    player.attackLock = 0;
+    player.attackPhase = "idle";
+    player.attackPhaseTimer = 0;
+    player.attackBuffered = false;
+    player.attackHitboxActive = false;
+    player.attackLungeVx = 0;
           player.attackLock = 0.28 * spellCdMultiplier;
           player.charge = "idle";
           player.holdT = 0;
           sound.playSfx("spell");
         }
       }
-      if ((press.dash || player.dashBuffer > 0) && player.dashCd <= 0 && player.dashT <= 0) {
+      const canDashNow =
+        player.dashCd <= 0 &&
+        player.dashT <= 0 &&
+        (player.attackPhase === "idle" || player.attackPhase === "recovery");
+
+      if ((press.dash || player.dashBuffer > 0) && canDashNow) {
         player.dashBuffer = 0;
         const d = (dir !== 0 ? dir : player.facing) as 1 | -1;
         player.dashT = T.dashTime;
@@ -3273,6 +3504,16 @@ export function mountCampaign(
         player.iframes = Math.max(player.iframes, T.dashIFrames);
         player.charge = "idle";
         player.attackT = 0;
+        player.attackLock = 0;
+        // Cancelamento do Recovery por Dash/Esquiva (limpando o buffer de ataque):
+        player.attackBuffered = false;
+        player.attackPhase = "idle";
+        player.attackPhaseTimer = 0;
+        player.attackHitboxActive = false;
+        player.attackLungeVx = 0;
+        player.comboResetTimer = 0;
+        player.comboStep = 1;
+        player.combo = 0;
         if (player.castT > 0 && !player.castFired) player.mana = Math.min(T.maxMana, player.mana + T.spellCost);
         player.castT = 0;
         player.castFired = false;
@@ -3314,6 +3555,20 @@ export function mountCampaign(
       } else if (player.crouching) {
         player.vx = 0;
         if (dir !== 0 && player.controlLock <= 0) player.facing = dir as 1 | -1;
+      } else if (player.attackPhase !== "idle" && player.grounded) {
+        // =====================================================================
+        // GROUND ATTACK MOVEMENT LOCK & ACTIVE LUNGE (30px / 45px)
+        // Trava entrada de corrida normal no chão. Na fase Active, o lunge
+        // impulsiona o personagem para frente com desaceleração suave/friction.
+        // =====================================================================
+        if (Math.abs(player.attackLungeVx) > 5) {
+          player.attackLungeVx *= Math.max(0, 1 - 18 * dt);
+          player.vx = player.attackLungeVx;
+        } else {
+          player.attackLungeVx = 0;
+          player.vx *= Math.max(0, 1 - 24 * dt);
+          if (Math.abs(player.vx) < 5) player.vx = 0;
+        }
       } else {
         const accel = player.grounded ? T.accelGround : T.accelAir;
         const lock = player.controlLock > 0 ? 0.35 : 1;
@@ -3321,7 +3576,7 @@ export function mountCampaign(
           const isReversing = Math.sign(player.vx) !== 0 && Math.sign(player.vx) !== dir;
           const turnMultiplier = isReversing ? 1.35 : 1;
           player.vx += dir * accel * lock * turnMultiplier * dt;
-          if (player.controlLock <= 0) player.facing = dir as 1 | -1;
+          if (player.controlLock <= 0 && player.attackPhase === "idle") player.facing = dir as 1 | -1;
         } else if (player.grounded) {
           const s = Math.sign(player.vx);
           player.vx -= s * T.friction * dt;
@@ -3349,7 +3604,7 @@ export function mountCampaign(
         player.dropT = 0.2;
         player.buffer = 0;
         player.vy = 40;
-      } else if (player.buffer > 0 && (player.grounded || player.coyote > 0)) {
+      } else if (player.buffer > 0 && (player.grounded || player.coyote > 0) && player.attackPhase === "idle") {
         player.vy = -T.jumpV;
         player.grounded = false;
         player.coyote = 0;
@@ -3393,8 +3648,9 @@ export function mountCampaign(
     }
 
     const feetNow = player.y + player.h;
-    const sideSwing = player.attackKind === "up" ? player.attackT > 0.06 && player.attackT < 0.18 : player.attackT > 0.04 && player.attackT < 0.16;
+    const sideSwing = player.attackHitboxActive;
     if (sideSwing) {
+      const isFinisher = player.comboStep === 3;
       const box =
         player.attackKind === "up"
           ? { x: player.x - 10, y: feetNow - 128, w: player.w + 20, h: 40 }
@@ -3408,12 +3664,12 @@ export function mountCampaign(
                   h: 38,
                 }
               : {
-                  x: player.facing > 0 ? player.x + player.w - 4 : player.x - 56,
-                  y: feetNow - 86,
-                  w: 60,
-                  h: 68,
+                  x: player.facing > 0 ? player.x + player.w - 4 : player.x - (isFinisher ? 66 : 56),
+                  y: feetNow - (isFinisher ? 96 : 86),
+                  w: isFinisher ? 72 : 60,
+                  h: isFinisher ? 82 : 68,
                 };
-      for (const e of enemies) if (!e.dead && !e.dying && overlap(box, getEnemyHurtbox(e))) hurtEnemy(e, player.combo === 2 ? T.finisherDamage : T.slashDamage, player.attackKind === "down", "slash");
+      for (const e of enemies) if (!e.dead && !e.dying && overlap(box, getEnemyHurtbox(e))) hurtEnemy(e, isFinisher ? T.finisherDamage : T.slashDamage, player.attackKind === "down", "slash");
 
       // Shatter Gothic Seal Crystals with Sword Strike (or Downward Pogo)!
       for (const c of sealCrystals) {
@@ -3655,8 +3911,8 @@ export function mountCampaign(
             x: e.x + e.w / 2,
             y: e.y + 2,
             vy: -40,
-            life: 0.6,
-            maxLife: 0.6,
+            life: 0.42,
+            maxLife: 0.42,
             isCrit: true,
             color: "#fde047",
           });
@@ -4376,8 +4632,8 @@ export function mountCampaign(
           x: e.x + e.w / 2,
           y: e.y - 6,
           vy: -35,
-          life: 0.55,
-          maxLife: 0.55,
+          life: 0.385,
+          maxLife: 0.385,
           isCrit: false,
           color: "#38bdf8",
         });
@@ -4407,8 +4663,8 @@ export function mountCampaign(
           x: e.x + e.w / 2,
           y: e.y - 8,
           vy: -38,
-          life: 0.6,
-          maxLife: 0.6,
+          life: 0.42,
+          maxLife: 0.42,
           isCrit: true,
           color: "#fde047",
         });
@@ -4422,8 +4678,8 @@ export function mountCampaign(
           x: e.x + e.w / 2,
           y: e.y - 6,
           vy: -32,
-          life: 0.5,
-          maxLife: 0.5,
+          life: 0.35,
+          maxLife: 0.35,
           isCrit: false,
           color: "#93c5fd",
         });
@@ -7008,17 +7264,28 @@ export function mountCampaign(
         sheet = "heroCast";
         frame = Math.min(4, Math.floor((1 - player.castT / 0.28) * 5));
       }
-    } else if (player.attackT > 0) {
+    } else if (player.attackPhase !== "idle") {
       if (player.attackKind === "crouch") {
         sheet = "heroCrouch";
-        frame = player.attackT > 0.1 ? 1 : 2;
+        frame = player.attackPhase === "startup" ? 1 : player.attackPhase === "active" ? 2 : 1;
       } else if (player.attackKind === "down" && !player.grounded) {
         sheet = "heroJump";
         frame = 3;
+      } else if (player.comboStep === 3 && player.attackKind === "side") {
+        // Golpe 3 (Finalizador Overhead): reutiliza a pose de ataque aéreo (heroJump frame 3)
+        sheet = "heroJump";
+        frame = player.attackPhase === "startup" ? 1 : 3;
       } else {
         sheet = "heroAttack";
-        if (player.attackKind === "up") frame = 1;
-        else frame = Math.min(4, Math.floor((1 - player.attackT / 0.2) * 5));
+        if (player.attackKind === "up") {
+          frame = 1;
+        } else if (player.attackPhase === "startup") {
+          frame = 0; // Pose de antecipação (startup)
+        } else if (player.attackPhase === "active") {
+          frame = player.comboStep === 2 ? 2 : 1; // Pose ativa do golpe
+        } else {
+          frame = 3; // Pose de recuperação (recovery)
+        }
       }
     } else if (
       player.charge === "wind" ||
@@ -7112,20 +7379,20 @@ export function mountCampaign(
 
     // the 320px cells keep the boots 56px above the cell bottom
     const heroFeet = player.y + player.h + (56 / 320) * DRAW_H.hero;
-    blit(art[sheet], frame, player.x + player.w / 2, heroFeet, DRAW_H.hero, player.facing, heroCols);
+    let heroDrawX = player.x + player.w / 2;
+    if (player.attackPhase === "startup") {
+      // Startup (Anticipation): recua levemente via código (-3px no eixo X local)
+      heroDrawX -= 3 * player.facing;
+    }
+    blit(art[sheet], frame, heroDrawX, heroFeet, DRAW_H.hero, player.facing, heroCols);
     if (isInvulnerable) {
       g.restore();
     }
-    if (player.attackT > 0 && player.castT <= 0) {
-      if (player.attackKind === "down") {
-        const slashX = player.x + player.w / 2;
-        const slashY = player.y + player.h + 26;
-        blit(art.slash, 3, slashX, slashY, 40, player.facing);
-      } else if (player.attackKind === "up") {
-        const slashX = player.x + player.w / 2 + player.facing * 8;
-        const slashY = player.y + 4;
-        blit(art.slash, 0, slashX, slashY, 56, player.facing);
-      }
+    // Slash Arc Visual Effect (Exibido estritamente na fase Active: 6 frames = 0,10s)
+    if (player.attackPhase === "active" && player.castT <= 0) {
+      const slashBaseX = player.x + player.w / 2 + player.facing * (player.comboStep === 3 ? 18 : 24);
+      const slashBaseY = player.y + player.h - (player.crouching ? 16 : 28);
+      renderSlashArc(player.attackKind, player.comboStep, slashBaseX, slashBaseY, player.facing);
     }
 
     // Render Special Crescent Slashes ("Golpe Crescente")
@@ -7588,6 +7855,8 @@ export function mountCampaign(
     isCrouching: () => player.crouching,
     getAttackKind: () => player.attackKind,
     getAttackT: () => player.attackT,
+    getAttackPhase: () => player.attackPhase,
+    getComboStep: () => player.comboStep,
     getCastT: () => player.castT,
     isCharging: () => player.charge === "wind",
     setKeys: (codes: string[]) => {
