@@ -1168,14 +1168,14 @@ export function mountCampaign(
     // Frame Data (60 FPS) & Advanced Combat System fields
     attackPhase: "idle" as "idle" | "startup" | "active" | "recovery",
     attackPhaseTimer: 0,
-    attackStartupDuration: 5 / 60,
+    attackStartupDuration: 3 / 60,
     attackActiveDuration: 6 / 60,
-    attackRecoveryDuration: 12 / 60,
+    attackRecoveryDuration: 6 / 60,
     attackTotalDuration: 0,
     attackBuffered: false,
     attackHitboxActive: false,
     attackLungeVx: 0,
-    comboStep: 1 as 1 | 2 | 3,
+    comboStep: 1 as 1 | 2,
     comboResetTimer: 0,
     isHeavyExecution: false,
     swingId: 0,
@@ -2266,13 +2266,7 @@ export function mountCampaign(
       // Recompensa tática da Execução Contextual + encerramento imediato da janela GUARD_BROKEN
       player.mana = Math.min(T.maxMana, player.mana + 12);
       player.special = Math.min(100, player.special + 8);
-      player.isHeavyExecution = true;
-      if (player.attackPhase === "active" || player.attackPhase === "recovery") {
-        player.attackRecoveryDuration = 0.45; // 27 frames @ 60 FPS (impacto visceral)
-        if (player.attackPhase === "recovery") {
-          player.attackPhaseTimer = Math.max(player.attackPhaseTimer, 0.45);
-        }
-      }
+      player.isHeavyExecution = false;
       e.staggered = false;
       e.poise = e.maxPoise ?? 14;
       e.antiStunTimer = 1.45;
@@ -2700,70 +2694,6 @@ export function mountCampaign(
     blit(img, frame, worldX - facing * o.dx, worldY + o.up, height, facing);
   }
 
-  // ===========================================================================
-  // RENDER WHITE SLASH ARC EFFECT (Golpes 1, 2, 3 e Direcionais)
-  // - Golpe 1: Arco horizontal padrão (direita para esquerda)
-  // - Golpe 2: Arco horizontal invertido (espelhado verticalmente com escala Y negativa)
-  // - Golpe 3: Finalizador Overhead (de cima para baixo)
-  // ===========================================================================
-  function renderSlashArc(kind: string, comboStep: number, cx: number, cy: number, facing: number) {
-    if (!art.slash || !art.slash.complete || art.slash.naturalWidth <= 0) return;
-    const img = art.slash;
-    const cols = 2;
-    const sw = img.width / cols;
-    const sh = img.height / 2;
-
-    g.save();
-    g.translate(Math.round(cx - camX), Math.round(cy - camY));
-
-    if (kind === "up") {
-      g.scale(facing, 1);
-      const frame = 0;
-      const col = frame % cols;
-      const row = Math.floor(frame / cols) % 2;
-      const height = 56;
-      const dw = height * (sw / sh);
-      g.drawImage(img, col * sw, row * sh, sw, sh, -dw / 2, -height, dw, height);
-    } else if (kind === "down") {
-      g.scale(facing, 1);
-      const frame = 3;
-      const col = frame % cols;
-      const row = Math.floor(frame / cols) % 2;
-      const height = 44;
-      const dw = height * (sw / sh);
-      g.drawImage(img, col * sw, row * sh, sw, sh, -dw / 2, -height, dw, height);
-    } else {
-      if (comboStep === 2) {
-        // Golpe 2: Arco horizontal invertido (esquerda para direita -> espelha verticalmente via escala Y = -1)
-        g.scale(facing, -1);
-        const frame = 2;
-        const col = frame % cols;
-        const row = Math.floor(frame / cols) % 2;
-        const height = 58;
-        const dw = height * (sw / sh);
-        g.drawImage(img, col * sw, row * sh, sw, sh, -dw / 2, -height * 0.45, dw, height);
-      } else if (comboStep === 3) {
-        // Golpe 3: Finalizador Overhead (de cima para baixo)
-        g.scale(facing, 1);
-        const frame = 3;
-        const col = frame % cols;
-        const row = Math.floor(frame / cols) % 2;
-        const height = 64;
-        const dw = height * (sw / sh);
-        g.drawImage(img, col * sw, row * sh, sw, sh, -dw * 0.25, -height * 0.85, dw, height);
-      } else {
-        // Golpe 1: Arco horizontal padrão
-        g.scale(facing, 1);
-        const frame = 2;
-        const col = frame % cols;
-        const row = Math.floor(frame / cols) % 2;
-        const height = 58;
-        const dw = height * (sw / sh);
-        g.drawImage(img, col * sw, row * sh, sw, sh, -dw / 2, -height * 0.75, dw, height);
-      }
-    }
-    g.restore();
-  }
 
   function step(dt: number, press: { jump: boolean; attack: boolean; dash: boolean; spell: boolean; special?: boolean }, held: Set<Action>) {
     // =========================================================================
@@ -3031,104 +2961,105 @@ export function mountCampaign(
     if (press.spell) player.spellBuffer = 0.16;
     else player.spellBuffer = Math.max(0, player.spellBuffer - dt);
 
-    const startSwordAttack = (forcedStep?: 1 | 2 | 3) => {
-      let step: 1 | 2 | 3 = 1;
+    const startSwordAttack = (forcedStep?: 1 | 2) => {
+      let step: 1 | 2 = 1;
       if (forcedStep) {
         step = forcedStep;
-      } else if (player.comboResetTimer > 0 && player.comboStep >= 1 && player.comboStep < 3) {
-        step = (player.comboStep + 1) as 2 | 3;
+      } else if (player.comboResetTimer > 0 && player.comboStep === 1) {
+        step = 2;
       } else {
         step = 1;
       }
 
       player.comboStep = step;
-      player.combo = (step - 1) as 0 | 1 | 2;
+      player.combo = (step - 1) as 0 | 1;
       player.comboResetTimer = 0;
       player.attackBuffered = false;
       player.attackPhase = "startup";
-      player.attackStartupDuration = 5 / 60; // 5 frames @ 60 FPS = 0.0833s (~0.08s)
-      player.attackActiveDuration = 6 / 60;  // 6 frames @ 60 FPS = 0.10s
-      // Recovery: 12 frames (0.20s) nos Golpes 1 e 2; 18 frames (0.30s) no Golpe 3 (Finalizador Overhead)
-      player.attackRecoveryDuration = step === 3 ? 18 / 60 : 12 / 60;
+      player.attackStartupDuration = 3 / 60; // 3 frames @ 60 FPS = 0.050s (era 5 frames)
+      player.attackActiveDuration = 6 / 60;  // 6 frames @ 60 FPS = 0.100s (mantém)
+      player.attackRecoveryDuration = 6 / 60; // 6 frames @ 60 FPS = 0.100s (era 12 frames)
       player.attackPhaseTimer = player.attackStartupDuration;
-      player.attackTotalDuration = player.attackStartupDuration + player.attackActiveDuration + player.attackRecoveryDuration;
+      player.attackTotalDuration = player.attackStartupDuration + player.attackActiveDuration + player.attackRecoveryDuration; // 15 frames = 0.250s
       player.attackT = player.attackTotalDuration;
-      player.attackLock = player.attackTotalDuration;
+      player.attackLock = 0.28; // Cooldown total: 0.28s (era 0.35s)
       player.attackHitboxActive = false;
       player.attackLungeVx = 0;
       player.isHeavyExecution = false;
+
+      // Não zera mais a velocidade horizontal; multiplica a atual por 0.5
+      player.vx *= 0.5;
 
       const down = aimDown && !player.grounded && !player.crouching;
       player.attackKind = down ? "down" : aimUp ? "up" : player.crouching ? "crouch" : "side";
       player.swingId++;
 
-      if (step === 3) {
-        sound.playSfx("slashHeavy");
-      } else {
-        sound.playSfx("slash");
-      }
+      sound.playSfx(step === 2 ? "slashHeavy" : "slash");
     };
 
     // =========================================================================
-    // ADVANCED SWORD COMBAT: 3-PHASE TIMING & COMBO INPUT BUFFER (60 FPS)
-    // - Startup (5 frames / 0.08s): Recuo de -3px, sem hitbox
-    // - Active (6 frames / 0.10s): Hitbox de dano ativa, arco branco, lunge terrestre (30px / 45px)
-    // - Recovery (12 frames / 0.20s; 18 frames / 0.30s no Golpe 3): Hitbox desativada, pose de recuperação
-    // - Input Buffer: Pressionar ataque nos últimos 0.12s do Recovery engatilha o próximo golpe imediatamente!
+    // RESPONSIVE SWORD COMBAT: 3-PHASE TIMING & BUFFER/CANCEL (60 FPS)
+    // - Startup: 3 frames (0.05s) - Leve inclinação de tronco, sem mudar X/Y
+    // - Active: 6 frames (0.10s) - Hitbox de dano ativa, lunge sutil lerpado (12px)
+    // - Recovery: 6 frames (0.10s) - Hitbox inativa, cancelável por ataque, pulo, dash e movimento
+    // - Cooldown total: 0.28s (era 0.35s)
+    // - Input Buffer: 0.15s (armazena ataque e engatilha próximo golpe)
     // =========================================================================
     if (player.attackPhase !== "idle") {
       player.attackPhaseTimer -= dt;
       player.attackT = Math.max(0, player.attackT - dt);
       player.attackLock = Math.max(0, player.attackLock - dt);
 
-      // Input Buffer de Combo: Durante os últimos 0.12s do Recovery, registra a intenção
-      if (player.attackPhase === "recovery" && player.attackPhaseTimer <= 0.12) {
-        if (press.attack) {
-          player.attackBuffered = true;
-        }
+      // Input Buffer de 0.15s: se apertar ataque nos últimos 0.15s
+      const timeRemaining = (
+        player.attackPhase === "startup" ? player.attackPhaseTimer + player.attackActiveDuration + player.attackRecoveryDuration :
+        player.attackPhase === "active" ? player.attackPhaseTimer + player.attackRecoveryDuration :
+        player.attackPhaseTimer
+      );
+      if (timeRemaining <= 0.15 && press.attack) {
+        player.attackBuffered = true;
       }
 
-      if (player.attackPhaseTimer <= 0) {
+      // Durante o Recovery, permita cancelar com:
+      // 1. Próximo ataque: Se apertar ataque ou se houver ataque bufferizado, cancela o recovery imediatamente!
+      if (player.attackPhase === "recovery" && (press.attack || player.attackBuffered)) {
+        player.attackBuffered = false;
+        const nextStep = (player.comboStep === 1 ? 2 : 1) as 1 | 2;
+        startSwordAttack(nextStep);
+      } else if (player.attackPhaseTimer <= 0) {
         if (player.attackPhase === "startup") {
           // Transição: Startup -> Active (6 frames = 0.10s)
           player.attackPhase = "active";
           player.attackPhaseTimer = player.attackActiveDuration;
           player.attackHitboxActive = true;
-
-          // Lunge terrestre: impulso para frente (30px no Golpe 1 e 2; 45px no Golpe 3)
-          if (player.grounded) {
-            player.attackLungeVx = player.facing * (player.comboStep === 3 ? 970 : 650);
-            player.vx = player.attackLungeVx;
-          }
         } else if (player.attackPhase === "active") {
-          // Transição: Active -> Recovery
+          // Transição: Active -> Recovery (6 frames = 0.10s)
           player.attackPhase = "recovery";
           player.attackHitboxActive = false;
-          // Se foi execução pesada, recovery é 0.45s (27 frames); senão, 12 frames (0.20s) ou 18 frames (0.30s)
-          const recoveryDuration = player.isHeavyExecution ? 0.45 : player.attackRecoveryDuration;
-          player.attackPhaseTimer = recoveryDuration;
-          player.attackT = recoveryDuration;
-          player.attackLock = recoveryDuration;
-        } else if (player.attackPhase === "recovery") {
-          // Fim do Recovery
-          if (player.attackBuffered && player.comboStep < 3) {
-            startSwordAttack((player.comboStep + 1) as 2 | 3);
-          } else {
-            player.attackPhase = "idle";
-            player.attackPhaseTimer = 0;
-            player.attackT = 0;
-            player.attackLock = 0;
-            player.attackHitboxActive = false;
-            player.attackLungeVx = 0;
-            player.attackBuffered = false;
+          player.attackPhaseTimer = player.attackRecoveryDuration;
+          player.attackT = player.attackRecoveryDuration;
 
-            if (player.comboStep === 3) {
-              player.comboStep = 1;
-              player.combo = 0;
-              player.comboResetTimer = 0;
-            } else {
-              player.comboResetTimer = 0.60; // Timer de 0.60s inicia após o Recovery
-            }
+          // Se já havia input bufferizado nos últimos 0.15s, cancela direto para o Golpe 2
+          if (player.attackBuffered) {
+            player.attackBuffered = false;
+            const nextStep = (player.comboStep === 1 ? 2 : 1) as 1 | 2;
+            startSwordAttack(nextStep);
+          }
+        } else if (player.attackPhase === "recovery") {
+          // Fim natural do Recovery
+          player.attackPhase = "idle";
+          player.attackPhaseTimer = 0;
+          player.attackT = 0;
+          player.attackHitboxActive = false;
+          player.attackLungeVx = 0;
+          player.attackBuffered = false;
+
+          if (player.comboStep === 2) {
+            player.comboStep = 1;
+            player.combo = 0;
+            player.comboResetTimer = 0;
+          } else {
+            player.comboResetTimer = 0.50; // Janela de 0.5s para continuar o combo
           }
         }
       }
@@ -3457,12 +3388,17 @@ export function mountCampaign(
         player.charge !== "wind" &&
         !attackRoutine.pendingTapSlash &&
         !attackRoutine.lockedUntilRelease &&
-        attackRoutine.holdDuration < 0.14
+        attackRoutine.holdDuration < 0.14 &&
+        (player.attackLock <= 0 || player.attackPhase === "recovery" || player.comboResetTimer > 0)
       ) {
         player.attackBuffer = 0;
         if (player.attackPhase === "idle") {
           startSwordAttack();
-        } else if (player.attackPhase === "recovery" && player.attackPhaseTimer <= 0.12) {
+        } else if (player.attackPhase === "recovery") {
+          player.attackBuffered = false;
+          const nextStep = (player.comboStep === 1 ? 2 : 1) as 1 | 2;
+          startSwordAttack(nextStep);
+        } else {
           player.attackBuffered = true;
         }
       }
@@ -3555,28 +3491,28 @@ export function mountCampaign(
       } else if (player.crouching) {
         player.vx = 0;
         if (dir !== 0 && player.controlLock <= 0) player.facing = dir as 1 | -1;
-      } else if (player.attackPhase !== "idle" && player.grounded) {
+      } else if ((player.attackPhase === "startup" || player.attackPhase === "active") && player.grounded) {
         // =====================================================================
-        // GROUND ATTACK MOVEMENT LOCK & ACTIVE LUNGE (30px / 45px)
-        // Trava entrada de corrida normal no chão. Na fase Active, o lunge
-        // impulsiona o personagem para frente com desaceleração suave/friction.
+        // GROUND ATTACK: INÉRCIA AMORTECIDA & LUNGE SUTIL INTERPOLADO (12px)
+        // Não zera a velocidade horizontal; preserva a inércia reduzida (0.5x).
+        // Na fase Active, o lunge de 12px é interpolado suavemente (lerp) ao longo dos 6 frames (0.10s).
         // =====================================================================
-        if (Math.abs(player.attackLungeVx) > 5) {
-          player.attackLungeVx *= Math.max(0, 1 - 18 * dt);
-          player.vx = player.attackLungeVx;
-        } else {
-          player.attackLungeVx = 0;
-          player.vx *= Math.max(0, 1 - 24 * dt);
-          if (Math.abs(player.vx) < 5) player.vx = 0;
+        player.vx *= Math.max(0, 1 - 8 * dt);
+        if (player.attackPhase === "active") {
+          const targetLungeVx = player.facing * 120; // 12px ao longo de 0.10s = 120 px/s
+          player.vx += (targetLungeVx - player.vx) * Math.min(1, 20 * dt);
         }
       } else {
+        // RECOVERY E IDLE: Movimento totalmente liberado imediatamente!
         const accel = player.grounded ? T.accelGround : T.accelAir;
         const lock = player.controlLock > 0 ? 0.35 : 1;
         if (dir !== 0) {
           const isReversing = Math.sign(player.vx) !== 0 && Math.sign(player.vx) !== dir;
           const turnMultiplier = isReversing ? 1.35 : 1;
           player.vx += dir * accel * lock * turnMultiplier * dt;
-          if (player.controlLock <= 0 && player.attackPhase === "idle") player.facing = dir as 1 | -1;
+          if (player.controlLock <= 0 && (player.attackPhase === "idle" || player.attackPhase === "recovery")) {
+            player.facing = dir as 1 | -1;
+          }
         } else if (player.grounded) {
           const s = Math.sign(player.vx);
           player.vx -= s * T.friction * dt;
@@ -3604,7 +3540,15 @@ export function mountCampaign(
         player.dropT = 0.2;
         player.buffer = 0;
         player.vy = 40;
-      } else if (player.buffer > 0 && (player.grounded || player.coyote > 0) && player.attackPhase === "idle") {
+      } else if (player.buffer > 0 && (player.grounded || player.coyote > 0) && (player.attackPhase === "idle" || player.attackPhase === "recovery")) {
+        // Cancelamento imediato do Recovery por Pulo
+        if (player.attackPhase === "recovery") {
+          player.attackPhase = "idle";
+          player.attackPhaseTimer = 0;
+          player.attackT = 0;
+          player.attackHitboxActive = false;
+          player.attackBuffered = false;
+        }
         player.vy = -T.jumpV;
         player.grounded = false;
         player.coyote = 0;
@@ -3650,7 +3594,7 @@ export function mountCampaign(
     const feetNow = player.y + player.h;
     const sideSwing = player.attackHitboxActive;
     if (sideSwing) {
-      const isFinisher = player.comboStep === 3;
+      const isFinisher = player.comboStep === 2;
       const box =
         player.attackKind === "up"
           ? { x: player.x - 10, y: feetNow - 128, w: player.w + 20, h: 40 }
@@ -7271,10 +7215,6 @@ export function mountCampaign(
       } else if (player.attackKind === "down" && !player.grounded) {
         sheet = "heroJump";
         frame = 3;
-      } else if (player.comboStep === 3 && player.attackKind === "side") {
-        // Golpe 3 (Finalizador Overhead): reutiliza a pose de ataque aéreo (heroJump frame 3)
-        sheet = "heroJump";
-        frame = player.attackPhase === "startup" ? 1 : 3;
       } else {
         sheet = "heroAttack";
         if (player.attackKind === "up") {
@@ -7282,7 +7222,7 @@ export function mountCampaign(
         } else if (player.attackPhase === "startup") {
           frame = 0; // Pose de antecipação (startup)
         } else if (player.attackPhase === "active") {
-          frame = player.comboStep === 2 ? 2 : 1; // Pose ativa do golpe
+          frame = player.comboStep === 2 ? 2 : 1; // Golpe 1 = frame 1; Golpe 2 = frame 2
         } else {
           frame = 3; // Pose de recuperação (recovery)
         }
@@ -7379,20 +7319,44 @@ export function mountCampaign(
 
     // the 320px cells keep the boots 56px above the cell bottom
     const heroFeet = player.y + player.h + (56 / 320) * DRAW_H.hero;
-    let heroDrawX = player.x + player.w / 2;
+    const heroDrawX = player.x + player.w / 2; // Sem nenhum deslocamento de posição X/Y!
+    let heroRotation = 0;
     if (player.attackPhase === "startup") {
-      // Startup (Anticipation): recua levemente via código (-3px no eixo X local)
-      heroDrawX -= 3 * player.facing;
+      // Leve inclinação sutil de tronco para trás (~2 graus) sem alterar a posição X/Y do personagem
+      heroRotation = -0.035 * player.facing;
     }
+
+    if (heroRotation !== 0) {
+      g.save();
+      const pivotX = Math.round(heroDrawX - camX);
+      const pivotY = Math.round(heroFeet - camY);
+      g.translate(pivotX, pivotY);
+      g.rotate(heroRotation);
+      g.translate(-pivotX, -pivotY);
+    }
+
     blit(art[sheet], frame, heroDrawX, heroFeet, DRAW_H.hero, player.facing, heroCols);
+
+    if (heroRotation !== 0) {
+      g.restore();
+    }
+
     if (isInvulnerable) {
       g.restore();
     }
-    // Slash Arc Visual Effect (Exibido estritamente na fase Active: 6 frames = 0,10s)
-    if (player.attackPhase === "active" && player.castT <= 0) {
-      const slashBaseX = player.x + player.w / 2 + player.facing * (player.comboStep === 3 ? 18 : 24);
-      const slashBaseY = player.y + player.h - (player.crouching ? 16 : 28);
-      renderSlashArc(player.attackKind, player.comboStep, slashBaseX, slashBaseY, player.facing);
+
+    // Slash Arc Visual Effect: Somente ataques aéreos direcionais (baixo e cima) usam art.slash dedicado.
+    // Os ataques horizontais utilizam o arco branco original desenhado no sprite de Aldric (heroAttack frames 1 e 2).
+    if (player.attackPhase !== "idle" && player.castT <= 0) {
+      if (player.attackKind === "down" && !player.grounded) {
+        const slashX = player.x + player.w / 2;
+        const slashY = player.y + player.h + 26;
+        blit(art.slash, 3, slashX, slashY, 40, player.facing);
+      } else if (player.attackKind === "up") {
+        const slashX = player.x + player.w / 2 + player.facing * 8;
+        const slashY = player.y + 4;
+        blit(art.slash, 0, slashX, slashY, 56, player.facing);
+      }
     }
 
     // Render Special Crescent Slashes ("Golpe Crescente")
