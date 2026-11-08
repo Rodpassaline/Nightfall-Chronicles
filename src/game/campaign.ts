@@ -751,6 +751,52 @@ export function mountCampaign(
   };
   const damageNumbers: DamageNumber[] = [];
 
+  function pushDamageNumber(params: {
+    text: string;
+    x: number;
+    y: number;
+    vy: number;
+    life: number;
+    maxLife?: number;
+    isCrit: boolean;
+    color: string;
+  }) {
+    // ETAPA 3: Reduz o tempo de duração dos textos flutuantes em 30% (duram 70% do tempo)
+    const life = params.life * 0.70;
+    const maxLife = (params.maxLife ?? params.life) * 0.70;
+
+    // ETAPA 3: Offset vertical inteligente para despoluir textos ("-21", "CONTRA", "EXECUÇÃO")
+    // Se já houver um texto criado nos últimos 0.25s próximo na mesma posição (raio de 44px no X e 16px no Y),
+    // posiciona o novo texto 18 pixels mais alto no eixo Y para nunca encavalar
+    let spawnY = params.y;
+    for (let attempts = 0; attempts < 5; attempts++) {
+      const hasRecentOverlap = damageNumbers.some((existing) => {
+        const timeSinceCreated = existing.maxLife - existing.life;
+        const isRecent = timeSinceCreated < 0.25;
+        const dx = Math.abs(existing.x - params.x);
+        const dy = Math.abs(existing.y - spawnY);
+        return isRecent && dx < 44 && dy < 16;
+      });
+      if (hasRecentOverlap) {
+        spawnY -= 18;
+      } else {
+        break;
+      }
+    }
+
+    damageNumbers.push({
+      id: nextId++,
+      text: params.text,
+      x: params.x,
+      y: spawnY,
+      vy: params.vy,
+      life,
+      maxLife,
+      isCrit: params.isCrit,
+      color: params.color,
+    });
+  }
+
   type Afterimage = {
     sheet: ArtKey;
     frame: number;
@@ -1862,8 +1908,7 @@ export function mountCampaign(
         }
         player.toast = "💥 GUARDA PASSIVA QUEBRADA! Use APARAR PERFEITO no instante do golpe pesado!";
         player.toastT = 2.4;
-        damageNumbers.push({
-          id: nextId++,
+        pushDamageNumber({
           text: "QUEBRA DE GUARDA! -1",
           x: player.x + player.w / 2,
           y: player.y - 8,
@@ -1902,8 +1947,7 @@ export function mountCampaign(
         player.special = Math.min(100, player.special + 12);
         player.toast = "🛡️ APARAR PERFEITO! +15 Mana · Contra-ataque liberado!";
         player.toastT = 2.2;
-        damageNumbers.push({
-          id: nextId++,
+        pushDamageNumber({
           text: "APARAR PERFEITO!",
           x: player.x + player.w / 2,
           y: player.y - 6,
@@ -2054,8 +2098,7 @@ export function mountCampaign(
         e.poise = Math.max(1, (e.poise ?? 8) - 2.5);
         e.comboHits = (e.comboHits ?? 0) + 1;
         e.blockCooldown = 1.65;
-        damageNumbers.push({
-          id: nextId++,
+        pushDamageNumber({
           text: e.comboHits >= 2 ? "CONTRA-ATAQUE!" : "BLOQUEIO!",
           x: e.x + e.w / 2,
           y: e.y - 6,
@@ -2095,8 +2138,7 @@ export function mountCampaign(
         e.vx = e.recoilVx;
         e.poise = Math.max(1, (e.poise ?? 14) - 2.5);
         e.comboHits = (e.comboHits ?? 0) + 1;
-        damageNumbers.push({
-          id: nextId++,
+        pushDamageNumber({
           text: e.comboHits >= 2 ? "CONTRA-ATAQUE!" : "BLOQUEIO!",
           x: e.x + e.w / 2,
           y: e.y - 6,
@@ -2149,8 +2191,7 @@ export function mountCampaign(
         e.vx = e.recoilVx;
         e.poise = Math.max(1, (e.poise ?? 22) - 2.5);
         e.comboHits = (e.comboHits ?? 0) + 1;
-        damageNumbers.push({
-          id: nextId++,
+        pushDamageNumber({
           text: e.comboHits >= 2 ? "CONTRA-ATAQUE!" : "BLOQUEIO!",
           x: e.x + e.w / 2,
           y: e.y - 8,
@@ -2188,8 +2229,7 @@ export function mountCampaign(
         e.vx = e.recoilVx;
         e.poise = Math.max(1, (e.poise ?? 18) - 2.5);
         e.comboHits = (e.comboHits ?? 0) + 1;
-        damageNumbers.push({
-          id: nextId++,
+        pushDamageNumber({
           text: e.comboHits >= 2 ? "CONTRA-ATAQUE!" : "BLOQUEIO!",
           x: e.x + e.w / 2,
           y: e.y - 6,
@@ -2308,10 +2348,20 @@ export function mountCampaign(
       shake = Math.max(shake, isContextualExecution ? 7.0 : 4.5);
     }
 
+    // ETAPA 3: Peso na Execução / Contra-ataque
+    // Quando uma Execução ou Contra-ataque acontecer, aumente a fase de RECOVERY
+    // desse golpe específico para 0.45s para dar impacto cinematográfico.
+    if ((isContextualExecution || wasCounterHit) && hitSource === "slash") {
+      player.attackRecoveryDur = Math.max(player.attackRecoveryDur, 0.45);
+      if (player.attackPhase === "ACTIVE" || player.attackPhase === "RECOVERY") {
+        const recoveryEnd = 0.18 + player.attackRecoveryDur;
+        player.attackT = Math.max(player.attackT, recoveryEnd - player.attackTimer);
+      }
+    }
+
     if (wasShielding && isGuardBreakMove) {
       e.state = "idle";
-      damageNumbers.push({
-        id: nextId++,
+      pushDamageNumber({
         text: "GUARDA QUEBRADA!",
         x: e.x + e.w / 2,
         y: e.y - 10,
@@ -2323,8 +2373,7 @@ export function mountCampaign(
       });
     }
 
-    damageNumbers.push({
-      id: nextId++,
+    pushDamageNumber({
       text: isContextualExecution
         ? `⚔️ EXECUÇÃO -${effectiveDmg}!`
         : wasCounterHit
@@ -2464,8 +2513,7 @@ export function mountCampaign(
         player.toast = `⚡ POSTURA DE ${e.name.split(",")[0].toUpperCase()} QUEBRADA! Ataque para EXECUÇÃO CRÍTICA!`;
         player.toastT = 2.2;
 
-        damageNumbers.push({
-          id: nextId++,
+        pushDamageNumber({
           text: "⚡ POSTURA QUEBRADA!",
           x: e.x + e.w / 2,
           y: e.y - 12,
@@ -3822,8 +3870,7 @@ export function mountCampaign(
           hitstop = Math.max(hitstop, 0.055);
           sound.playSfx(e.boss ? "bossHurt" : "slice");
 
-          damageNumbers.push({
-            id: nextId++,
+          pushDamageNumber({
             text: e.boss ? `-${specialDmg}!` : `CRÍTICO!`,
             x: e.x + e.w / 2,
             y: e.y + 2,
@@ -4543,8 +4590,7 @@ export function mountCampaign(
       const tacticalChoice = evaluateAdaptiveTacticalAction(e, dist, stageW, adaptiveMods);
       if (tacticalChoice === "DODGE") {
         setEnemyFsmState(e, "DODGE", 0.30);
-        damageNumbers.push({
-          id: nextId++,
+        pushDamageNumber({
           text: "ESQUIVA!",
           x: e.x + e.w / 2,
           y: e.y - 6,
@@ -4574,8 +4620,7 @@ export function mountCampaign(
         e.state = "slash";
         e.wind = 0.20;
         e.cd = (ENEMY_COMBAT_CONFIG[e.kind]?.attackCooldown ?? 0.65) * 0.85;
-        damageNumbers.push({
-          id: nextId++,
+        pushDamageNumber({
           text: "CONTRA-ATAQUE!",
           x: e.x + e.w / 2,
           y: e.y - 8,
@@ -4589,8 +4634,7 @@ export function mountCampaign(
         setEnemyFsmState(e, "DEFEND", 0.42);
         e.state = "shield";
         e.blockCooldown = 1.5;
-        damageNumbers.push({
-          id: nextId++,
+        pushDamageNumber({
           text: "DEFESA!",
           x: e.x + e.w / 2,
           y: e.y - 6,
