@@ -1052,6 +1052,7 @@ export function mountCampaign(
     player.attackPhase = "NONE";
     player.attackTimer = 0;
     player.lungeApplied = false;
+    player.nextAttackBuffered = false;
     player.attackHitboxActive = false;
     player.attackHitEnemies.clear();
     player.comboStep = 1;
@@ -1171,7 +1172,10 @@ export function mountCampaign(
     lungeApplied: false,
     attackHitboxActive: false,
     attackHitEnemies: new Set<number>(),
-    comboStep: 1 as 1 | 2,
+    // ETAPA 2: Combo de 3 golpes + input buffer limpo
+    nextAttackBuffered: false,
+    attackRecoveryDur: 0.2,
+    comboStep: 1 as 1 | 2 | 3,
     comboResetTimer: 0,
     isHeavyExecution: false,
     swingId: 0,
@@ -1629,6 +1633,7 @@ export function mountCampaign(
     player.attackPhase = "NONE";
     player.attackTimer = 0;
     player.lungeApplied = false;
+    player.nextAttackBuffered = false;
     player.attackHitboxActive = false;
     player.attackHitEnemies.clear();
     player.comboStep = 1;
@@ -1972,6 +1977,7 @@ export function mountCampaign(
     player.attackPhase = "NONE";
     player.attackTimer = 0;
     player.lungeApplied = false;
+    player.nextAttackBuffered = false;
     player.attackHitboxActive = false;
     player.attackHitEnemies.clear();
     if (player.castT > 0 && !player.castFired) player.mana = Math.min(T.maxMana, player.mana + T.spellCost);
@@ -2953,32 +2959,55 @@ export function mountCampaign(
     if (press.spell) player.spellBuffer = 0.16;
     else player.spellBuffer = Math.max(0, player.spellBuffer - dt);
 
-    const startSwordAttack = () => {
+    const startSwordAttack = (step: 1 | 2 | 3) => {
       player.attackPhase = "STARTUP";
       player.attackTimer = 0;
       player.lungeApplied = false;
+      player.nextAttackBuffered = false;
       player.attackHitboxActive = false;
       player.attackHitEnemies.clear();
-      player.attackT = 0.38;
+      player.nextAttackBuffered = false;
       if (player.grounded) player.vx = 0;
 
       const down = aimDown && !player.grounded && !player.crouching;
       player.attackKind = down ? "down" : aimUp ? "up" : player.crouching ? "crouch" : "side";
+      // Combo de 3 golpes só vale para o corte lateral; os demais ataques sempre contam como Golpe 1
+      const finalStep: 1 | 2 | 3 = player.attackKind === "side" ? step : 1;
+      player.comboStep = finalStep;
+      player.combo = finalStep - 1; // 0, 1 ou 2 (2 = golpe pesado/finalizador)
+      player.comboResetTimer = 0;
+      // ETAPA 2: Golpe 3 tem RECOVERY estendido (0.32s); golpes 1 e 2 mantêm 0.20s
+      player.attackRecoveryDur = finalStep === 3 ? 0.32 : 0.2;
+      player.attackT = 0.18 + player.attackRecoveryDur;
       player.swingId++;
 
-      sound.playSfx("slash");
+      sound.playSfx(finalStep === 3 ? "slashHeavy" : "slash");
+    };
+
+    // Próximo golpe da sequência (1 -> 2 -> 3 -> 1), respeitando a janela de 0.50s
+    const nextComboStep = (): 1 | 2 | 3 => {
+      if (player.comboResetTimer <= 0) return 1;
+      return player.comboStep === 1 ? 2 : player.comboStep === 2 ? 3 : 1;
     };
 
     // =========================================================================
-    // ETAPA 1: MÁQUINA DE ESTADOS DO ATAQUE BÁSICO (TIMER ÚNICO E SEQUENCIAL)
+    // ETAPA 1 + 2: MÁQUINA DE ESTADOS DO ATAQUE (TIMER ÚNICO E SEQUENCIAL)
     // - 0.00s até 0.08s (STARTUP): Hitbox OFF, Arco OFF, vx = 0 (chão), inclinação -5 graus
     // - 0.08s até 0.18s (ACTIVE - dura 0.10s): SEM lunge (vx = 0 no chão), Hitbox ON (1 hit/inimigo), Arco ON
-    // - 0.18s até 0.38s (RECOVERY - dura 0.20s): Hitbox OFF, Arco OFF, vx = 0 (chão)
-    // - Passou de 0.38s: attackPhase = 'NONE' e libera o personagem para andar ou atacar
+    // - 0.18s até 0.38s (RECOVERY - 0.20s; Golpe 3 = 0.32s até 0.50s): Hitbox OFF, Arco OFF, vx = 0 (chão)
+    //   * justPressed de ataque no RECOVERY apenas marca nextAttackBuffered (não inicia nada)
+    // - Fim do RECOVERY: se houver buffer, avança o combo e inicia o STARTUP do próximo golpe;
+    //   senão volta para 'NONE' e abre a janela de 0.50s para continuar o combo.
     // =========================================================================
     if (player.attackPhase !== "NONE") {
+      // Input buffer limpo: só registra a intenção durante o RECOVERY
+      if (player.attackPhase === "RECOVERY" && press.attack) {
+        player.nextAttackBuffered = true;
+      }
+
       player.attackTimer += dt;
-      player.attackT = Math.max(0, 0.38 - player.attackTimer);
+      const recoveryEnd = 0.18 + player.attackRecoveryDur;
+      player.attackT = Math.max(0, recoveryEnd - player.attackTimer);
 
       if (player.attackTimer < 0.08) {
         // --- De 0.00s até 0.08s: STARTUP ---
@@ -2991,19 +3020,34 @@ export function mountCampaign(
         player.attackHitboxActive = true;
         // LUNGE REMOVIDO 100%: personagem estático no eixo X durante todo o ataque no chão
         if (player.grounded) player.vx = 0;
-      } else if (player.attackTimer < 0.38) {
-        // --- De 0.18s até 0.38s: RECOVERY (dura 0.20s) ---
+      } else if (player.attackTimer < recoveryEnd) {
+        // --- De 0.18s até o fim do RECOVERY (0.20s ou 0.32s no Golpe 3) ---
         player.attackPhase = "RECOVERY";
         player.attackHitboxActive = false;
         if (player.grounded) player.vx = 0;
       } else {
-        // --- Passou de 0.38s: FINALIZADO ---
+        // --- RECOVERY concluído: FINALIZADO ---
+        const buffered = player.nextAttackBuffered;
         player.attackPhase = "NONE";
         player.attackTimer = 0;
+        player.attackT = 0;
         player.attackHitboxActive = false;
         player.lungeApplied = false;
+        player.nextAttackBuffered = false;
         player.attackHitEnemies.clear();
         if (player.grounded) player.vx = 0;
+        // Abre a janela de 0.50s para continuar o combo a partir do estado 'NONE'
+        player.comboResetTimer = 0.5;
+        if (buffered && !player.guard && player.castT <= 0 && player.hurtT <= 0) {
+          startSwordAttack(nextComboStep());
+        }
+      }
+    } else if (player.comboResetTimer > 0) {
+      // Em 'NONE': passou mais de 0.50s sem atacar -> reseta o combo
+      player.comboResetTimer = Math.max(0, player.comboResetTimer - dt);
+      if (player.comboResetTimer <= 0) {
+        player.comboStep = 1;
+        player.combo = 0;
       }
     }
     if (player.castT > 0) {
@@ -3159,6 +3203,7 @@ export function mountCampaign(
     player.attackPhase = "NONE";
     player.attackTimer = 0;
     player.lungeApplied = false;
+    player.nextAttackBuffered = false;
     player.attackHitboxActive = false;
     player.attackHitEnemies.clear();
           }
@@ -3261,6 +3306,7 @@ export function mountCampaign(
     player.attackPhase = "NONE";
     player.attackTimer = 0;
     player.lungeApplied = false;
+    player.nextAttackBuffered = false;
     player.attackHitboxActive = false;
     player.attackHitEnemies.clear();
       player.attackLock = 0.85;
@@ -3328,7 +3374,7 @@ export function mountCampaign(
         !player.dead &&
         !player.dying
       ) {
-        startSwordAttack();
+        startSwordAttack(nextComboStep());
       }
       if ((press.spell || player.spellBuffer > 0) && !player.guard && player.castT <= 0) {
         player.spellBuffer = 0;
@@ -3344,6 +3390,7 @@ export function mountCampaign(
     player.attackPhase = "NONE";
     player.attackTimer = 0;
     player.lungeApplied = false;
+    player.nextAttackBuffered = false;
     player.attackHitboxActive = false;
     player.attackHitEnemies.clear();
           player.attackLock = 0.28 * spellCdMultiplier;
@@ -3352,12 +3399,15 @@ export function mountCampaign(
           sound.playSfx("spell");
         }
       }
+      // ETAPA 2: Dash bloqueado em STARTUP/ACTIVE. No RECOVERY, um toque NOVO de dash
+      // cancela o recovery na hora (attackPhase = 'NONE', nextAttackBuffered = false).
+      // Dash em buffer (apertado antes) só dispara quando o personagem já está livre.
       const canDashNow =
         player.dashCd <= 0 &&
         player.dashT <= 0 &&
-        player.attackPhase === "NONE";
+        (player.attackPhase === "NONE" || (player.attackPhase === "RECOVERY" && press.dash));
 
-      if ((press.dash || player.dashBuffer > 0) && canDashNow) {
+      if ((press.dash || (player.dashBuffer > 0 && player.attackPhase === "NONE")) && canDashNow) {
         player.dashBuffer = 0;
         const d = (dir !== 0 ? dir : player.facing) as 1 | -1;
         player.dashT = T.dashTime;
@@ -3372,6 +3422,7 @@ export function mountCampaign(
         player.attackPhase = "NONE";
         player.attackTimer = 0;
         player.lungeApplied = false;
+        player.nextAttackBuffered = false;
         player.attackHitboxActive = false;
         player.attackHitEnemies.clear();
         player.comboResetTimer = 0;
@@ -3511,7 +3562,7 @@ export function mountCampaign(
     const feetNow = player.y + player.h;
     const sideSwing = player.attackHitboxActive;
     if (sideSwing) {
-      const isFinisher = player.comboStep === 2;
+      const isFinisher = player.comboStep === 3;
       const box =
         player.attackKind === "up"
           ? { x: player.x - 10, y: feetNow - 128, w: player.w + 20, h: 40 }
@@ -3533,7 +3584,7 @@ export function mountCampaign(
       for (const e of enemies) {
         if (!e.dead && !e.dying && !player.attackHitEnemies.has(e.id) && overlap(box, getEnemyHurtbox(e))) {
           player.attackHitEnemies.add(e.id);
-          hurtEnemy(e, T.slashDamage, player.attackKind === "down", "slash");
+          hurtEnemy(e, isFinisher ? T.finisherDamage : T.slashDamage, player.attackKind === "down", "slash");
         }
       }
 
@@ -5992,8 +6043,113 @@ export function mountCampaign(
     }
   }
 
-  function blit(img: HTMLImageElement | undefined, frame: number, cx: number, feet: number, height: number, facing: number, cols = 2) {
-    const ready = !!img && img.complete && img.naturalWidth > 0;
+  // ===========================================================================
+  // ETAPA 2: Arco branco do combo reaproveitando a arte ORIGINAL do heroAttack (frame 1).
+  // O arco branco está desenhado dentro do próprio frame 1, então separamos seus pixels
+  // em uma camada própria (uma única vez, em cache) para:
+  //  - Golpe 2: espelhar SOMENTE o arco verticalmente (scaleY = -1), mantendo o corpo intacto
+  //  - Golpe 3: sobrepor o mesmo arco na pose do ataque aéreo (heroJump)
+  // Nenhuma arte nova é criada: os pixels são exatamente os do sprite original.
+  // ===========================================================================
+  let comboArcSheets: { flipped: HTMLCanvasElement; arcOnly: HTMLCanvasElement } | null = null;
+  let comboArcSheetsFailed = false;
+
+  function getComboArcSheets() {
+    if (comboArcSheets || comboArcSheetsFailed) return comboArcSheets;
+    const img = art.heroAttack;
+    if (!img || !img.complete || img.naturalWidth <= 0) return null;
+    try {
+      const W = img.naturalWidth;
+      const H = img.naturalHeight;
+      const cw = Math.floor(W / 3);
+      const ch = Math.floor(H / 2);
+      const k = cw / 320; // escala relativa à célula de referência 320x320
+      const cellX = cw; // frame 1 = coluna 1, linha 0
+
+      const src = document.createElement("canvas");
+      src.width = cw;
+      src.height = ch;
+      const sctx = src.getContext("2d");
+      if (!sctx) throw new Error("no ctx");
+      sctx.drawImage(img, cellX, 0, cw, ch, 0, 0, cw, ch);
+      const data = sctx.getImageData(0, 0, cw, ch);
+      const body = sctx.createImageData(cw, ch);
+      const arc = sctx.createImageData(cw, ch);
+
+      const yTop = 100 * k;
+      const yBot = 235 * k;
+      const xMain = 186 * k; // à direita disso (entre yTop e yBot) só existe o arco
+      const xTail = 160 * k; // cauda inferior do arco cruza a frente da perna
+      const yTail = 196 * k;
+      for (let y = 0; y < ch; y++) {
+        for (let x = 0; x < cw; x++) {
+          const i = (y * cw + x) * 4;
+          const r = data.data[i];
+          const gg = data.data[i + 1];
+          const b = data.data[i + 2];
+          const a = data.data[i + 3];
+          let isArc = false;
+          const lum = (r + gg + b) / 3;
+          const arcColor = lum > 95 && gg > 75 && (r - gg) < 60;
+          if (a > 0 && y >= yTop && y <= yBot) {
+            if (x >= xMain) {
+              isArc = true;
+            } else if (y >= yTail && x >= 70 * k) {
+              isArc = arcColor;
+            } else if (x >= 168 * k && y >= 103 * k && y <= 135 * k) {
+              isArc = arcColor;
+            }
+          }
+          const dst = isArc ? arc : body;
+          dst.data[i] = r;
+          dst.data[i + 1] = gg;
+          dst.data[i + 2] = b;
+          dst.data[i + 3] = a;
+        }
+      }
+
+      const bodyCv = document.createElement("canvas");
+      bodyCv.width = cw;
+      bodyCv.height = ch;
+      bodyCv.getContext("2d")!.putImageData(body, 0, 0);
+      const arcCv = document.createElement("canvas");
+      arcCv.width = cw;
+      arcCv.height = ch;
+      arcCv.getContext("2d")!.putImageData(arc, 0, 0);
+
+      // Folha com o frame 1 tendo apenas o arco espelhado verticalmente (Golpe 2)
+      const flipped = document.createElement("canvas");
+      flipped.width = W;
+      flipped.height = H;
+      const fctx = flipped.getContext("2d")!;
+      fctx.imageSmoothingEnabled = false;
+      fctx.drawImage(img, 0, 0);
+      fctx.clearRect(cellX, 0, cw, ch);
+      fctx.drawImage(bodyCv, cellX, 0);
+      const axis = (yTop + yBot) / 2;
+      fctx.save();
+      fctx.translate(0, axis * 2);
+      fctx.scale(1, -1);
+      fctx.drawImage(arcCv, cellX, 0);
+      fctx.restore();
+
+      // Folha contendo apenas o arco no frame 1 (sobreposição do Golpe 3)
+      const arcOnly = document.createElement("canvas");
+      arcOnly.width = W;
+      arcOnly.height = H;
+      const actx = arcOnly.getContext("2d")!;
+      actx.imageSmoothingEnabled = false;
+      actx.drawImage(arcCv, cellX, 0);
+
+      comboArcSheets = { flipped, arcOnly };
+    } catch {
+      comboArcSheetsFailed = true; // fallback: usa o sprite original sem espelhar
+    }
+    return comboArcSheets;
+  }
+
+  function blit(img: HTMLImageElement | HTMLCanvasElement | undefined, frame: number, cx: number, feet: number, height: number, facing: number, cols = 2) {
+    const ready = !!img && ("naturalWidth" in img ? img.complete && img.naturalWidth > 0 : img.width > 0);
     g.save();
     g.translate(Math.round(cx - camX), Math.round(feet - camY));
     g.scale(facing, 1);
@@ -7137,6 +7293,10 @@ export function mountCampaign(
       } else if (player.attackKind === "down" && !player.grounded) {
         sheet = "heroJump";
         frame = 3;
+      } else if (player.attackKind === "side" && player.comboStep === 3) {
+        // GOLPE 3 (pesado, de cima para baixo): reaproveita as poses do ataque aéreo
+        sheet = "heroJump";
+        frame = player.attackPhase === "STARTUP" ? 0 : 3; // espada erguida -> espada cravada para baixo
       } else {
         sheet = "heroAttack";
         if (player.attackKind === "up") {
@@ -7257,7 +7417,17 @@ export function mountCampaign(
       g.translate(-pivotX, -pivotY);
     }
 
-    blit(art[sheet], frame, heroDrawX, heroFeet, DRAW_H.hero, player.facing, heroCols);
+    // ETAPA 2: Golpe 2 usa a folha com o arco branco espelhado verticalmente (corte de baixo para cima)
+    let heroImg: HTMLImageElement | HTMLCanvasElement | undefined = art[sheet];
+    const comboArcs = player.attackPhase === "ACTIVE" && player.attackKind === "side" ? getComboArcSheets() : null;
+    if (comboArcs && sheet === "heroAttack" && frame === 1 && player.comboStep === 2) {
+      heroImg = comboArcs.flipped;
+    }
+    blit(heroImg, frame, heroDrawX, heroFeet, DRAW_H.hero, player.facing, heroCols);
+    // Golpe 3: arco branco original sobreposto à pose aérea durante o ACTIVE
+    if (comboArcs && player.comboStep === 3) {
+      blit(comboArcs.arcOnly, 1, heroDrawX, heroFeet, DRAW_H.hero, player.facing, 3);
+    }
 
     if (heroRotation !== 0) {
       g.restore();
