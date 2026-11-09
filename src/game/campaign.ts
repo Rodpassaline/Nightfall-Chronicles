@@ -3065,8 +3065,13 @@ export function mountCampaign(
         player.attackActiveDur = 0.12;
         player.attackRecoveryDur = 0.28;
         // Salto instantâneo e explosivo (~60% do pulo normal) + avanço aéreo de 40 a 50px (vx = facing * 440)
-        player.grounded = false;
-        player.vy = -T.jumpV * 0.60;
+        // (no ar não há novo impulso vertical, para impedir combos infinitos subindo)
+        if (player.grounded) {
+          player.grounded = false;
+          player.vy = -T.jumpV * 0.60;
+        } else {
+          player.vy = Math.min(player.vy, 0);
+        }
         player.vx = player.facing * 440;
       }
       player.attackT = player.attackStartupDur + player.attackActiveDur + player.attackRecoveryDur;
@@ -3136,6 +3141,8 @@ export function mountCampaign(
           } else if (player.comboStep === 3) {
             player.vy = Math.max(player.vy, 460);
             player.vy += 1600 * dt; // gravidade adicional para puxar imediatamente para o chão
+            // O avanço horizontal pertence ao Startup (40-50px); no mergulho ele freia forte
+            player.vx *= Math.pow(0.6, dt * 60);
           }
         }
       } else if (player.attackTimer < recoveryEnd) {
@@ -3694,7 +3701,8 @@ export function mountCampaign(
         player.buffer = 0;
         sound.playSfx("doubleJump");
       }
-      if (!held.has("jump") && player.vy < -120) {
+      const isLeapSlam = player.attackPhase !== "NONE" && player.attackKind === "side" && player.comboStep === 3;
+      if (!held.has("jump") && player.vy < -120 && !isLeapSlam) {
         player.vy = Math.max(player.vy * Math.pow(0.84, dt * 60), -120);
       }
       let grav: number = player.vy < 0 ? T.gravUp : T.gravDown;
@@ -3715,13 +3723,22 @@ export function mountCampaign(
     if (player.grounded) {
       player.coyote = T.coyote;
       player.jumps = 1;
-      // Golpe 3: impacto com o chão aplica o squash e tremor de 3px
-      if (player.attackPhase === "RECOVERY" && player.comboStep === 3 && !player.slamImpactTriggered) {
+      // Golpe 3: impacto com o chão (no mergulho do ACTIVE ou no RECOVERY) aplica squash e tremor de 3px
+      if (
+        player.attackKind === "side" &&
+        player.comboStep === 3 &&
+        !player.slamImpactTriggered &&
+        (player.attackPhase === "RECOVERY" || (player.attackPhase === "ACTIVE" && player.lungeApplied))
+      ) {
         player.slamImpactTriggered = true;
         player.slamImpactTimer = 4 / 60;
         shake = Math.max(shake, 3);
         player.vx = 0;
         sound.playSfx("pogo");
+        // Pousou no meio do mergulho: o RECOVERY de 0.28s começa a contar a partir do impacto
+        if (player.attackPhase === "ACTIVE") {
+          player.attackTimer = player.attackStartupDur + player.attackActiveDur;
+        }
       }
     } else player.coyote = Math.max(0, player.coyote - dt);
     if (player.dashT > 0 && player.wall !== 0) player.dashT = 0;
