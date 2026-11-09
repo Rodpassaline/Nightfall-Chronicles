@@ -2472,11 +2472,17 @@ export function mountCampaign(
 
     // Tactical spacing & Grimvalor micro-knockback on regular living enemies
     if (hitSource === "slash" && !pogo && !e.boss && e.hp > 0) {
-      e.x = clamp(e.x + knockDir * 15, 12, stageW - e.w - 12);
-      e.recoilT = Math.max(e.recoilT ?? 0, 0.14);
-      e.recoilVx = knockDir * 160;
+      const isFinisherHit = player.comboStep === 3;
+      const knockPx = isFinisherHit ? 25 : 15;
+      const recoilSpeed = isFinisherHit ? 220 : 160;
+      e.x = clamp(e.x + knockDir * knockPx, 12, stageW - e.w - 12);
+      e.recoilT = Math.max(e.recoilT ?? 0, isFinisherHit ? 0.20 : 0.14);
+      e.recoilVx = knockDir * recoilSpeed;
       e.vx = e.recoilVx;
       player.vx = 0;
+      if (isFinisherHit) {
+        shake = Math.max(shake, 3);
+      }
     } else {
       const centerDist = Math.abs((e.x + e.w / 2) - (player.x + player.w / 2));
       const minSpacing = (e.w + player.w) / 2 + 12;
@@ -3071,19 +3077,15 @@ export function mountCampaign(
         player.attackRecoveryDur = 0.16;
         if (player.grounded) player.vx = 0;
       } else {
-        // GOLPE 3: O Finalizador Grimvalor (Salto Acrobático e Mergulho Slam no Chão / Leap & Slam)
-        // Duração total: 0.52s (Startup 0.12s, Active 0.12s, Recovery 0.28s)
-        player.attackStartupDur = 0.12;
-        player.attackActiveDur = 0.12;
-        player.attackRecoveryDur = 0.28;
-        // Salto rápido (vy = -420) e avanço horizontal
+        // GOLPE 3: "Heavy Ground Cleave" (Corte Rasante Pesado 100% Terrestre)
+        // Duração: Startup 0.10s, Active 0.11s, Recovery 0.24s (total 0.45s)
+        player.attackStartupDur = 0.10;
+        player.attackActiveDur = 0.11;
+        player.attackRecoveryDur = 0.24;
         if (player.grounded) {
-          player.grounded = false;
-          player.vy = -420;
-        } else {
-          player.vy = -420 * 0.75;
+          player.vx = 0;
+          player.vy = 0;
         }
-        player.vx = player.facing * 360;
       }
       player.attackT = player.attackStartupDur + player.attackActiveDur + player.attackRecoveryDur;
       player.swingId++;
@@ -3127,8 +3129,9 @@ export function mountCampaign(
         // --- STARTUP ---
         player.attackPhase = "STARTUP";
         player.attackHitboxActive = false;
-        if (player.comboStep !== 3 && player.grounded) {
+        if (player.grounded) {
           player.vx = 0;
+          if (player.comboStep === 3) player.vy = 0;
         }
       } else if (player.attackTimer < activeEnd) {
         // --- ACTIVE ---
@@ -3143,8 +3146,9 @@ export function mountCampaign(
             } else if (player.comboStep === 2) {
               player.vx = player.facing * 310; // Step-in ~18px
             } else if (player.comboStep === 3) {
-              // Mergulho agressivo em queda rápida (Fast-Fall vy = +650)
-              player.vy = 650;
+              // Heavy Ground Cleave: impulso horizontal no chão (~38-45px de alcance total)
+              player.vx = player.facing * 520;
+              if (player.grounded) player.vy = 0;
             }
           }
         }
@@ -3154,22 +3158,18 @@ export function mountCampaign(
             // Freio seco: vx *= 0.72 no Active
             player.vx *= Math.pow(0.72, dt * 60);
           } else if (player.comboStep === 3) {
-            player.vy = Math.max(player.vy, 650);
-            player.vx *= Math.pow(0.6, dt * 60);
+            // Desaceleração rápida no chão: vx *= 0.75 por frame
+            player.vx *= Math.pow(0.75, dt * 60);
+            if (player.grounded) player.vy = 0;
           }
         }
       } else if (player.attackTimer < recoveryEnd) {
         // --- RECOVERY ---
         player.attackPhase = "RECOVERY";
         player.attackHitboxActive = false;
-        if (player.grounded) player.vx = 0;
-
-        // Golpe 3 landing trigger
-        if (player.comboStep === 3 && player.grounded && !player.slamImpactTriggered) {
-          player.slamImpactTriggered = true;
-          player.slamImpactTimer = 0.15; // 0.15s de pose agachada/inclinada
-          shake = Math.max(shake, 4); // tremor de tela
-          sound.playSfx("pogo");
+        if (player.grounded) {
+          player.vx = 0;
+          if (player.comboStep === 3) player.vy = 0;
         }
 
         // Combo Fluido: Golpes 1 e 2 disparam o próximo golpe aos 70% do Recovery (somente com toque novo / buffer)
@@ -3656,8 +3656,7 @@ export function mountCampaign(
         player.buffer = 0;
         sound.playSfx("doubleJump");
       }
-      const isLeapSlam = player.attackPhase !== "NONE" && player.attackKind === "side" && player.comboStep === 3;
-      if (!held.has("jump") && player.vy < -120 && !isLeapSlam) {
+      if (!held.has("jump") && player.vy < -120) {
         player.vy = Math.max(player.vy * Math.pow(0.84, dt * 60), -120);
       }
       let grav: number = player.vy < 0 ? T.gravUp : T.gravDown;
@@ -3669,8 +3668,10 @@ export function mountCampaign(
     // TRAVA FINAL DE FÍSICA: garante estabilidade e fidelidade das fases
     if (player.attackPhase === "RECOVERY" && player.grounded) {
       player.vx = 0;
-    } else if (player.attackPhase === "STARTUP" && player.comboStep !== 3 && player.grounded) {
+      if (player.comboStep === 3) player.vy = 0;
+    } else if (player.attackPhase === "STARTUP" && player.grounded) {
       player.vx = 0;
+      if (player.comboStep === 3) player.vy = 0;
     } else if (player.attackPhase !== "NONE" && player.attackKind !== "side" && player.grounded) {
       player.vx = 0;
     }
@@ -3678,40 +3679,6 @@ export function mountCampaign(
     if (player.grounded) {
       player.coyote = T.coyote;
       player.jumps = 1;
-      // Golpe 3: impacto com o chão (no mergulho do ACTIVE ou no RECOVERY) aplica poeira nos pés, screen shake e squash de 0.15s
-      if (
-        player.attackKind === "side" &&
-        player.comboStep === 3 &&
-        !player.slamImpactTriggered &&
-        (player.attackPhase === "RECOVERY" || (player.attackPhase === "ACTIVE" && player.lungeApplied))
-      ) {
-        player.slamImpactTriggered = true;
-        player.slamImpactTimer = 0.15;
-        shake = Math.max(shake, 4);
-        player.vx = 0;
-        sound.playSfx("pogo");
-        const pFeetY = player.y + player.h;
-        for (let i = 0; i < 10; i++) {
-          particles.push({
-            x: player.x + player.w / 2 + (Math.random() - 0.5) * 16,
-            y: pFeetY - 2,
-            vx: (i % 2 === 0 ? 1 : -1) * (30 + Math.random() * 80),
-            vy: -20 - Math.random() * 35,
-            size: 2 + Math.random() * 2.5,
-            alpha: 0.85,
-            maxAlpha: 0.85,
-            color: i % 2 === 0 ? "#cbd5e1" : "#94a3b8",
-            depth: "fg",
-            pulse: Math.random() * Math.PI * 2,
-          });
-        }
-        // Pousou no meio do mergulho: o RECOVERY de 0.28s começa a contar a partir do impacto
-        if (player.attackPhase === "ACTIVE") {
-          player.attackTimer = player.attackStartupDur + player.attackActiveDur;
-          player.attackPhase = "RECOVERY";
-          player.attackHitboxActive = false;
-        }
-      }
     } else player.coyote = Math.max(0, player.coyote - dt);
     if (player.dashT > 0 && player.wall !== 0) player.dashT = 0;
     player.x = clamp(player.x, 0, stageW - player.w);
@@ -7555,10 +7522,6 @@ export function mountCampaign(
       } else if (player.attackKind === "down" && !player.grounded) {
         sheet = "heroJump";
         frame = 3;
-      } else if (player.attackKind === "side" && player.comboStep === 3) {
-        // GOLPE 3 (pesado, de cima para baixo): reaproveita as poses do ataque aéreo
-        sheet = "heroJump";
-        frame = player.attackPhase === "STARTUP" ? 0 : 3; // espada erguida -> espada cravada para baixo
       } else {
         sheet = "heroAttack";
         if (player.attackKind === "up") {
@@ -7724,28 +7687,23 @@ export function mountCampaign(
           heroOffsetY = -3 * (1 - recT);
         }
       } else if (step === 3) {
-        // GOLPE 3: O Finalizador Grimvalor (Salto Acrobático e Mergulho Slam no Chão / Leap & Slam)
-        // Startup (0.12s): Salto (heroJump frame 0) inclinado para trás (-18 graus)
-        // Active (0.12s): Mergulho rápido (heroJump frame 3) inclinado agressivamente para frente (+22 graus)
-        // Recovery (0.28s): Ao aterrissar no chão, pose agachada/inclinada (scaleY = 0.88, scaleX = 1.12, offsetY = 3, rotation = +6 graus) por 0.15s
+        // GOLPE 3: "Heavy Ground Cleave" (Corte Rasante Pesado 100% no Chão)
+        // Startup (0.10s): Planta a base no chão: agachamento/recuo preparatório (-8 graus, scaleX = 0.92, scaleY = 1.06)
+        // Active (0.11s): Avanço rasante agressivo para frente (+12 graus, scaleX = 1.12, scaleY = 0.92)
+        // Recovery (0.24s): Freio seco (vx = 0), retorno suave (lerp) para a postura neutra (rotation -> 0, scale -> 1.0)
         if (phase === "STARTUP") {
-          heroRotation = (-18 * Math.PI) / 180 * player.facing;
+          heroRotation = (-8 * Math.PI) / 180 * player.facing;
+          heroScaleX = 0.92;
+          heroScaleY = 1.06;
         } else if (phase === "ACTIVE") {
-          heroRotation = (22 * Math.PI) / 180 * player.facing;
+          heroRotation = (12 * Math.PI) / 180 * player.facing;
+          heroScaleX = 1.12;
+          heroScaleY = 0.92;
         } else if (phase === "RECOVERY") {
-          if (player.slamImpactTimer > 0) {
-            heroScaleX = 1.12;
-            heroScaleY = 0.88;
-            heroOffsetY = 3;
-            heroRotation = ((6 * Math.PI) / 180) * player.facing;
-          } else {
-            const impactDur = 0.15;
-            const recT = clamp((t - (player.attackStartupDur + player.attackActiveDur + impactDur)) / Math.max(0.01, player.attackRecoveryDur - impactDur), 0, 1);
-            heroScaleX = 1.12 + (1.0 - 1.12) * recT;
-            heroScaleY = 0.88 + (1.0 - 0.88) * recT;
-            heroOffsetY = 3 * (1 - recT);
-            heroRotation = ((6 * Math.PI) / 180) * player.facing * (1 - recT);
-          }
+          const recT = clamp((t - (player.attackStartupDur + player.attackActiveDur)) / player.attackRecoveryDur, 0, 1);
+          heroRotation = (12 * Math.PI) / 180 * player.facing * (1 - recT);
+          heroScaleX = 1.12 + (1.0 - 1.12) * recT;
+          heroScaleY = 0.92 + (1.0 - 0.92) * recT;
         }
       }
     } else if (player.attackPhase === "STARTUP") {
@@ -7789,8 +7747,8 @@ export function mountCampaign(
           // Golpe 2: Arco invertido verticalmente (scaleY = -1.0), inclinado para cima (-20°) com brilho intenso
           drawSlashArc(comboArcs.arcOnly, heroDrawX, heroFeet, player.facing, -20, 1.15, -1.0, 10, -4, DRAW_H.hero, true);
         } else if (player.comboStep === 3) {
-          // Golpe 3: Arco gigante completo de cima até o chão (escala 1.35x), orientado a 32° acompanhando o mergulho
-          drawSlashArc(comboArcs.arcOnly, heroDrawX, heroFeet, player.facing, 32, 1.35, 1.35, 8, 14, DRAW_H.hero, true);
+          // Golpe 3: Heavy Ground Cleave - Arco gigante (+40%), projetado bem à frente com brilho intenso
+          drawSlashArc(comboArcs.arcOnly, heroDrawX, heroFeet, player.facing, 10, 1.45, 1.25, 16, -6, DRAW_H.hero, true);
         }
       } else if (player.attackKind === "down" && !player.grounded) {
         const slashX = player.x + player.w / 2;
