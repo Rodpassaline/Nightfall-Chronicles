@@ -1253,7 +1253,6 @@ export function GameScreen() {
             onPointerDown={(e) => handleActionDown(e, "attack")}
             onPointerUp={(e) => handleActionUp(e, "attack")}
             onPointerCancel={(e) => handleActionUp(e, "attack")}
-            onLostPointerCapture={(e) => handleActionUp(e, "attack")}
           >
             <div
               className={`pointer-events-none absolute inset-1.5 rounded-full border ${
@@ -1279,7 +1278,6 @@ export function GameScreen() {
             onPointerDown={(e) => handleActionDown(e, "spell")}
             onPointerUp={(e) => handleActionUp(e, "spell")}
             onPointerCancel={(e) => handleActionUp(e, "spell")}
-            onLostPointerCapture={(e) => handleActionUp(e, "spell")}
           >
             <div className="pointer-events-none absolute inset-1 rounded-full border border-white/15" />
             <Sparkles className="pointer-events-none h-5 w-5 text-purple-200 drop-shadow" />
@@ -1301,7 +1299,6 @@ export function GameScreen() {
             onPointerDown={(e) => handleActionDown(e, "jump")}
             onPointerUp={(e) => handleActionUp(e, "jump")}
             onPointerCancel={(e) => handleActionUp(e, "jump")}
-            onLostPointerCapture={(e) => handleActionUp(e, "jump")}
           >
             <div className="pointer-events-none absolute inset-1 rounded-full border border-white/15" />
             <ChevronsUp className="pointer-events-none h-6 w-6 text-white drop-shadow" />
@@ -1323,7 +1320,6 @@ export function GameScreen() {
             onPointerDown={(e) => handleActionDown(e, "dash")}
             onPointerUp={(e) => handleActionUp(e, "dash")}
             onPointerCancel={(e) => handleActionUp(e, "dash")}
-            onLostPointerCapture={(e) => handleActionUp(e, "dash")}
           >
             <div className="pointer-events-none absolute inset-1 rounded-full border border-white/15" />
             <Wind className="pointer-events-none h-5 w-5 text-cyan-200 drop-shadow" />
@@ -1345,7 +1341,6 @@ export function GameScreen() {
             onPointerDown={(e) => handleActionDown(e, "guard")}
             onPointerUp={(e) => handleActionUp(e, "guard")}
             onPointerCancel={(e) => handleActionUp(e, "guard")}
-            onLostPointerCapture={(e) => handleActionUp(e, "guard")}
           >
             <div className="pointer-events-none absolute inset-1 rounded-full border border-white/15" />
             <Shield className="pointer-events-none h-4 w-4 sm:h-5 sm:w-5 text-amber-200 drop-shadow" />
@@ -1369,7 +1364,6 @@ export function GameScreen() {
             onPointerDown={(e) => handleActionDown(e, "special")}
             onPointerUp={(e) => handleActionUp(e, "special")}
             onPointerCancel={(e) => handleActionUp(e, "special")}
-            onLostPointerCapture={(e) => handleActionUp(e, "special")}
             title="Golpe Especial (Golpe Crescente)"
           >
             <div className="pointer-events-none absolute inset-1 rounded-full border border-white/15" />

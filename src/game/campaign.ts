@@ -3041,7 +3041,7 @@ export function mountCampaign(
       const finalStep: 1 | 2 | 3 = player.attackKind === "side" ? step : 1;
       player.comboStep = finalStep;
       player.combo = finalStep - 1; // 0, 1 ou 2 (2 = golpe pesado/finalizador)
-      player.comboResetTimer = 0;
+      player.comboResetTimer = 0.50;
 
       // Timings e física coreografada Grimvalor por golpe:
       if (finalStep === 1) {
@@ -3080,9 +3080,12 @@ export function mountCampaign(
       sound.playSfx(finalStep === 3 ? "slashHeavy" : "slash");
     };
 
-    // Próximo golpe da sequência (1 -> 2 -> 3 -> 1), respeitando a janela de 0.50s
+    // Próximo golpe da sequência (1 -> 2 -> 3 -> 1)
+    // - Se estiver em andamento de ataque OU dentro da janela de 0.50s: avança 1 -> 2 -> 3 -> 1
+    // - Fora da janela: reinicia em 1
     const nextComboStep = (): 1 | 2 | 3 => {
-      if (player.comboResetTimer <= 0) return 1;
+      const inCombo = player.attackPhase !== "NONE" || player.comboResetTimer > 0;
+      if (!inCombo) return 1;
       return player.comboStep === 1 ? 2 : player.comboStep === 2 ? 3 : 1;
     };
 
@@ -3093,8 +3096,9 @@ export function mountCampaign(
     // - GOLPE 3: Startup 0.10s (salto explosivo + avanço aéreo 440px/s), Active 0.12s (slam down dive vy >= 460), Recovery 0.28s (impact squash 4 frames, shake 3px)
     // =========================================================================
     if (player.attackPhase !== "NONE") {
-      // Input buffer limpo: qualquer toque de ataque durante o RECOVERY registra a intenção
-      if (player.attackPhase === "RECOVERY" && press.attack) {
+      // Input buffer: qualquer toque NOVO de ataque durante o golpe em andamento é registrado no buffer
+      // (segurar o botão NÃO encadeia golpes — segurar é reservado para carregar o especial)
+      if (press.attack) {
         player.nextAttackBuffered = true;
       }
 
@@ -3159,9 +3163,9 @@ export function mountCampaign(
           sound.playSfx("pogo");
         }
 
-        // Hold-to-Combo Fluido: Golpes 1 e 2 disparam o próximo golpe aos 70% de duração do Recovery
+        // Combo Fluido: Golpes 1 e 2 disparam o próximo golpe aos 70% do Recovery (somente com toque novo / buffer)
         const recRatio = (player.attackTimer - activeEnd) / player.attackRecoveryDur;
-        const wantsNextCombo = held.has("attack") || press.attack || player.nextAttackBuffered;
+        const wantsNextCombo = press.attack || player.nextAttackBuffered;
         if (
           player.comboStep < 3 &&
           recRatio >= 0.70 &&
@@ -3170,6 +3174,7 @@ export function mountCampaign(
           player.castT <= 0 &&
           player.hurtT <= 0
         ) {
+          player.nextAttackBuffered = false;
           if (dir !== 0 && dir !== player.facing) {
             player.facing = dir as 1 | -1;
           }
@@ -3177,7 +3182,7 @@ export function mountCampaign(
         }
       } else {
         // --- RECOVERY CONCLUÍDO (aos 100% de duração) ---
-        const wantsNext = held.has("attack") || press.attack || player.nextAttackBuffered;
+        const wantsNext = press.attack || player.nextAttackBuffered;
         player.attackPhase = "NONE";
         player.attackTimer = 0;
         player.attackT = 0;
@@ -3192,6 +3197,7 @@ export function mountCampaign(
         player.comboResetTimer = 0.50;
 
         if (wantsNext && !player.guard && player.castT <= 0 && player.hurtT <= 0) {
+          player.nextAttackBuffered = false;
           if (dir !== 0 && dir !== player.facing) {
             player.facing = dir as 1 | -1;
           }
@@ -3241,39 +3247,40 @@ export function mountCampaign(
     // =========================================================================
     const rawAttackHeld = held.has("attack");
     if (rawAttackHeld) {
-      attackRoutine.releaseGraceT = 0.045; // 45ms micro-drop immunity during charge
+      attackRoutine.releaseGraceT = 0.06; // 60ms micro-drop immunity during charge
     } else {
       attackRoutine.releaseGraceT = Math.max(0, attackRoutine.releaseGraceT - dt);
     }
-    const holding =
-      rawAttackHeld ||
-      (attackRoutine.wasPhysicallyHeld &&
-        !attackRoutine.lockedUntilRelease &&
-        attackRoutine.holdDuration >= 0.14 &&
-        attackRoutine.releaseGraceT > 0);
+    const isPhysicallyHoldingAttack = rawAttackHeld || attackRoutine.releaseGraceT > 0;
 
     attackRoutine.timeSinceLastPress += dt;
     attackRoutine.timeSinceLastRelease += dt;
-    attackRoutine.multiPressComboWindow = Math.max(0, attackRoutine.multiPressComboWindow - dt);
 
     const unleashChargedMagic = () => {
       player.holdT = 0;
       player.charge = "idle";
       player.swingId++;
-      player.attackT = 0.24;
-      player.attackLock = 0.22;
+      player.attackPhase = "ACTIVE";
+      player.attackTimer = 0.07;
+      player.attackStartupDur = 0.07;
+      player.attackActiveDur = 0.14;
+      player.attackRecoveryDur = 0.18;
+      player.attackT = 0.32;
+      player.attackLock = 0.30;
       player.castT = 0;
+      player.comboStep = 1;
+      player.comboResetTimer = 0.50;
       player.attackKind = player.crouching ? "crouch" : "side";
       const tip = swordPoint(0);
       fire({
         x: tip.x - 16,
         y: tip.y - 18,
-        w: 34,
-        h: 36,
-        vx: player.facing * 295,
+        w: 48,
+        h: 44,
+        vx: player.facing * 340,
         vy: 0,
-        life: 0.52,
-        dmg: T.chargeDamage + 1,
+        life: 0.65,
+        dmg: T.chargeDamage + 2,
         friendly: true,
         sprite: "slash",
         drawCenterY: tip.y,
@@ -3304,68 +3311,11 @@ export function mountCampaign(
       }
     };
 
-    const justPressedAttack = (press.attack || (rawAttackHeld && !attackRoutine.wasPhysicallyHeld)) && !attackRoutine.wasPhysicallyHeld;
-    let triggerSwordSwing = false;
-
-    if (justPressedAttack) {
+    if (isPhysicallyHoldingAttack) {
       attackRoutine.wasPhysicallyHeld = true;
-      attackRoutine.lockedUntilRelease = false;
-      attackRoutine.holdDuration = 0;
-      player.holdT = 0;
-      player.charge = "idle";
-
-      // Check if player is pressing multiple times (Multi-Press / Combo Mash)
-      const isMultiPress =
-        attackRoutine.multiPressComboWindow > 0 ||
-        attackRoutine.timeSinceLastPress < 0.36 ||
-        player.comboResetTimer > 0 ||
-        player.comboWindow > 0;
-      const isAirDirectional = !player.grounded && (aimDown || aimUp);
-
-      if (isMultiPress || isAirDirectional) {
-        // MULTI-PRESS DETECTED: Execute immediate Sword Slash & Combo!
-        attackRoutine.rapidPressCount++;
-        attackRoutine.multiPressComboWindow = 0.46;
-        attackRoutine.pendingTapSlash = false;
-        triggerSwordSwing = true;
-      } else {
-        // INITIAL PRESS FROM REST: Enter Blade Ready Pose (frame 0) and observe
-        // whether the player holds (>= 0.14s -> Charge Magic) or releases (< 0.14s -> Tap Sword Slash)
-        attackRoutine.rapidPressCount = 1;
-        attackRoutine.pendingTapSlash = true;
-      }
-      attackRoutine.timeSinceLastPress = 0;
-    } else if (holding) {
-      attackRoutine.wasPhysicallyHeld = true;
-
-      if (attackRoutine.lockedUntilRelease) {
-        player.holdT = 0;
-        player.charge = "idle";
-        attackRoutine.pendingTapSlash = false;
-        player.attackBuffer = 0;
-      } else if (player.attackPhase === "NONE" && player.castT <= 0 && player.specialT <= 0 && !player.guard && player.hurtT <= 0) {
+      if (player.castT <= 0 && player.specialT <= 0 && !player.guard && player.hurtT <= 0) {
         attackRoutine.holdDuration += dt;
         player.holdT = attackRoutine.holdDuration;
-
-        // Once held continuously for >= 0.14s: Confirmed HOLD-TO-CHARGE!
-        // Cancel any pending tap sword slash so Aldric NEVER swings the sword while charging!
-        if (attackRoutine.holdDuration >= 0.14) {
-          attackRoutine.pendingTapSlash = false;
-          player.attackBuffer = 0;
-          player.comboWindow = 0;
-          if (player.attackT < 0.18) {
-            player.attackT = 0;
-    player.attackLock = 0;
-    player.attackPhase = "NONE";
-    player.attackTimer = 0;
-    player.lungeApplied = false;
-    player.nextAttackBuffered = false;
-    player.attackHitboxActive = false;
-    player.attackHitEnemies.clear();
-    player.slamImpactTriggered = false;
-    player.slamImpactTimer = 0;
-          }
-        }
 
         // Emit converging arcane & golden energy particles while charging
         if (player.holdT > 0.12 && Math.random() < 0.78) {
@@ -3419,30 +3369,16 @@ export function mountCampaign(
         attackRoutine.wasPhysicallyHeld = false;
         attackRoutine.timeSinceLastRelease = 0;
 
-        if (!attackRoutine.lockedUntilRelease && player.castT <= 0 && player.specialT <= 0 && player.hurtT <= 0 && !player.guard) {
+        if (player.castT <= 0 && player.specialT <= 0 && player.hurtT <= 0 && !player.guard) {
           if (player.charge === "wind" || attackRoutine.holdDuration >= 0.36) {
             // Released after completing the charge -> Unleash Charged Magic Wave!
             unleashChargedMagic();
-          } else if (attackRoutine.pendingTapSlash || (attackRoutine.holdDuration > 0 && attackRoutine.holdDuration < 0.36)) {
-            // Released before charge completed -> TAP detected! Execute normal Sword Slash & open Multi-Press window!
-            triggerSwordSwing = true;
-            attackRoutine.multiPressComboWindow = 0.46;
           }
         }
       }
       attackRoutine.holdDuration = 0;
-      attackRoutine.pendingTapSlash = false;
-      attackRoutine.lockedUntilRelease = false;
       player.holdT = 0;
       player.charge = "idle";
-    }
-
-    if (triggerSwordSwing) {
-      player.attackBuffer = 0.22;
-    } else if (holding && attackRoutine.holdDuration >= 0.14) {
-      player.attackBuffer = 0;
-    } else {
-      player.attackBuffer = Math.max(0, player.attackBuffer - dt);
     }
 
     // Special Attack Trigger ("Golpe Crescente"):
@@ -3519,21 +3455,26 @@ export function mountCampaign(
       if (player.grounded) player.vy = 0;
     } else if (player.hurtT <= 0) {
       // =======================================================================
-      // ETAPA 1: TRAVA ABSOLUTA DE INÍCIO DE ATAQUE
+      // ETAPA 1 & 2: TRAVA ABSOLUTA DE INÍCIO DE ATAQUE
       // Um novo ataque SÓ PODE INICIAR se attackPhase === 'NONE'
       // E se o botão de ataque acabou de ser pressionado neste exato frame
       // (evento justPressed sem repeat — PROIBIDO atacar segurando o botão).
+      // Se estiver em carga ou segurando para carregar, NÃO desfere golpe de espada!
       // =======================================================================
-      if (
+      const wantsAttack =
         (press.attack || player.nextAttackBuffered) &&
         player.attackPhase === "NONE" &&
+        player.charge !== "wind" &&
+        attackRoutine.holdDuration < 0.14 &&
         !player.guard &&
         player.castT <= 0 &&
         player.dashT <= 0 &&
         player.hurtT <= 0 &&
         !player.dead &&
-        !player.dying
-      ) {
+        !player.dying;
+
+      if (wantsAttack) {
+        player.nextAttackBuffered = false;
         if (dir !== 0 && dir !== player.facing) {
           player.facing = dir as 1 | -1;
         }
@@ -7562,8 +7503,7 @@ export function mountCampaign(
       }
     } else if (
       player.charge === "wind" ||
-      ((player.holdT > 0.01 || attackRoutine.pendingTapSlash) &&
-        !attackRoutine.lockedUntilRelease &&
+      (player.holdT > 0.08 &&
         player.castT <= 0 &&
         player.specialT <= 0 &&
         !player.guard &&
